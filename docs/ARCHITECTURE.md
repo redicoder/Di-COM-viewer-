@@ -24,6 +24,8 @@ Updated whenever the structure changes. Target design: `DISSECTION_TABLE_SPEC.md
 │   │   ├── segment_organs.py    TotalSegmentator -> labels.raw / labels.json (runs in .venv-seg)
 │   │   ├── build_body.py        dissection body: whole body + regions with layered labels
 │   │   ├── prepare_visible_human.py   stitch the Visible Human CT parts into one NRRD
+│   │   ├── download_visible_human.py  Visible Human CT series / colour photo slices from NCI IDC (.venv-seg)
+│   │   ├── prepare_photo_volume.py    colour cryosection photos -> RGBA "photographed body" volume
 │   │   └── make_test_series.py  synthetic phantom with orientation markers (tests)
 │   ├── tests/                   pytest: pipeline, orientation, NRRD, body pipeline, label-id snapshot
 │   ├── .venv/  .venv-seg/       Python environments (not in git)
@@ -64,6 +66,17 @@ Updated whenever the structure changes. Target design: `DISSECTION_TABLE_SPEC.md
 4. `labels.json` = `layers` (peel order, names, colour) + `labels` (id, key, layer, `name` in English for the
    current viewer, `names` {la, en, it}, colour, opacity, info_key). `provenance.json` = dataset, licence,
    credit, source hash, grid, thresholds, tool versions, git commit.
+
+## Photographed body (`tools/prepare_photo_volume.py`)
+
+The Visible Human male was frozen, cut into 1 mm slices and every slice photographed (2048 × 1216 RGB, 0.33 mm
+pixels, body in blue gelatin). Each photo's `SliceLocation` is the same slice number as his frozen CT. The tool
+flips the rows to the CT's layout (front to back), crops to the body, averages down (factor 2 = 0.66 mm), keeps
+tissue (redder than blue) as the largest 3D piece with holes filled, leaves gelatin-filled air spaces empty, bleeds
+tissue colour into the gelatin, and writes `photo.raw` (RGBA, x = patient left, rows front to back, slices bottom
+to top) + `photo.json`; `--web` writes JPEG colour + PNG alpha atlases for the browser sample. The renderer finds
+the first tissue sample along each ray: on a cut face it shows the photo itself; on the skin it shades the
+surface and reads the colour 1.5 mm below it, blended over neighbouring slices.
 
 ## Viewer components (`unity/Assets/DicomViewer/Scripts`)
 
