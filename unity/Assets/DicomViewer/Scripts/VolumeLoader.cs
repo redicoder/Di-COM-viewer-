@@ -605,18 +605,19 @@ namespace DicomViewer
             float[] hu = ds.data;
             int nx = ds.dimX, ny = ds.dimY, nz = ds.dimZ;
             _ = Task.Run(() => organStats = ComputeOrganStats(labels, hu, nx, ny, nz));   // for the Inspect card
-            Volume.AddSegmentation(seg, SegmentationLabels(file.labels, 0f));
+            Volume.AddSegmentation(seg, SegmentationLabels(file.labels, _ => 0f));
             Volume.SetSegmentationRenderMode(SegmentationRenderMode.OverlayColour);
             Debug.Log($"Organ labels: {string.Join(", ", file.labels.Select(l => l.name))}");
             return file.labels;
         }
 
-        private static List<SegmentationLabel> SegmentationLabels(OrganLabel[] organs, float alpha) =>
+        /// <summary>The overlay's label list; each label's alpha is its per-step opacity in the volume shader.</summary>
+        private static List<SegmentationLabel> SegmentationLabels(OrganLabel[] organs, Func<int, float> alphaOf) =>
             organs.Select(o => new SegmentationLabel
             {
                 id = o.id,
                 name = o.name,
-                colour = new Color(o.color[0], o.color[1], o.color[2], o.visible ? alpha * o.opacity : 0f),
+                colour = new Color(o.color[0], o.color[1], o.color[2], alphaOf(o.id)),
             }).ToList();
 
         private static float[] DecodeInt16(byte[] raw)
@@ -633,12 +634,9 @@ namespace DicomViewer
         public void ApplyTransferFunction()
         {
             if (Volume == null || Meta == null) return;
-            // Organ colours belong to the Organs preset only (and are hidden in MarkerCheck's bone view).
-            if (Organs != null)
-            {
-                float a = OverrideTransferFunction == null && preset == Preset.Organs ? organOpacity : 0f;
-                Volume.SetSegmentationLabels(SegmentationLabels(Organs, a));
-            }
+            // Per-organ opacity: the same OrganAlpha() picking uses, so the GPU shows exactly what can be tapped —
+            // visibility, the Organs preset, the bone view override, and the Inspect selection (ghost / isolate).
+            if (Organs != null) Volume.SetSegmentationLabels(SegmentationLabels(Organs, OrganAlpha));
             if (OverrideTransferFunction != null)
             {
                 Volume.SetTransferFunction(OverrideTransferFunction);
