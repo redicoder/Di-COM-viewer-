@@ -1,13 +1,12 @@
-using System.Linq;
 using UnityEngine;
 
 namespace DicomViewer
 {
     /// <summary>
-    /// Organ list and organ picking for volumes with AI organ labels (Organs preset).
-    ///   Panel (O toggles): colour, show/hide tick box and name per organ; clicking a name shows that organ alone.
-    ///   Hover: the name of the organ under the mouse. Click an organ in 3D: show only it; click it again,
-    ///   or click empty space: all organs back.
+    /// Organ list for volumes with AI organ labels (Organs preset).
+    ///   Panel (O toggles): colour, show/hide tick box and name per organ; clicking a name selects it for
+    ///   inspection (InspectPanel shows its card in this place while something is selected).
+    ///   Hover: the name of the organ under the mouse. Taps on the body are handled by InspectPanel.
     /// </summary>
     [RequireComponent(typeof(VolumeLoader))]
     public class OrganPanel : MonoBehaviour
@@ -17,8 +16,8 @@ namespace DicomViewer
         public float panelWidth = 250f;
 
         private VolumeLoader loader;
-        private Vector3 downPos, lastPickPos = new Vector3(-1, -1);
-        private float downTime, lastPickTime;
+        private Vector3 lastPickPos = new Vector3(-1, -1);
+        private float lastPickTime;
         private int hoverOrgan;
         private GUIStyle rowStyle, titleStyle, tipStyle;
         private Texture2D white;
@@ -43,7 +42,7 @@ namespace DicomViewer
 
             // Hover pick: only when the mouse has moved or a moment has passed (a ray march per frame is wasteful).
             bool buttons = Input.GetMouseButton(0) || Input.GetMouseButton(1);
-            if (!buttons && !CutTool.DigActive && !KnifeTool.Active &&
+            if (!buttons && ViewerUi.ActiveTool == ViewerUi.Tool.Rotate &&
                 ((Input.mousePosition - lastPickPos).sqrMagnitude > 4f || Time.unscaledTime - lastPickTime > 0.25f))
             {
                 lastPickPos = Input.mousePosition;
@@ -52,32 +51,13 @@ namespace DicomViewer
                 cachedHover = hoverOrgan;
             }
             else hoverOrgan = cachedHover;
-
-            if (Input.GetMouseButtonDown(0))
-            {
-                downPos = Input.mousePosition;
-                downTime = Time.unscaledTime;
-            }
-            // A click (not a drag that rotated the volume) isolates the organ under the mouse.
-            if (!CutTool.DigActive && !KnifeTool.Active && ViewerUi.TapReleased(downPos, downTime))
-            {
-                int id = Pick(cam);
-                int solo = SoloedOrgan();
-                loader.SoloOrgan(id == 0 || id == solo ? 0 : id);
-                cachedHover = 0;
-            }
+            // Taps on the body are handled by InspectPanel (select and inspect).
         }
 
         private int cachedHover;
 
         private int Pick(Camera cam) =>
             loader.RaycastVisible(cam.ScreenPointToRay(Input.mousePosition), out var hit) ? hit.organId : 0;
-
-        private int SoloedOrgan()
-        {
-            var visible = loader.Organs.Where(o => o.visible).ToArray();
-            return visible.Length == 1 ? visible[0].id : 0;
-        }
 
         private void EnsureStyles()
         {
@@ -110,7 +90,7 @@ namespace DicomViewer
                 var size = tipStyle.CalcSize(new GUIContent(name)) + new Vector2(16, 8) * k;
                 GUI.Box(new Rect(m.x + 18 * k, m.y + 10 * k, size.x, size.y), name, tipStyle);
             }
-            if (!showPanel) return;
+            if (!showPanel || loader.SelectedOrgan > 0) return;   // while inspecting, the Inspect card takes this place
 
             float w = panelWidth * k, rowH = 26 * k, pad = 8 * k;
             int n = loader.Organs.Length;
@@ -121,7 +101,7 @@ namespace DicomViewer
             GUI.Box(panel, GUIContent.none);
 
             GUILayout.BeginArea(new Rect(panel.x + pad, panel.y + pad, panel.width - 2 * pad, panel.height - 2 * pad));
-            GUILayout.Label("Organs  (click one in 3D to isolate)", titleStyle);
+            GUILayout.Label("Organs  (tap one to inspect it)", titleStyle);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Show all", GUILayout.Height(rowH))) loader.SoloOrgan(0);
             if (GUILayout.Button("Hide all", GUILayout.Height(rowH)))
@@ -143,7 +123,7 @@ namespace DicomViewer
                 GUI.DrawTexture(new Rect(sw.x, sw.y + rowH * 0.15f, sw.width, sw.height), white);
                 GUI.color = prev;
                 if (GUILayout.Button((o.id == hoverOrgan ? "> " : "") + o.name, rowStyle, GUILayout.Height(rowH)))
-                    loader.SoloOrgan(SoloedOrgan() == o.id ? 0 : o.id);
+                    loader.Select(o.id, loader.SelectionMode);
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndScrollView();

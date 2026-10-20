@@ -30,6 +30,17 @@ float _LightingGradientThresholdEnd;
 
 float _SamplingRateMultiplier;
 
+// ---- DicomViewer fork: dissection mask (see MODIFICATIONS.md) ----
+// _MaskTex has the same grid as _DataTex: 1 = tissue present, 0 = removed by a dissection tool.
+// _MaskEnabled stays 0 unless the viewer binds a mask, so an unbound texture never hides anything.
+Texture3D _MaskTex;           SamplerState sampler_MaskTex;
+float _MaskEnabled;
+
+float getMaskKeep(float3 pos)
+{
+    return _MaskEnabled > 0.5 ? _MaskTex.SampleLevel(sampler_MaskTex, pos, 0).r : 1.0;
+}
+
 #if CROSS_SECTION_ON
 #include "VolumeCutout.cginc"
 #else
@@ -261,6 +272,11 @@ volrend_result volrend_dvr(float3 vertexLocal, float2 uv)
             continue;
 #endif
 
+        // DicomViewer fork: skip removed tissue; the trilinear edge of the mask fades the cut surface.
+        const float maskKeep = getMaskKeep(currPos);
+        if (maskKeep < 0.01)
+            continue;
+
 #if CUBIC_INTERPOLATION_ON && !defined(MULTIVOLUME_OVERLAY) && !defined(MULTIVOLUME_ISOLATE)
         // Optimisation: First get density without tricubic interpolation, before doing an early return
         if (getTF1DColour(getDensityNoTricubic(currPos)).a == 0.0)
@@ -318,6 +334,8 @@ volrend_result volrend_dvr(float3 vertexLocal, float2 uv)
 #endif
 #endif
 
+        src.a *= maskKeep;   // DicomViewer fork: soft cut edge
+
         // Opacity correction
         float blendFactor = 1.0f / _SamplingRateMultiplier;
         src.a = 1.0f - pow(1.0f - src.a, blendFactor);
@@ -368,6 +386,9 @@ volrend_result volrend_mip(float3 vertexLocal, float2 uv)
             continue;
 #endif
 
+        if (getMaskKeep(currPos) < 0.5)   // DicomViewer fork: removed tissue
+            continue;
+
         const float density = getDensity(currPos);
         if (density > maxDensity && density > _MinVal && density < _MaxVal)
         {
@@ -408,6 +429,9 @@ volrend_result volrend_surf(float3 vertexLocal, float2 uv)
         if (IsCutout(currPos))
             continue;
 #endif
+
+        if (getMaskKeep(currPos) < 0.5)   // DicomViewer fork: removed tissue
+            continue;
 
         const float density = getDensity(currPos);
 #if MULTIVOLUME_ISOLATE

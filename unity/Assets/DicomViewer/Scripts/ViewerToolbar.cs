@@ -22,9 +22,12 @@ namespace DicomViewer
 
         private VolumeLoader loader;
         private CutTool cutTool;
+        private ScalpelTool scalpel;
+        private MaskVolume mask;
+        private InspectPanel inspect;
         private OrganPanel organPanel;
 
-        private enum Dialog { None, Options, Converting, Help }
+        private enum Dialog { None, Options, Converting, Help, ResetConfirm }
         private Dialog dialog;
         private string pickedPath;
         private int quality;                    // index into Qualities
@@ -50,6 +53,9 @@ namespace DicomViewer
         {
             loader = GetComponent<VolumeLoader>();
             cutTool = GetComponent<CutTool>();
+            scalpel = GetComponent<ScalpelTool>();
+            mask = GetComponent<MaskVolume>();
+            inspect = GetComponent<InspectPanel>();
             organPanel = GetComponent<OrganPanel>();
             knife = GetComponent<KnifeTool>();
             bones = GetComponent<MarkerCheck>();
@@ -73,10 +79,15 @@ namespace DicomViewer
 
         private void Update()
         {
-            ViewerUi.ModalOpen = dialog == Dialog.Options || dialog == Dialog.Converting;
+            ViewerUi.ModalOpen = dialog == Dialog.Options || dialog == Dialog.Converting || dialog == Dialog.ResetConfirm;
             bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
             if (Input.GetKeyDown(KeyCode.F11)) Screen.fullScreen = !Screen.fullScreen;
             if (dialog == Dialog.None && ctrl && Input.GetKeyDown(KeyCode.O)) PickScan();
+            if (dialog == Dialog.None && ctrl && mask != null)
+            {
+                if (Input.GetKeyDown(KeyCode.Z)) mask.Undo();
+                if (Input.GetKeyDown(KeyCode.Y)) mask.Redo();
+            }
             if (Input.GetKeyDown(KeyCode.H) && !ViewerUi.ModalOpen) dialog = dialog == Dialog.Help ? Dialog.None : Dialog.Help;
             if (Input.GetKeyDown(KeyCode.Escape) && dialog != Dialog.Converting) dialog = Dialog.None;
 
@@ -174,63 +185,84 @@ namespace DicomViewer
                 case Dialog.Options: DrawOptions(k); break;
                 case Dialog.Converting: DrawConverting(k); break;
                 case Dialog.Help: DrawHelp(k); break;
+                case Dialog.ResetConfirm: DrawResetConfirm(k); break;
+            }
+        }
+
+        private struct Item
+        {
+            public string label;
+            public Texture2D icon;
+            public Action act;
+            public bool on;        // drawn highlighted (active tool, panel shown)
+            public bool enabled;
+
+            public Item(string label, Action act, bool on = false, bool enabled = true, Texture2D icon = null)
+            {
+                this.label = label;
+                this.act = act;
+                this.on = on;
+                this.enabled = enabled;
+                this.icon = icon;
             }
         }
 
         // Every keyboard shortcut also has a button: a touch screen has no keyboard.
+        // Row 1 = view and display; row 2 = tools (one armed at a time) and the dissection history.
         private void DrawToolbar(float k)
         {
-            string OnOff(bool on) => on ? "on" : "off";
-            var view = new List<(string label, Texture2D icon, Action act)>
+            var view = new List<Item>
             {
-                ("Open scan...", null, PickScan),
-                ("Reset view", null, () => orbit?.ResetView()),
-                ($"Preset: {loader.preset}", null, loader.CyclePreset),
+                new Item("Open scan...", PickScan),
+                new Item("Reset view", () => orbit?.ResetView()),
+                new Item($"Preset: {loader.preset}", loader.CyclePreset),
             };
-            if (loader.HasOtherVersions) view.Add(("Next version", null, loader.NextVersion));
+            if (loader.HasOtherVersions) view.Add(new Item("Next version", loader.NextVersion));
             if (slices != null)
             {
-                view.Add(($"2D slices: {OnOff(slices.Visible)}", null, slices.Toggle));
-                if (slices.Visible) view.Add(($"Contrast: {slices.WindowName}", null, slices.NextWindow));
+                view.Add(new Item("2D slices", slices.Toggle, slices.Visible));
+                if (slices.Visible) view.Add(new Item($"Contrast: {slices.WindowName}", slices.NextWindow));
             }
-            view.Add(($"Background: {Backgrounds[background].name}", null, NextBackground));
-            view.Add(($"Quality: {(loader.highQuality ? "High" : "Normal")}", null, () => loader.highQuality = !loader.highQuality));
-            view.Add(("Help", null, () => dialog = dialog == Dialog.Help ? Dialog.None : Dialog.Help));
+            if (loader.Organs != null && organPanel != null)
+                view.Add(new Item("Organ list", () => organPanel.showPanel = !organPanel.showPanel, organPanel.showPanel));
+            if (bones != null) view.Add(new Item("Bones only", bones.ToggleBones, bones.BoneMode));
+            view.Add(new Item($"Background: {Backgrounds[background].name}", NextBackground));
+            view.Add(new Item($"Quality: {(loader.highQuality ? "High" : "Normal")}", () => loader.highQuality = !loader.highQuality));
+            view.Add(new Item("Help", () => dialog = dialog == Dialog.Help ? Dialog.None : Dialog.Help));
 
-            var tools = new List<(string label, Texture2D icon, Action act)>();
-            if (loader.Organs != null)
-                tools.Add(($"Organ list: {OnOff(organPanel != null && organPanel.showPanel)}", null,
-                    () => { if (organPanel != null) organPanel.showPanel = !organPanel.showPanel; loader.SoloOrgan(0); }));
-            if (bones != null) tools.Add(($"Bones only: {OnOff(bones.BoneMode)}", null, bones.ToggleBones));
-            if (knife != null)
+            bool canCut = mask != null && mask.Ready;
+            var tools = new List<Item>
             {
-                tools.Add(($"Knife: {OnOff(KnifeTool.Active)}", knife.Icon, () => knife.SetActive(!KnifeTool.Active)));
-                if (knife.CutCount > 0)
-                {
-                    tools.Add(($"Undo cut ({knife.CutCount})", null, knife.Undo));
-                    tools.Add(("Clear cuts", null, knife.ClearCuts));
-                }
-            }
-            if (cutTool != null)
+                ToolItem("Rotate / inspect", ViewerUi.Tool.Rotate, true),
+                ToolItem("Scalpel", ViewerUi.Tool.Scalpel, canCut && scalpel != null),
+                ToolItem("Dig", ViewerUi.Tool.Dig, canCut && cutTool != null),
+                ToolItem("Knife", ViewerUi.Tool.Knife, canCut && knife != null, knife != null ? knife.Icon : null),
+            };
+            if (plane != null) tools.Add(new Item("Plane", () => plane.SetEnabled(!plane.IsEnabled), plane.IsEnabled));
+            if (mask != null)
             {
-                tools.Add(($"Dig: {OnOff(CutTool.DigActive)}", null, () => cutTool.SetDig(!CutTool.DigActive)));
-                if (cutTool.PinnedCount > 0) tools.Add(($"Clear holes ({cutTool.PinnedCount})", null, cutTool.ClearPinned));
+                tools.Add(new Item("Undo", mask.Undo, false, mask.CanUndo));
+                tools.Add(new Item("Redo", mask.Redo, false, mask.CanRedo));
+                tools.Add(new Item("Reset body", () => dialog = Dialog.ResetConfirm, false, canCut));
             }
-            if (plane != null) tools.Add(($"Plane: {OnOff(plane.IsEnabled)}", null, () => plane.SetEnabled(!plane.IsEnabled)));
 
             float h = 38 * k, pad = 8 * k;
             GUI.enabled = !ViewerUi.ModalOpen;
             ButtonRow(view, pad, h, k);
             ButtonRow(tools, pad + h + 6 * k, h, k);
             if (plane != null && plane.IsEnabled) DrawPlanePanel(k);
+            if (ViewerUi.ActiveTool == ViewerUi.Tool.Scalpel || ViewerUi.ActiveTool == ViewerUi.Tool.Dig) DrawToolPanel(k);
             GUI.enabled = true;
 
             if (loader.IsLoading && dialog == Dialog.None)
                 GUI.Label(new Rect(pad, Screen.height - 40 * k, 600 * k, 30 * k), "Loading scan ...", title);
         }
 
+        private static Item ToolItem(string label, ViewerUi.Tool tool, bool available, Texture2D icon = null) =>
+            new Item(label, () => ViewerUi.ActiveTool = tool, ViewerUi.ActiveTool == tool, available, icon);
+
         /// <summary>One right-aligned row of buttons; an icon, if any, is drawn at the left of its button.</summary>
-        private void ButtonRow(List<(string label, Texture2D icon, Action act)> items, float y, float h, float k)
+        private void ButtonRow(List<Item> items, float y, float h, float k)
         {
             if (items.Count == 0) return;
             // Shrink the text if the row would not fit the window (large touch scale on a 1080p screen).
@@ -253,27 +285,97 @@ namespace DicomViewer
                 x -= 6 * k;
             }
             ViewerUi.Block(new Rect(x, y - 4 * k, Screen.width - x, h + 8 * k));
+            bool wasEnabled = GUI.enabled;
             for (int i = 0; i < items.Count; i++)
             {
-                var (label, icon, act) = items[i];
-                Rect r = rects[i];
-                bool clicked = icon != null
-                    ? GUI.Button(r, new GUIContent(label), IconButton(h))
-                    : GUI.Button(r, label, bar);
-                if (icon != null)
-                    GUI.DrawTexture(new Rect(r.x + 6 * k, r.y + 3 * k, h - 6 * k, h - 6 * k), icon, ScaleMode.ScaleToFit);
-                if (clicked) act();
+                Item it = items[i];
+                GUIStyle style = StyleFor(it, h);
+                GUI.enabled = wasEnabled && it.enabled;
+                bool clicked = GUI.Button(rects[i], it.label, style);
+                GUI.enabled = wasEnabled;
+                if (it.icon != null)
+                    GUI.DrawTexture(new Rect(rects[i].x + 6 * k, rects[i].y + 3 * k, h - 6 * k, h - 6 * k), it.icon, ScaleMode.ScaleToFit);
+                if (clicked) it.act();
             }
             bar.fontSize = baseFont;
         }
 
-        private GUIStyle iconButton;
-        private GUIStyle IconButton(float h)
+        private GUIStyle barOn, iconButton, iconButtonOn;
+
+        // Highlighted = the button's pressed look with yellow bold text; icon buttons get room for the icon.
+        private GUIStyle StyleFor(Item it, float h)
         {
-            if (iconButton == null) iconButton = new GUIStyle(bar);
-            iconButton.fontSize = bar.fontSize;
-            iconButton.padding = new RectOffset(Mathf.RoundToInt(h + 6), bar.padding.right, bar.padding.top, bar.padding.bottom);
-            return iconButton;
+            if (barOn == null)
+            {
+                barOn = new GUIStyle(bar) { normal = bar.onNormal, hover = bar.onHover, fontStyle = FontStyle.Bold };
+                barOn.normal.textColor = barOn.hover.textColor = new Color(1f, 0.85f, 0.3f);
+                iconButton = new GUIStyle(bar);
+                iconButtonOn = new GUIStyle(barOn);
+            }
+            barOn.fontSize = iconButton.fontSize = iconButtonOn.fontSize = bar.fontSize;
+            if (it.icon == null) return it.on ? barOn : bar;
+            var st = it.on ? iconButtonOn : iconButton;
+            st.padding = new RectOffset(Mathf.RoundToInt(h + 6), bar.padding.right, bar.padding.top, bar.padding.bottom);
+            return st;
+        }
+
+        /// <summary>Sliders of the armed scalpel or dig tool, at the bottom centre.</summary>
+        private void DrawToolPanel(float k)
+        {
+            bool isScalpel = ViewerUi.ActiveTool == ViewerUi.Tool.Scalpel;
+            if (isScalpel ? scalpel == null : cutTool == null) return;
+            var r = new Rect((Screen.width - 560 * k) / 2, Screen.height - 170 * k, 560 * k, 150 * k);
+            ViewerUi.Block(r);
+            GUI.Box(r, GUIContent.none);
+            GUI.Box(r, GUIContent.none);
+            GUILayout.BeginArea(new Rect(r.x + 14 * k, r.y + 10 * k, r.width - 28 * k, r.height - 20 * k));
+            GUILayout.Label(isScalpel ? "Scalpel: drag across the body" : "Dig: touch and hold on the body", title);
+            if (isScalpel)
+            {
+                scalpel.widthMm = SliderRow($"Width  {scalpel.widthMm:F0} mm", scalpel.widthMm, 1f, 20f, k);
+                scalpel.depthMm = SliderRow($"Depth  {scalpel.depthMm:F0} mm", scalpel.depthMm, 2f, 80f, k);
+            }
+            else
+            {
+                cutTool.radiusMm = SliderRow($"Size  {cutTool.radiusMm * 2f:F0} mm", cutTool.radiusMm, 3f, 40f, k);
+                cutTool.speedMm = SliderRow($"Speed  {cutTool.speedMm:F0} mm/s", cutTool.speedMm, 5f, 80f, k);
+            }
+            GUILayout.EndArea();
+        }
+
+        private float SliderRow(string label, float value, float min, float max, float k)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, text, GUILayout.Width(200 * k));
+            float v = GUILayout.HorizontalSlider(value, min, max, GUILayout.Height(30 * k));
+            GUILayout.EndHorizontal();
+            return v;
+        }
+
+        private void DrawResetConfirm(float k)
+        {
+            var r = Centered(520, 220, k);
+            GUILayout.BeginArea(new Rect(r.x + 24 * k, r.y + 20 * k, r.width - 48 * k, r.height - 40 * k));
+            GUILayout.Label("Reset the body?", title);
+            GUILayout.Label("All cuts are removed and every organ is shown again. This cannot be undone.", text);
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Cancel", bar, GUILayout.Height(44 * k))) dialog = Dialog.None;
+            if (GUILayout.Button("Reset body", bar, GUILayout.Height(44 * k)))
+            {
+                ResetBody();
+                dialog = Dialog.None;
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.EndArea();
+        }
+
+        /// <summary>The body whole again: no cuts, every organ visible, nothing selected.</summary>
+        private void ResetBody()
+        {
+            if (mask != null) mask.ResetBody();
+            if (inspect != null) inspect.Deselect();
+            if (loader.Organs != null) loader.SoloOrgan(0);
         }
 
         private void DrawPlanePanel(float k)
@@ -397,23 +499,24 @@ namespace DicomViewer
             var r = Centered(820, 860, k);
             GUILayout.BeginArea(new Rect(r.x + 24 * k, r.y + 16 * k, r.width - 48 * k, r.height - 32 * k));
             GUILayout.Label("Controls  (every key also has a button in the toolbar)", title);
-            Row("1 finger / left-drag", "rotate");
+            Row("1 finger / left-drag", "rotate (Rotate tool) or cut (cutting tools)");
             Row("Pinch / mouse wheel", "zoom towards the fingers / cursor");
-            Row("2 fingers drag / right-drag", "move");
+            Row("2 fingers drag / right-drag", "move (also while a cutting tool is armed)");
             Row("2 fingers twist", "turn in the screen plane");
-            Row("Tap / click an organ", "show it alone (again: all organs)");
-            Row("Knife button", "tap 2 points, then tap the side to remove");
+            Row("Tap a structure", "inspect: name, volume, size; Focus, Isolate");
             Row("R", "reset view");
+            GUILayout.Space(6 * k);
+            Row("Scalpel", "drag across the body: a trench (width, depth below)");
+            Row("Dig", "touch and hold: the hole deepens under the finger");
+            Row("Knife", "tap 2 points, then tap the side to remove");
+            Row("Undo / Redo  (Ctrl+Z / Ctrl+Y)", "step through the cuts");
+            Row("Reset body", "every cut gone, every organ back");
+            Row("X", "cutting plane;  [ ] move it,  C change axis,  F flip side");
             GUILayout.Space(6 * k);
             Row("P", "presets: Body / Lungs / Organs");
             Row("O", "organ list");
             Row("B", "bones only");
             Row("Q", "high quality while the view is still");
-            GUILayout.Space(6 * k);
-            Row("K", "dig tool: a hole follows the mouse; click pins it");
-            Row("Shift+wheel / Ctrl+wheel", "hole size / hole depth");
-            Row("Backspace", "remove pinned holes");
-            Row("X", "cutting plane;  [ ] move it,  C change axis,  F flip side");
             GUILayout.Space(6 * k);
             Row("V", "2D hospital slice view;  L contrast window");
             Row("N", "next version of the scan (e.g. lungs only)");

@@ -42,6 +42,15 @@ namespace DicomViewer
         public static bool ModalOpen { get; set; }
 
         /// <summary>
+        /// The armed tool. Rotate is the default: one finger rotates, a tap selects a structure to inspect.
+        /// With a cutting tool armed, one finger (left mouse) cuts; two fingers (right mouse) still navigate.
+        /// </summary>
+        public enum Tool { Rotate, Scalpel, Dig, Knife }
+
+        public static Tool ActiveTool { get; set; } = Tool.Rotate;
+        public static bool CuttingToolArmed => ActiveTool != Tool.Rotate;
+
+        /// <summary>
         /// Size factor for on-screen panels: 1 at 1080p, larger on touch screens so buttons are finger-sized.
         /// </summary>
         public static float Scale => Screen.height / 1080f * (Input.touchSupported ? 1.3f : 1f);

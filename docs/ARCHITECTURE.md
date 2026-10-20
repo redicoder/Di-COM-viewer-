@@ -44,17 +44,30 @@ Updated whenever the structure changes. Target design: `DISSECTION_TABLE_SPEC.md
 
 ## Viewer components (`unity/Assets/DicomViewer/Scripts`)
 
+Scripts compile into the `DicomViewer.Runtime` assembly; the editor menu into `DicomViewer.Editor`; tests into
+`DicomViewer.Tests.EditMode` (`Assets/DicomViewer/Tests/EditMode`, run from Window > General > Test Runner).
+
 | Component | Role |
 |---|---|
-| `VolumeLoader` | load volume + labels, transfer-function presets (Body, Lungs, Organs), quality switching, CPU picking (`RaycastVisible`), organ visibility |
-| `VolumeOrbitController` | rotate / move / zoom with mouse and touch (pinch, two-finger pan, twist) |
-| `ClippingPlaneController` | one cutting plane (UVR `CrossSectionPlane`) |
-| `KnifeTool`, `CutTool` | knife (half-space) and dig (sphere) cuts; UVR cross sections, max 8 in total |
-| `OrganPanel` | organ list, tap-to-isolate, hover names |
+| `VolumeLoader` | load volume + labels, transfer-function presets (Body, Lungs, Organs), quality switching, CPU picking (`RaycastVisible`, respects the mask), organ visibility, selection (ghost / isolate), organ statistics |
+| `VolumeOrbitController` | rotate / move / zoom with mouse and touch (pinch, two-finger pan, twist); rotation pivot and Focus animation |
+| `MaskVolume` | **dissection engine**: op history (undo / redo / reset / lessons), GPU mask via `MaskGpu`, CPU copy via `MaskModel` on a background thread |
+| `MaskGpu` / `MaskModel` / `VolumeSpace` | GPU mask texture + `Resources/MaskOps.compute`; CPU mask + op replay; world / texture / mm conversions |
+| `ScalpelTool`, `CutTool` (Dig), `KnifeTool` | cutting tools on the mask: trench strokes, hold-to-deepen holes, half-space knife |
+| `ClippingPlaneController` | one non-destructive cutting plane (UVR `CrossSectionPlane`) |
+| `InspectPanel` | tap a structure: select, ghost/isolate the rest, card with volume / size / mean HU, Focus |
+| `OrganPanel` | organ list (show/hide, select), hover names |
 | `MarkerCheck` | bones-only view |
 | `SliceViewPanel` | 2D slice view next to the 3D (shrinks the main camera viewport) |
-| `ViewerToolbar` | buttons for every function, Open scan + conversion, help, background |
-| `ViewerUi`, `FpsOverlay` | shared UI helpers (pointer-over-UI, scale, tap detection); FPS |
+| `ViewerToolbar` | buttons for every function, tool selection, undo/redo/reset, tool sliders, Open scan + conversion, help, background |
+| `ViewerUi`, `FpsOverlay` | shared UI state and helpers (armed tool, pointer-over-UI, scale, tap detection); FPS |
 
-UI is IMGUI (`OnGUI`) for now; the spec moves it to UI Toolkit (step 6). Cutting moves from cross
-sections to the mask engine (step 2).
+## Dissection mask
+
+`_MaskTex` (R8, same grid as the CT, 1 = tissue) is bound to the forked volume shader (see the package's
+`MODIFICATIONS.md`). Every edit is a `MaskOp` in millimetres: capsules (scalpel, dig; a stroke is one op) or a
+half-space (knife). The main thread applies each op on the GPU immediately; the CPU copy follows on a background
+lane with cloned ops. Undo/redo/reset replay the op list from a full body on both sides; both use the same voxel
+ranges (`MaskModel.CapsuleRange`), and `MaskGpuTests` checks they agree.
+
+UI is IMGUI (`OnGUI`) for now; the spec moves it to UI Toolkit (step 6).

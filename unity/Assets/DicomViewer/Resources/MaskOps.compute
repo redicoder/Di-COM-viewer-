@@ -1,0 +1,49 @@
+// Dissection mask edits (see MaskVolume.cs). The mask has the same grid as the CT volume:
+// 1 = tissue present, 0 = removed. All geometry is in millimetres: voxel (i,j,k) has its centre at
+// (ijk + 0.5) * _Spacing. Cut kernels run only over a bounding box: thread id + _Offset = voxel.
+// Kernels only write (no read-modify-write), so the R8_UNorm UAV needs plain typed stores.
+
+#pragma kernel Fill
+#pragma kernel CutCapsule
+#pragma kernel CutHalfSpace
+
+RWTexture3D<unorm float> _Mask;
+uint3 _Dims;
+uint3 _Offset;
+float3 _Spacing;
+float _Value;
+
+float3 _A;
+float3 _B;
+float _Radius;
+
+float3 _Normal;
+float _D;
+
+float3 CentreMm(uint3 v) { return (float3(v) + 0.5) * _Spacing; }
+
+[numthreads(8, 8, 8)]
+void Fill(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _Dims)) return;
+    _Mask[id] = _Value;
+}
+
+[numthreads(8, 8, 8)]
+void CutCapsule(uint3 tid : SV_DispatchThreadID)
+{
+    uint3 v = tid + _Offset;
+    if (any(v >= _Dims)) return;
+    float3 p = CentreMm(v);
+    float3 ab = _B - _A;
+    float t = saturate(dot(p - _A, ab) / max(dot(ab, ab), 1e-12));
+    float3 d = p - (_A + t * ab);
+    if (dot(d, d) <= _Radius * _Radius) _Mask[v] = _Value;
+}
+
+[numthreads(8, 8, 8)]
+void CutHalfSpace(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _Dims)) return;
+    if (dot(_Normal, CentreMm(id)) > _D) _Mask[id] = _Value;
+}

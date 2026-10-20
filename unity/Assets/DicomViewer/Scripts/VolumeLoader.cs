@@ -90,6 +90,7 @@ namespace DicomViewer
         /// <summary>Organ labels of the loaded volume (labels.json), or null when it has none.</summary>
         public OrganLabel[] Organs { get; private set; }
         private byte[] organVoxels;   // labels.raw, kept for picking
+        private MaskVolume mask;
 
         public bool IsLoading => loading;
         /// <summary>backend\ (the folder holding out\latest.txt's parent), where the converter lives.</summary>
@@ -223,11 +224,129 @@ namespace DicomViewer
 
         public OrganLabel OrganById(int id) => Organs?.FirstOrDefault(l => l.id == id);
 
+        // ------------------------------------------------------------------ selection (Inspect)
+
+        /// <summary>Ghost: the other structures stay as a faint context. Isolate: only the selection is drawn.</summary>
+        public enum SelectMode { Ghost, Isolate }
+
+        [Tooltip("Opacity factor of the other organs while one is selected in Ghost mode.")]
+        [Range(0f, 1f)] public float ghostFactor = 0.12f;
+
+        public int SelectedOrgan { get; private set; }
+        public SelectMode SelectionMode { get; private set; } = SelectMode.Ghost;
+
+        public void Select(int id, SelectMode mode)
+        {
+            var o = OrganById(id);
+            if (o == null) return;
+            o.visible = true;
+            SelectedOrgan = id;
+            SelectionMode = mode;
+            if (preset != Preset.Organs) preset = Preset.Organs;
+            ApplyTransferFunction();
+        }
+
+        public void ClearSelection()
+        {
+            if (SelectedOrgan == 0) return;
+            SelectedOrgan = 0;
+            ApplyTransferFunction();
+        }
+
         private float OrganAlpha(int id)
         {
             var o = OrganById(id);
-            return o != null && o.visible && OverrideTransferFunction == null && preset == Preset.Organs
-                ? organOpacity * o.opacity : 0f;
+            if (o == null || !o.visible || OverrideTransferFunction != null || preset != Preset.Organs) return 0f;
+            float a = organOpacity * o.opacity;
+            if (SelectedOrgan > 0 && id != SelectedOrgan) a = SelectionMode == SelectMode.Isolate ? 0f : a * ghostFactor;
+            return a;
+        }
+
+        // ------------------------------------------------------------------ organ statistics (Inspect card)
+
+        public struct OrganStats
+        {
+            public long voxels;
+            public Vector3Int min, max;     // voxel bounding box, inclusive
+            public Vector3 centroid;        // voxel coordinates
+            public float meanHu;
+        }
+
+        private OrganStats[] organStats;   // indexed by label id; null until computed
+
+        public bool TryGetOrganStats(int id, out OrganStats stats)
+        {
+            var s = organStats;
+            stats = s != null && id > 0 && id < s.Length ? s[id] : default;
+            return stats.voxels > 0;
+        }
+
+        /// <summary>Volume in millilitres and bounding-box size in millimetres (x = left-right, y = head-feet, z = front-back).</summary>
+        public bool TryGetOrganSize(int id, out float millilitres, out Vector3 sizeMm)
+        {
+            millilitres = 0f;
+            sizeMm = Vector3.zero;
+            if (!TryGetOrganStats(id, out var s) || Meta == null) return false;
+            var sp = new Vector3(Meta.spacing_mm[0], Meta.spacing_mm[1], Meta.spacing_mm[2]);
+            millilitres = s.voxels * sp.x * sp.y * sp.z / 1000f;
+            sizeMm = Vector3.Scale(s.max - s.min + Vector3Int.one, sp);
+            return true;
+        }
+
+        /// <summary>World-space centre and radius of an organ's bounding box (for Focus).</summary>
+        public bool TryGetOrganWorldBounds(int id, out Vector3 centre, out float radius)
+        {
+            centre = Vector3.zero;
+            radius = 0f;
+            if (!TryGetOrganStats(id, out var s) || Volume == null) return false;
+            Transform c = Volume.volumeContainerObject.transform;
+            var dims = new Vector3(Meta.dim_x, Meta.dim_y, Meta.dim_z);
+            Vector3 lo = VolumeSpace.UvwToLocal(new Vector3(s.min.x / dims.x, s.min.y / dims.y, s.min.z / dims.z));
+            Vector3 hi = VolumeSpace.UvwToLocal(new Vector3((s.max.x + 1) / dims.x, (s.max.y + 1) / dims.y, (s.max.z + 1) / dims.z));
+            Vector3 wlo = c.TransformPoint(lo), whi = c.TransformPoint(hi);
+            centre = (wlo + whi) * 0.5f;
+            radius = (whi - wlo).magnitude * 0.5f;
+            return true;
+        }
+
+        private static OrganStats[] ComputeOrganStats(byte[] labels, float[] hu, int nx, int ny, int nz)
+        {
+            var count = new long[256];
+            var sum = new double[256, 4];
+            var lo = new Vector3Int[256];
+            var hi = new Vector3Int[256];
+            for (int i = 0; i < 256; i++)
+            {
+                lo[i] = new Vector3Int(int.MaxValue, int.MaxValue, int.MaxValue);
+                hi[i] = new Vector3Int(-1, -1, -1);
+            }
+            int idx = 0;
+            for (int z = 0; z < nz; z++)
+            for (int y = 0; y < ny; y++)
+            for (int x = 0; x < nx; x++, idx++)
+            {
+                int l = labels[idx];
+                if (l == 0) continue;
+                count[l]++;
+                sum[l, 0] += x; sum[l, 1] += y; sum[l, 2] += z; sum[l, 3] += hu[idx];
+                var a = lo[l]; var b = hi[l];
+                if (x < a.x) a.x = x; if (y < a.y) a.y = y; if (z < a.z) a.z = z;
+                if (x > b.x) b.x = x; if (y > b.y) b.y = y; if (z > b.z) b.z = z;
+                lo[l] = a; hi[l] = b;
+            }
+            var stats = new OrganStats[256];
+            for (int l = 1; l < 256; l++)
+            {
+                if (count[l] == 0) continue;
+                double n = count[l];
+                stats[l] = new OrganStats
+                {
+                    voxels = count[l], min = lo[l], max = hi[l],
+                    centroid = new Vector3((float)(sum[l, 0] / n), (float)(sum[l, 1] / n), (float)(sum[l, 2] / n)),
+                    meanHu = (float)(sum[l, 3] / n),
+                };
+            }
+            return stats;
         }
 
         // ------------------------------------------------------------------ picking
@@ -236,6 +355,7 @@ namespace DicomViewer
         {
             public Vector3 world;   // where the view ray becomes visibly opaque
             public int organId;     // organ there (0 = tissue without a label, e.g. bone)
+            public float hu;        // CT value at that point
         }
 
         /// <summary>
@@ -281,10 +401,12 @@ namespace DicomViewer
 
             float acc = 0f;
             var organShare = new Dictionary<int, float>();
+            if (mask == null) mask = GetComponent<MaskVolume>();
             for (float t = t0; t <= t1; t += dt)
             {
                 Vector3 p = o + d * t;
                 if (IsCut(p, cuts)) continue;
+                if (mask != null && mask.IsRemovedLocal(p)) continue;   // dissected away
                 int x = Mathf.Clamp((int)((p.x + 0.5f) * nx), 0, nx - 1);
                 int y = Mathf.Clamp((int)((p.y + 0.5f) * ny), 0, ny - 1);
                 int z = Mathf.Clamp((int)((p.z + 0.5f) * nz), 0, nz - 1);
@@ -304,7 +426,12 @@ namespace DicomViewer
                 if (acc < threshold) continue;
 
                 if (organ == 0 && organShare.Count > 0) organ = organShare.OrderByDescending(kv => kv.Value).First().Key;
-                hit = new VolumeHit { world = Volume.volumeContainerObject.transform.TransformPoint(p), organId = organ };
+                hit = new VolumeHit
+                {
+                    world = Volume.volumeContainerObject.transform.TransformPoint(p),
+                    organId = organ,
+                    hu = data[idx],
+                };
                 return true;
             }
             return false;
@@ -420,6 +547,8 @@ namespace DicomViewer
             Volume.transform.localScale = Vector3.one * (targetSize / longest);
 
             organVoxels = null;
+            organStats = null;
+            SelectedOrgan = 0;
             Organs = source == Source.LocalFiles ? await TryAddOrganLabelsAsync(ds) : null;
             if (Meta.lungs_only) preset = Preset.Lungs;
             else if (Organs != null) preset = Preset.Organs;
@@ -473,6 +602,9 @@ namespace DicomViewer
             // The plugin maps label ids through max(id) and expects the list sorted by id.
             Array.Sort(file.labels, (a, b) => a.id.CompareTo(b.id));
             organVoxels = labels;
+            float[] hu = ds.data;
+            int nx = ds.dimX, ny = ds.dimY, nz = ds.dimZ;
+            _ = Task.Run(() => organStats = ComputeOrganStats(labels, hu, nx, ny, nz));   // for the Inspect card
             Volume.AddSegmentation(seg, SegmentationLabels(file.labels, 0f));
             Volume.SetSegmentationRenderMode(SegmentationRenderMode.OverlayColour);
             Debug.Log($"Organ labels: {string.Join(", ", file.labels.Select(l => l.name))}");
@@ -545,6 +677,7 @@ namespace DicomViewer
                 tf.AddControlPoint(new TFColourControlPoint(T(3071), Color.white));
 
                 float ghost = bodyGhostOpacity, bone = organsShowSkeleton ? organSkeletonOpacity : 0f;
+                if (SelectedOrgan > 0 && SelectionMode == SelectMode.Isolate) ghost = bone = 0f;   // Inspect: isolate
                 tf.AddControlPoint(new TFAlphaControlPoint(T(-300), 0f));           // air, lungs invisible
                 tf.AddControlPoint(new TFAlphaControlPoint(T(-100), ghost * 0.3f));  // fat: barely there
                 tf.AddControlPoint(new TFAlphaControlPoint(T(20), ghost));           // skin, muscle

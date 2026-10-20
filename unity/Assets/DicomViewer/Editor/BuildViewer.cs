@@ -41,7 +41,8 @@ public static class BuildViewer
         }
         var go = loader.gameObject;
         foreach (var type in new[] { typeof(VolumeOrbitController), typeof(ClippingPlaneController), typeof(FpsOverlay),
-                     typeof(MarkerCheck), typeof(SliceViewPanel), typeof(OrganPanel), typeof(CutTool), typeof(KnifeTool),
+                     typeof(MarkerCheck), typeof(SliceViewPanel), typeof(OrganPanel), typeof(MaskVolume), typeof(CutTool),
+                     typeof(ScalpelTool), typeof(KnifeTool), typeof(InspectPanel),
                      typeof(ViewerToolbar) })
             if (go.GetComponent(type) == null)
             {

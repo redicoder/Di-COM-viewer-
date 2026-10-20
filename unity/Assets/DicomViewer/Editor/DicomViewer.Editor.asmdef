@@ -1,0 +1,19 @@
+{
+    "name": "DicomViewer.Editor",
+    "rootNamespace": "",
+    "references": [
+        "DicomViewer.Runtime",
+        "UnityVolumeRendering.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

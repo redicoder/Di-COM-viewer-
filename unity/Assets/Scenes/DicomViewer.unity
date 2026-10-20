@@ -402,6 +402,9 @@ GameObject:
   - component: {fileID: 1953696235}
   - component: {fileID: 1953696234}
   - component: {fileID: 1953696237}
+  - component: {fileID: 1953696240}
+  - component: {fileID: 1953696239}
+  - component: {fileID: 1953696238}
   m_Layer: 0
   m_Name: volumeroot
   m_TagString: Untagged
@@ -510,6 +513,7 @@ MonoBehaviour:
   organsShowSkeleton: 0
   organSkeletonOpacity: 0.45
   bodyGhostOpacity: 0.0015
+  ghostFactor: 0.12
 --- !u!114 &1953696232
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -563,9 +567,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0506f724fb3267449955b1807249ebfa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DicomViewer.CutTool
-  radius: 0.07
-  depth: 0.04
-  maxPinned: 6
+  radiusMm: 12
+  speedMm: 25
 --- !u!114 &1953696236
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -592,7 +595,44 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c2830e209e1d52044a94b591bd736ccd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DicomViewer.KnifeTool
-  maxCuts: 6
+--- !u!114 &1953696238
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1953696226}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8bbf4da929be180418677c85c07986e3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: DicomViewer.Runtime::DicomViewer.InspectPanel
+--- !u!114 &1953696239
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1953696226}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dad1c1f4490fb5d47833a029cd03a6c7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: DicomViewer.Runtime::DicomViewer.ScalpelTool
+  widthMm: 5
+  depthMm: 12
+--- !u!114 &1953696240
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1953696226}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9df35b7a51f232442b8e18e3fe191a8e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: DicomViewer.Runtime::DicomViewer.MaskVolume
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

@@ -13,3 +13,4 @@ Every change to files in this folder must be listed here.
 | Date | Change | Reason |
 |---|---|---|
 | 2026-10-20 | Removed `Documentation~/` and `SampleProject~/` | Not loaded by Unity (`~` folders); 47 MB of unused files |
+| 2026-10-20 | `Runtime/Shaders/Include/VolumeRendering.hlsl`: added `_MaskTex` / `_MaskEnabled` and `getMaskKeep()`; the DVR loop skips samples where the mask is ~0 and multiplies `src.a` by the mask value (soft cut edge); the MIP and surface loops skip removed samples | Dissection mask (DicomViewer `MaskVolume`): unlimited cuts with undo/reset instead of the 8 cross sections. Off unless the viewer sets `_MaskEnabled = 1`, so the stock behaviour is unchanged |
