@@ -1,0 +1,54 @@
+# ---- Scans, volumes and labels never go into git: size, licences, privacy ----
+backend/data/
+backend/out/
+*.nrrd
+*.nhdr
+*.nii
+*.nii.gz
+*.dcm
+*.raw
+*.zip
+
+# ---- Python ----
+backend/.venv/
+backend/.venv-seg/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ---- Built viewer app ----
+build/
+
+# ---- Unity (project in unity/) ----
+unity/[Ll]ibrary/
+unity/[Tt]emp/
+unity/[Oo]bj/
+unity/[Bb]uild/
+unity/[Bb]uilds/
+unity/[Ll]ogs/
+unity/[Uu]ser[Ss]ettings/
+unity/[Mm]emoryCaptures/
+unity/[Rr]ecordings/
+unity/.vs/
+unity/.vscode/
+unity/.idea/
+unity/*.csproj
+unity/*.sln
+unity/*.slnx
+unity/*.suo
+unity/*.user
+unity/*.pidb
+unity/*.pdb
+unity/*.mdb
+unity/*.opendb
+unity/*.VC.db
+unity/*_BackUpThisFolder_ButDontShipItWithYourGame/
+unity/*_BurstDebugInformation_DoNotShip/
+unity/crashlytics-build.properties
+
+# ---- Editors / OS ----
+.vs/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
