@@ -30,6 +30,15 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
 - **Convert a scan**: `Convert DICOM for Unity.bat` (window), or in the viewer **Open scan…**, or
   `backend\.venv\Scripts\python.exe backend\tools\convert_cli.py <zip|folder|.nrrd> --quality standard --organs`.
   Output goes to `backend/out/<name>/`, and `backend/out/latest.txt` tells the viewer what to load.
+- **Build the demo body** (Visible Human female, credit: *Courtesy of the U.S. National Library of Medicine*):
+  download the CT parts from NCI Imaging Data Commons (see `backend/tools/prepare_visible_human.py`), then
+  ```powershell
+  .\.venv\Scripts\python.exe tools\prepare_visible_human.py data\vhp_female_normal data\visible_human_female.nrrd
+  .\.venv\Scripts\python.exe tools\build_body.py data\visible_human_female.nrrd --dataset vhp-female
+  ```
+  This gives `out/visible_human_female/` with the whole body (2 mm) and head, thorax, abdomen and pelvis (~1 mm),
+  each with layered labels (names in Latin, English and Italian). The viewer loads the whole body; **N** cycles
+  through the regions.
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`
   (Unity menu **DICOM Viewer → Build Windows App**).
 

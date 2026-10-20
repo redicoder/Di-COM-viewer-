@@ -11,13 +11,19 @@ check that must be done before the related step is closed.
 | §2.2 shader snippet (`sampler3D`, `tex3Dlod`) | Written in the URP shader's own style: `Texture3D` + `SamplerState` + `SampleLevel` | The URP DVR shader declares textures that way; mixing styles does not compile cleanly |
 | §2.5 GPU picking first | First a **CPU copy of the mask**, updated by the same `MaskOp` list, used by the existing CPU ray-march picker behind `IVolumePicker`; GPU pick pass later if profiling asks for it | Picking must see cuts from day one; the CPU path is simpler and testable, and runs only on tap |
 | §2.6 dig coalescing | A dig stroke is stored as **one op** (path of centres + radius), not one op per frame | Keeps the replay list short for undo/redo and lessons |
+| §3.1 Visible Human **male** first | The **female** is the primary demo body: her fresh-cadaver CT (IDC study "Normal") is 1 mm from head to toe. The male's 1 mm CT is the *frozen* one: freezing brings fat and muscle within ~25 HU of each other (fat ≈ −50, muscle ≈ −25), so the HU tissue classes (§3.2 step 3) cannot separate them; his fresh CT is 3–5 mm. The male stays buildable (`--dataset vhp-male-frozen`, with his own `--fat` / `--muscle` ranges) | The layers (skin, fat, muscle) need real tissue contrast |
+| §3.1 whole body ≈ 61 M voxels | The female's body box at 2 mm is ≈ 31 M voxels; regions at 1 mm, budget 40 M each | Measured on the data |
+| §3.2 step 1 NRRD/NIfTI via SimpleITK or nibabel | Our own streaming NRRD reader (`app/nrrd_loader.py`, tested against DICOM); NIfTI not yet | No extra dependency in the main environment |
+| §3.2 step 2 per export | TotalSegmentator runs **once per body** on a 1.5 mm whole-body grid (its native resolution); every export maps those labels by position in mm | Exports agree with each other, regions get whole-body context, one GPU run instead of five |
+| §3.2 step 3 "other soft tissue: remainder" | Gas inside the body (sinuses, mouth, bowel gas outside labelled bowel) stays 0 = empty; fat and muscle are judged on a 1 mm Gaussian-smoothed copy of the CT; "other soft tissue" belongs to the **muscle** layer | Gas must not render as solid; noise would otherwise speckle fat/muscle; soft tissue must peel away before the organs show |
+| §2.3 / §3.3 `labels.json` `name` = {la, en, it} | `name` stays a plain English string (the current viewer reads it with JsonUtility) and the three languages are in `names`; labels also carry `key`. The viewer moves to `names` with the language switch (step 5) | Each step leaves the app working |
+| §3.3 `backend/data/anatomy_names.json` | `backend/anatomy/anatomy_names.json` (and later `anatomy_info.json`) | `backend/data/` is git-ignored: it holds scans |
 | §4 legacy `Input` removed | The **Input Manager stays enabled** (Active Input Handling = Both) even after the tools move to the Input System | Sony's SR Display plugin reads the legacy Input Manager |
 
 ## Checks before the related step is closed
 
-1. **Visible Human licence** (§3.1): confirm on the NLM site that the data is public domain since 2019,
-   the exact acknowledgement wording, and whether NCI Imaging Data Commons hosts the CT as DICOM.
-   Record in `LICENSES.md`.
+1. ~~**Visible Human licence** (§3.1)~~: done. NLM Terms and Conditions (May 21, 2019), credit line and
+   notices recorded in `LICENSES.md`; the CT comes as DICOM from NCI Imaging Data Commons.
 2. **TotalSegmentator `total` weights licence** (§7): confirm the licence of the released weights (the
    spec says CC BY 4.0). Record the citation required in the About screen.
 3. **Sony ELF-SR2 with a second display** (§2.8): confirm in Sony's documentation that the SR plugin can

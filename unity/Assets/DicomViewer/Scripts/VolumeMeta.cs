@@ -18,6 +18,9 @@ namespace DicomViewer
         public string modality;
         public bool lungs_only;      // written by `app.export --lungs-only`; VolumeLoader then picks the Lungs preset
         public string[] warnings;
+        public string region;        // tools/build_body.py: whole_body, head, thorax, abdomen, pelvis
+        public string credit;        // required credit line of the body's licence (shown on the help / About screen)
+        public string notice;        // further wording the licence requires
 
         public long VoxelCount => (long)dim_x * dim_y * dim_z;
     }

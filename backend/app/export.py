@@ -23,10 +23,11 @@ def load_any(source: str | Path, series_uid: str | None = None) -> Volume:
     return load_nrrd(source) if is_nrrd(source) else load_series(source, series_uid)
 
 
-def write_export(vol: Volume, out_dir: str | Path, lungs: bool = False) -> dict:
-    """Write volume.raw + volume.json for Unity; returns the metadata."""
+def write_export(vol: Volume, out_dir: str | Path, lungs: bool = False, extra: dict | None = None) -> dict:
+    """Write volume.raw + volume.json for Unity; returns the metadata. `extra` adds fields to volume.json."""
     raw, meta = pack_for_unity(vol)
     meta["lungs_only"] = lungs
+    meta.update(extra or {})
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "volume.raw").write_bytes(raw)

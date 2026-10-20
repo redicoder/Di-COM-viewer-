@@ -12,14 +12,20 @@ Updated whenever the structure changes. Target design: `DISSECTION_TABLE_SPEC.md
 │   │   ├── body.py              body mask, crop to patient, scanner-table removal
 │   │   ├── lungs.py             lungs-only export
 │   │   ├── export.py            CLI + write_export(): volume.raw / volume.json
+│   │   ├── label_table.py       stable label ids, layers, colours (dissection bodies)
+│   │   ├── tissue.py            skin / fat / muscle / bone / soft-tissue classes from HU
+│   │   ├── segmentation.py      grids in mm, resampling between grids, label smoothing
 │   │   └── main.py              optional FastAPI service
+│   ├── anatomy/                 anatomy_names.json: la / en / it names per label (teachers may edit)
 │   ├── tools/
 │   │   ├── inspect_series.py    what is in a folder, recommended spacing
 │   │   ├── dicom_converter_app.py   converter window (tkinter) = the pipeline used by everything
 │   │   ├── convert_cli.py       same pipeline from the command line (used by the viewer's "Open scan")
 │   │   ├── segment_organs.py    TotalSegmentator -> labels.raw / labels.json (runs in .venv-seg)
+│   │   ├── build_body.py        dissection body: whole body + regions with layered labels
+│   │   ├── prepare_visible_human.py   stitch the Visible Human CT parts into one NRRD
 │   │   └── make_test_series.py  synthetic phantom with orientation markers (tests)
-│   ├── tests/                   pytest: pipeline, orientation, NRRD reorientation
+│   ├── tests/                   pytest: pipeline, orientation, NRRD, body pipeline, label-id snapshot
 │   ├── .venv/  .venv-seg/       Python environments (not in git)
 │   ├── data/                    source scans (not in git)
 │   └── out/                     exported volumes + out/latest.txt (not in git)
@@ -41,6 +47,23 @@ Updated whenever the structure changes. Target design: `DISSECTION_TABLE_SPEC.md
 2. The viewer's `VolumeLoader` reads `latest.txt` (found relative to the project or the build), builds a
    UnityVolumeRendering `VolumeDataset` with identity rotation (texture x = patient left, y = superior,
    z = posterior), adds organ labels as a segmentation, applies the transfer-function preset.
+
+## Dissection bodies (`tools/build_body.py`)
+
+1. `prepare_visible_human.py` turns the downloaded CT parts into one NRRD: slices ordered by the Visible
+   Human slice number (`SliceLocation`), every slice resampled by its own pixel size and position onto one
+   0.94 mm grid (the head was reconstructed with a smaller field of view), parts shifted to line up at the joins.
+2. `build_body.py` finds the body, runs TotalSegmentator `total` **once** on a 1.5 mm whole-body grid
+   (cached in `out/<body>/_cache/seg`), then builds each export: whole body at 2 mm and head, thorax,
+   abdomen, pelvis at about 1 mm (≤ 40 M voxels). Region heights come from landmarks (C4, lungs and
+   clavicles, L5 to liver/spleen, hip bones); width and depth from the body inside them.
+3. Per export: CT resampled onto the export grid (all grids are boxes in mm in the scan's frame, so they line
+   up); the patient = connected pieces overlapping the whole-body mask; TotalSegmentator labels cleaned of
+   stray pieces (< 0.5 % of a structure), mapped by position and smoothed; tissue classes from HU (`app/tissue.py`) fill the rest; ids from
+   `app/label_table.py`, which never renumbers (`tests/label_ids.json` is the snapshot).
+4. `labels.json` = `layers` (peel order, names, colour) + `labels` (id, key, layer, `name` in English for the
+   current viewer, `names` {la, en, it}, colour, opacity, info_key). `provenance.json` = dataset, licence,
+   credit, source hash, grid, thresholds, tool versions, git commit.
 
 ## Viewer components (`unity/Assets/DicomViewer/Scripts`)
 

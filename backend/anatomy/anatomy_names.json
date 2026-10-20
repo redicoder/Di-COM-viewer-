@@ -1,0 +1,652 @@
+{
+  "_about": "Structure names for labels.json, keyed by label key (backend/app/label_table.py). la = Terminologia Anatomica Latin; en = English; it = Italian. Teachers may correct any text; keys must not change. Re-run tools/build_body.py to apply (the segmentation is cached).",
+  "layers": {
+    "skin": {
+      "la": "Cutis",
+      "en": "Skin",
+      "it": "Cute"
+    },
+    "fat": {
+      "la": "Textus adiposus",
+      "en": "Fat",
+      "it": "Grasso"
+    },
+    "muscle": {
+      "la": "Musculi",
+      "en": "Muscles",
+      "it": "Muscoli"
+    },
+    "skeleton": {
+      "la": "Skeleton",
+      "en": "Skeleton",
+      "it": "Scheletro"
+    },
+    "organs": {
+      "la": "Viscera",
+      "en": "Organs",
+      "it": "Organi"
+    },
+    "vessels": {
+      "la": "Vasa sanguinea",
+      "en": "Blood vessels",
+      "it": "Vasi sanguigni"
+    },
+    "nervous": {
+      "la": "Systema nervosum",
+      "en": "Nervous system",
+      "it": "Sistema nervoso"
+    }
+  },
+  "labels": {
+    "skin": {
+      "la": "Cutis",
+      "en": "Skin",
+      "it": "Cute"
+    },
+    "fat": {
+      "la": "Textus adiposus",
+      "en": "Fat (adipose tissue)",
+      "it": "Tessuto adiposo"
+    },
+    "muscle": {
+      "la": "Textus muscularis",
+      "en": "Muscle",
+      "it": "Tessuto muscolare"
+    },
+    "bone": {
+      "la": "Os",
+      "en": "Bone",
+      "it": "Osso"
+    },
+    "soft_tissue": {
+      "la": "Textus mollis",
+      "en": "Other soft tissue",
+      "it": "Altro tessuto molle"
+    },
+    "spleen": {
+      "la": "Splen",
+      "en": "Spleen",
+      "it": "Milza"
+    },
+    "kidney_right": {
+      "la": "Ren dexter",
+      "en": "Right kidney",
+      "it": "Rene destro"
+    },
+    "kidney_left": {
+      "la": "Ren sinister",
+      "en": "Left kidney",
+      "it": "Rene sinistro"
+    },
+    "gallbladder": {
+      "la": "Vesica biliaris",
+      "en": "Gallbladder",
+      "it": "Colecisti"
+    },
+    "liver": {
+      "la": "Hepar",
+      "en": "Liver",
+      "it": "Fegato"
+    },
+    "stomach": {
+      "la": "Gaster",
+      "en": "Stomach",
+      "it": "Stomaco"
+    },
+    "pancreas": {
+      "la": "Pancreas",
+      "en": "Pancreas",
+      "it": "Pancreas"
+    },
+    "adrenal_gland_right": {
+      "la": "Glandula suprarenalis dextra",
+      "en": "Right adrenal gland",
+      "it": "Ghiandola surrenale destra"
+    },
+    "adrenal_gland_left": {
+      "la": "Glandula suprarenalis sinistra",
+      "en": "Left adrenal gland",
+      "it": "Ghiandola surrenale sinistra"
+    },
+    "lung_upper_lobe_left": {
+      "la": "Lobus superior pulmonis sinistri",
+      "en": "Left lung, upper lobe",
+      "it": "Lobo superiore del polmone sinistro"
+    },
+    "lung_lower_lobe_left": {
+      "la": "Lobus inferior pulmonis sinistri",
+      "en": "Left lung, lower lobe",
+      "it": "Lobo inferiore del polmone sinistro"
+    },
+    "lung_upper_lobe_right": {
+      "la": "Lobus superior pulmonis dextri",
+      "en": "Right lung, upper lobe",
+      "it": "Lobo superiore del polmone destro"
+    },
+    "lung_middle_lobe_right": {
+      "la": "Lobus medius pulmonis dextri",
+      "en": "Right lung, middle lobe",
+      "it": "Lobo medio del polmone destro"
+    },
+    "lung_lower_lobe_right": {
+      "la": "Lobus inferior pulmonis dextri",
+      "en": "Right lung, lower lobe",
+      "it": "Lobo inferiore del polmone destro"
+    },
+    "esophagus": {
+      "la": "Oesophagus",
+      "en": "Oesophagus",
+      "it": "Esofago"
+    },
+    "trachea": {
+      "la": "Trachea",
+      "en": "Trachea",
+      "it": "Trachea"
+    },
+    "thyroid_gland": {
+      "la": "Glandula thyroidea",
+      "en": "Thyroid gland",
+      "it": "Tiroide"
+    },
+    "small_bowel": {
+      "la": "Intestinum tenue",
+      "en": "Small intestine",
+      "it": "Intestino tenue"
+    },
+    "duodenum": {
+      "la": "Duodenum",
+      "en": "Duodenum",
+      "it": "Duodeno"
+    },
+    "colon": {
+      "la": "Colon",
+      "en": "Colon",
+      "it": "Colon"
+    },
+    "urinary_bladder": {
+      "la": "Vesica urinaria",
+      "en": "Urinary bladder",
+      "it": "Vescica urinaria"
+    },
+    "prostate": {
+      "la": "Prostata",
+      "en": "Prostate",
+      "it": "Prostata"
+    },
+    "kidney_cyst_left": {
+      "la": "Cystis renis sinistra",
+      "en": "Left kidney cyst",
+      "it": "Cisti renale sinistra"
+    },
+    "kidney_cyst_right": {
+      "la": "Cystis renis dextra",
+      "en": "Right kidney cyst",
+      "it": "Cisti renale destra"
+    },
+    "sacrum": {
+      "la": "Os sacrum",
+      "en": "Sacrum",
+      "it": "Osso sacro"
+    },
+    "vertebrae_S1": {
+      "la": "Vertebra sacralis I [S I]",
+      "en": "Sacral vertebra S1",
+      "it": "Vertebra sacrale S1"
+    },
+    "vertebrae_L5": {
+      "la": "Vertebra lumbalis V [L V]",
+      "en": "Lumbar vertebra L5",
+      "it": "Vertebra lombare L5"
+    },
+    "vertebrae_L4": {
+      "la": "Vertebra lumbalis IV [L IV]",
+      "en": "Lumbar vertebra L4",
+      "it": "Vertebra lombare L4"
+    },
+    "vertebrae_L3": {
+      "la": "Vertebra lumbalis III [L III]",
+      "en": "Lumbar vertebra L3",
+      "it": "Vertebra lombare L3"
+    },
+    "vertebrae_L2": {
+      "la": "Vertebra lumbalis II [L II]",
+      "en": "Lumbar vertebra L2",
+      "it": "Vertebra lombare L2"
+    },
+    "vertebrae_L1": {
+      "la": "Vertebra lumbalis I [L I]",
+      "en": "Lumbar vertebra L1",
+      "it": "Vertebra lombare L1"
+    },
+    "vertebrae_T12": {
+      "la": "Vertebra thoracica XII [T XII]",
+      "en": "Thoracic vertebra T12",
+      "it": "Vertebra toracica T12"
+    },
+    "vertebrae_T11": {
+      "la": "Vertebra thoracica XI [T XI]",
+      "en": "Thoracic vertebra T11",
+      "it": "Vertebra toracica T11"
+    },
+    "vertebrae_T10": {
+      "la": "Vertebra thoracica X [T X]",
+      "en": "Thoracic vertebra T10",
+      "it": "Vertebra toracica T10"
+    },
+    "vertebrae_T9": {
+      "la": "Vertebra thoracica IX [T IX]",
+      "en": "Thoracic vertebra T9",
+      "it": "Vertebra toracica T9"
+    },
+    "vertebrae_T8": {
+      "la": "Vertebra thoracica VIII [T VIII]",
+      "en": "Thoracic vertebra T8",
+      "it": "Vertebra toracica T8"
+    },
+    "vertebrae_T7": {
+      "la": "Vertebra thoracica VII [T VII]",
+      "en": "Thoracic vertebra T7",
+      "it": "Vertebra toracica T7"
+    },
+    "vertebrae_T6": {
+      "la": "Vertebra thoracica VI [T VI]",
+      "en": "Thoracic vertebra T6",
+      "it": "Vertebra toracica T6"
+    },
+    "vertebrae_T5": {
+      "la": "Vertebra thoracica V [T V]",
+      "en": "Thoracic vertebra T5",
+      "it": "Vertebra toracica T5"
+    },
+    "vertebrae_T4": {
+      "la": "Vertebra thoracica IV [T IV]",
+      "en": "Thoracic vertebra T4",
+      "it": "Vertebra toracica T4"
+    },
+    "vertebrae_T3": {
+      "la": "Vertebra thoracica III [T III]",
+      "en": "Thoracic vertebra T3",
+      "it": "Vertebra toracica T3"
+    },
+    "vertebrae_T2": {
+      "la": "Vertebra thoracica II [T II]",
+      "en": "Thoracic vertebra T2",
+      "it": "Vertebra toracica T2"
+    },
+    "vertebrae_T1": {
+      "la": "Vertebra thoracica I [T I]",
+      "en": "Thoracic vertebra T1",
+      "it": "Vertebra toracica T1"
+    },
+    "vertebrae_C7": {
+      "la": "Vertebra prominens [C VII]",
+      "en": "Cervical vertebra C7 (vertebra prominens)",
+      "it": "Vertebra cervicale C7 (prominente)"
+    },
+    "vertebrae_C6": {
+      "la": "Vertebra cervicalis VI [C VI]",
+      "en": "Cervical vertebra C6",
+      "it": "Vertebra cervicale C6"
+    },
+    "vertebrae_C5": {
+      "la": "Vertebra cervicalis V [C V]",
+      "en": "Cervical vertebra C5",
+      "it": "Vertebra cervicale C5"
+    },
+    "vertebrae_C4": {
+      "la": "Vertebra cervicalis IV [C IV]",
+      "en": "Cervical vertebra C4",
+      "it": "Vertebra cervicale C4"
+    },
+    "vertebrae_C3": {
+      "la": "Vertebra cervicalis III [C III]",
+      "en": "Cervical vertebra C3",
+      "it": "Vertebra cervicale C3"
+    },
+    "vertebrae_C2": {
+      "la": "Axis [C II]",
+      "en": "Axis (C2)",
+      "it": "Epistrofeo (C2)"
+    },
+    "vertebrae_C1": {
+      "la": "Atlas [C I]",
+      "en": "Atlas (C1)",
+      "it": "Atlante (C1)"
+    },
+    "heart": {
+      "la": "Cor",
+      "en": "Heart",
+      "it": "Cuore"
+    },
+    "aorta": {
+      "la": "Aorta",
+      "en": "Aorta",
+      "it": "Aorta"
+    },
+    "pulmonary_vein": {
+      "la": "Venae pulmonales",
+      "en": "Pulmonary veins",
+      "it": "Vene polmonari"
+    },
+    "brachiocephalic_trunk": {
+      "la": "Truncus brachiocephalicus",
+      "en": "Brachiocephalic trunk",
+      "it": "Tronco brachiocefalico"
+    },
+    "subclavian_artery_right": {
+      "la": "Arteria subclavia dextra",
+      "en": "Right subclavian artery",
+      "it": "Arteria succlavia destra"
+    },
+    "subclavian_artery_left": {
+      "la": "Arteria subclavia sinistra",
+      "en": "Left subclavian artery",
+      "it": "Arteria succlavia sinistra"
+    },
+    "common_carotid_artery_right": {
+      "la": "Arteria carotis communis dextra",
+      "en": "Right common carotid artery",
+      "it": "Arteria carotide comune destra"
+    },
+    "common_carotid_artery_left": {
+      "la": "Arteria carotis communis sinistra",
+      "en": "Left common carotid artery",
+      "it": "Arteria carotide comune sinistra"
+    },
+    "brachiocephalic_vein_left": {
+      "la": "Vena brachiocephalica sinistra",
+      "en": "Left brachiocephalic vein",
+      "it": "Vena brachiocefalica sinistra"
+    },
+    "brachiocephalic_vein_right": {
+      "la": "Vena brachiocephalica dextra",
+      "en": "Right brachiocephalic vein",
+      "it": "Vena brachiocefalica destra"
+    },
+    "atrial_appendage_left": {
+      "la": "Auricula sinistra",
+      "en": "Left auricle (atrial appendage)",
+      "it": "Auricola sinistra"
+    },
+    "superior_vena_cava": {
+      "la": "Vena cava superior",
+      "en": "Superior vena cava",
+      "it": "Vena cava superiore"
+    },
+    "inferior_vena_cava": {
+      "la": "Vena cava inferior",
+      "en": "Inferior vena cava",
+      "it": "Vena cava inferiore"
+    },
+    "portal_vein_and_splenic_vein": {
+      "la": "Vena portae hepatis et vena splenica",
+      "en": "Portal vein and splenic vein",
+      "it": "Vena porta e vena splenica"
+    },
+    "iliac_artery_left": {
+      "la": "Arteria iliaca communis sinistra",
+      "en": "Left common iliac artery",
+      "it": "Arteria iliaca comune sinistra"
+    },
+    "iliac_artery_right": {
+      "la": "Arteria iliaca communis dextra",
+      "en": "Right common iliac artery",
+      "it": "Arteria iliaca comune destra"
+    },
+    "iliac_vena_left": {
+      "la": "Vena iliaca communis sinistra",
+      "en": "Left common iliac vein",
+      "it": "Vena iliaca comune sinistra"
+    },
+    "iliac_vena_right": {
+      "la": "Vena iliaca communis dextra",
+      "en": "Right common iliac vein",
+      "it": "Vena iliaca comune destra"
+    },
+    "humerus_left": {
+      "la": "Humerus sinister",
+      "en": "Left humerus",
+      "it": "Omero sinistro"
+    },
+    "humerus_right": {
+      "la": "Humerus dexter",
+      "en": "Right humerus",
+      "it": "Omero destro"
+    },
+    "scapula_left": {
+      "la": "Scapula sinistra",
+      "en": "Left scapula",
+      "it": "Scapola sinistra"
+    },
+    "scapula_right": {
+      "la": "Scapula dextra",
+      "en": "Right scapula",
+      "it": "Scapola destra"
+    },
+    "clavicula_left": {
+      "la": "Clavicula sinistra",
+      "en": "Left clavicle",
+      "it": "Clavicola sinistra"
+    },
+    "clavicula_right": {
+      "la": "Clavicula dextra",
+      "en": "Right clavicle",
+      "it": "Clavicola destra"
+    },
+    "femur_left": {
+      "la": "Femur sinistrum",
+      "en": "Left femur",
+      "it": "Femore sinistro"
+    },
+    "femur_right": {
+      "la": "Femur dextrum",
+      "en": "Right femur",
+      "it": "Femore destro"
+    },
+    "hip_left": {
+      "la": "Os coxae sinistrum",
+      "en": "Left hip bone",
+      "it": "Osso dell'anca sinistro"
+    },
+    "hip_right": {
+      "la": "Os coxae dextrum",
+      "en": "Right hip bone",
+      "it": "Osso dell'anca destro"
+    },
+    "spinal_cord": {
+      "la": "Medulla spinalis",
+      "en": "Spinal cord",
+      "it": "Midollo spinale"
+    },
+    "gluteus_maximus_left": {
+      "la": "Musculus gluteus maximus sinister",
+      "en": "Left gluteus maximus",
+      "it": "Muscolo grande gluteo sinistro"
+    },
+    "gluteus_maximus_right": {
+      "la": "Musculus gluteus maximus dexter",
+      "en": "Right gluteus maximus",
+      "it": "Muscolo grande gluteo destro"
+    },
+    "gluteus_medius_left": {
+      "la": "Musculus gluteus medius sinister",
+      "en": "Left gluteus medius",
+      "it": "Muscolo medio gluteo sinistro"
+    },
+    "gluteus_medius_right": {
+      "la": "Musculus gluteus medius dexter",
+      "en": "Right gluteus medius",
+      "it": "Muscolo medio gluteo destro"
+    },
+    "gluteus_minimus_left": {
+      "la": "Musculus gluteus minimus sinister",
+      "en": "Left gluteus minimus",
+      "it": "Muscolo piccolo gluteo sinistro"
+    },
+    "gluteus_minimus_right": {
+      "la": "Musculus gluteus minimus dexter",
+      "en": "Right gluteus minimus",
+      "it": "Muscolo piccolo gluteo destro"
+    },
+    "autochthon_left": {
+      "la": "Musculi dorsi proprii sinistri",
+      "en": "Left deep back muscles (erector spinae)",
+      "it": "Muscoli propri del dorso sinistri"
+    },
+    "autochthon_right": {
+      "la": "Musculi dorsi proprii dextri",
+      "en": "Right deep back muscles (erector spinae)",
+      "it": "Muscoli propri del dorso destri"
+    },
+    "iliopsoas_left": {
+      "la": "Musculus iliopsoas sinister",
+      "en": "Left iliopsoas",
+      "it": "Muscolo ileopsoas sinistro"
+    },
+    "iliopsoas_right": {
+      "la": "Musculus iliopsoas dexter",
+      "en": "Right iliopsoas",
+      "it": "Muscolo ileopsoas destro"
+    },
+    "brain": {
+      "la": "Encephalon",
+      "en": "Brain",
+      "it": "Encefalo"
+    },
+    "skull": {
+      "la": "Cranium",
+      "en": "Skull",
+      "it": "Cranio"
+    },
+    "rib_left_1": {
+      "la": "Costa I sinistra",
+      "en": "Left rib 1",
+      "it": "I costa sinistra"
+    },
+    "rib_left_2": {
+      "la": "Costa II sinistra",
+      "en": "Left rib 2",
+      "it": "II costa sinistra"
+    },
+    "rib_left_3": {
+      "la": "Costa III sinistra",
+      "en": "Left rib 3",
+      "it": "III costa sinistra"
+    },
+    "rib_left_4": {
+      "la": "Costa IV sinistra",
+      "en": "Left rib 4",
+      "it": "IV costa sinistra"
+    },
+    "rib_left_5": {
+      "la": "Costa V sinistra",
+      "en": "Left rib 5",
+      "it": "V costa sinistra"
+    },
+    "rib_left_6": {
+      "la": "Costa VI sinistra",
+      "en": "Left rib 6",
+      "it": "VI costa sinistra"
+    },
+    "rib_left_7": {
+      "la": "Costa VII sinistra",
+      "en": "Left rib 7",
+      "it": "VII costa sinistra"
+    },
+    "rib_left_8": {
+      "la": "Costa VIII sinistra",
+      "en": "Left rib 8",
+      "it": "VIII costa sinistra"
+    },
+    "rib_left_9": {
+      "la": "Costa IX sinistra",
+      "en": "Left rib 9",
+      "it": "IX costa sinistra"
+    },
+    "rib_left_10": {
+      "la": "Costa X sinistra",
+      "en": "Left rib 10",
+      "it": "X costa sinistra"
+    },
+    "rib_left_11": {
+      "la": "Costa XI sinistra",
+      "en": "Left rib 11",
+      "it": "XI costa sinistra"
+    },
+    "rib_left_12": {
+      "la": "Costa XII sinistra",
+      "en": "Left rib 12",
+      "it": "XII costa sinistra"
+    },
+    "rib_right_1": {
+      "la": "Costa I dextra",
+      "en": "Right rib 1",
+      "it": "I costa destra"
+    },
+    "rib_right_2": {
+      "la": "Costa II dextra",
+      "en": "Right rib 2",
+      "it": "II costa destra"
+    },
+    "rib_right_3": {
+      "la": "Costa III dextra",
+      "en": "Right rib 3",
+      "it": "III costa destra"
+    },
+    "rib_right_4": {
+      "la": "Costa IV dextra",
+      "en": "Right rib 4",
+      "it": "IV costa destra"
+    },
+    "rib_right_5": {
+      "la": "Costa V dextra",
+      "en": "Right rib 5",
+      "it": "V costa destra"
+    },
+    "rib_right_6": {
+      "la": "Costa VI dextra",
+      "en": "Right rib 6",
+      "it": "VI costa destra"
+    },
+    "rib_right_7": {
+      "la": "Costa VII dextra",
+      "en": "Right rib 7",
+      "it": "VII costa destra"
+    },
+    "rib_right_8": {
+      "la": "Costa VIII dextra",
+      "en": "Right rib 8",
+      "it": "VIII costa destra"
+    },
+    "rib_right_9": {
+      "la": "Costa IX dextra",
+      "en": "Right rib 9",
+      "it": "IX costa destra"
+    },
+    "rib_right_10": {
+      "la": "Costa X dextra",
+      "en": "Right rib 10",
+      "it": "X costa destra"
+    },
+    "rib_right_11": {
+      "la": "Costa XI dextra",
+      "en": "Right rib 11",
+      "it": "XI costa destra"
+    },
+    "rib_right_12": {
+      "la": "Costa XII dextra",
+      "en": "Right rib 12",
+      "it": "XII costa destra"
+    },
+    "sternum": {
+      "la": "Sternum",
+      "en": "Sternum",
+      "it": "Sterno"
+    },
+    "costal_cartilages": {
+      "la": "Cartilagines costales",
+      "en": "Costal cartilages",
+      "it": "Cartilagini costali"
+    }
+  }
+}

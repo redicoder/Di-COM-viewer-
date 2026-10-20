@@ -17,6 +17,10 @@ adrenals, vessels). Without one, the 3 mm --fast model runs on the CPU in a few 
 override the choice. Big volumes are segmented in three overlapping parts to stay within RAM.
 Organ boundaries are smoothed before saving so surfaces render without voxel staircases.
 The first run of each model downloads its weights into %USERPROFILE%\\.totalsegmentator.
+
+--raw (used by tools/build_body.py) writes TotalSegmentator's own classes instead, unsmoothed:
+    ts_labels.raw   uint8 class ids, same grid and byte order as volume.raw
+    ts_labels.json  {"classes": {id: name}, model, versions}
 """
 from __future__ import annotations
 
@@ -27,6 +31,9 @@ import time
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app.segmentation import smooth_labels  # noqa: E402
 
 # (display name, RGB, relative opacity, TotalSegmentator class-name fragments). Order = label id order.
 GROUPS = [
@@ -55,31 +62,6 @@ GROUPS = [
 ]
 
 
-def smooth_labels(labels: np.ndarray, count: int, sigma: float = 1.0) -> np.ndarray:
-    """Blur each organ's mask and give every voxel to the organ with the strongest blurred value.
-
-    A voxel joins an organ above 0.5 (fills the notches of the staircase) and keeps its original organ
-    above 0.25 (so thin tubes such as carotids, airways and adrenals survive; only stray corners drop).
-    Works organ by organ inside its bounding box, so memory stays at a few hundred MB.
-    """
-    from scipy import ndimage
-
-    best = np.zeros(labels.shape, dtype=np.float32)
-    out = np.zeros_like(labels)
-    pad = int(np.ceil(3 * sigma)) + 1
-    for k in range(1, count + 1):
-        boxes = ndimage.find_objects((labels == k).astype(np.uint8))
-        if not boxes or boxes[0] is None:
-            continue
-        box = tuple(slice(max(0, s.start - pad), min(n, s.stop + pad)) for s, n in zip(boxes[0], labels.shape))
-        own = labels[box] == k
-        score = ndimage.gaussian_filter(own.astype(np.float32), sigma)
-        win = ((score > 0.5) | (own & (score > 0.25))) & (score > best[box])
-        best[box][win] = score[win]
-        out[box][win] = k
-    return out
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out_dir", help="folder with volume.raw + volume.json from app.export / the converter")
@@ -87,6 +69,9 @@ def main() -> None:
     mode.add_argument("--full", action="store_true", help="1.5 mm models (default with a CUDA GPU)")
     mode.add_argument("--fast", action="store_true", help="3 mm model (default on the CPU)")
     ap.add_argument("--no-smooth", action="store_true", help="keep the raw, voxel-stepped organ boundaries")
+    ap.add_argument("--raw", action="store_true",
+                    help="write TotalSegmentator's own classes (ts_labels.raw/json, unsmoothed) for build_body.py "
+                         "instead of the organ groups")
     args = ap.parse_args()
 
     import nibabel as nib
@@ -123,9 +108,22 @@ def main() -> None:
     labels = np.asarray(seg.dataobj).astype(np.int32)
     if labels.shape != lps.shape:
         sys.exit(f"Segmentation grid {labels.shape} does not match the volume {lps.shape}")
-    print(f"Segmentation done in {time.time() - t0:.0f} s", flush=True)
+    seconds = time.time() - t0
+    print(f"Segmentation done in {seconds:.0f} s", flush=True)
 
     names = class_map["total"]
+    if args.raw:
+        if labels.max() > 255:
+            sys.exit("More than 255 classes")
+        np.ascontiguousarray(np.transpose(labels.astype(np.uint8), (1, 2, 0))).tofile(out / "ts_labels.raw")
+        from importlib.metadata import version
+        (out / "ts_labels.json").write_text(json.dumps({
+            "task": "total", "model": "fast 3 mm" if fast else "full 1.5 mm", "seconds": round(seconds),
+            "totalsegmentator": version("TotalSegmentator"), "torch": torch.__version__,
+            "device": torch.cuda.get_device_name(0) if gpu else "CPU",
+            "classes": {str(i): n for i, n in names.items()}}, indent=2))
+        print(f"Wrote {out / 'ts_labels.raw'} and ts_labels.json ({len(np.unique(labels)) - 1} classes found)", flush=True)
+        return
     grouped = np.zeros(lps.shape, dtype=np.uint8)
     entries = []
     for name, rgb, opacity, fragments in GROUPS:
@@ -141,7 +139,7 @@ def main() -> None:
     if not entries:
         sys.exit("No organs found")
     if not args.no_smooth:
-        grouped = smooth_labels(grouped, len(entries))
+        grouped = smooth_labels(grouped)
 
     np.ascontiguousarray(np.transpose(grouped, (1, 2, 0))).tofile(out / "labels.raw")   # back to Unity layout
     (out / "labels.json").write_text(json.dumps({"labels": entries}, indent=2))

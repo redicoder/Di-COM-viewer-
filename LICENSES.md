@@ -37,7 +37,7 @@ TotalSegmentator usage statistics are disabled (`%USERPROFILE%\.totalsegmentator
 
 | Item | Terms | Status |
 |---|---|---|
-| NLM Visible Human Project CT | public domain since 2019, acknowledge the U.S. National Library of Medicine (per spec) — **verify wording** | planned demo body |
+| NLM Visible Human Project CT (female fresh CT = primary demo body; male frozen CT = second body) | "National Library of Medicine Terms and Conditions; May 21, 2019" (licence listed by NCI Imaging Data Commons, collection `nlm_visible_human_project`, DOI 10.5281/zenodo.12690049). Free use; credit line **"Courtesy of the U.S. National Library of Medicine"** on the About screen; no suggestion that NLM endorses the product; state that the data may not reflect the most current or accurate data available from NLM. `tools/build_body.py` writes all of this into each export's `provenance.json` | confirmed; demo body |
 | TCIA collections used in development (C4KC-KiTS, LIDC-IDRI, FDG-PET-CT-Lesions) | per collection page (CC BY 3.0/4.0 typical) — verify | development/testing only, not shipped |
 | `5 RibWB Standard.nrrd` | unknown origin | development fixture only, never committed or shipped |
 | `anonymized_20261019` | origin to be confirmed | development only, never committed or shipped |

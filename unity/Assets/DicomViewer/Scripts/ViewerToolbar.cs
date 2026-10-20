@@ -424,7 +424,8 @@ namespace DicomViewer
 
         private Rect Centered(float w, float h, float k)
         {
-            var r = new Rect((Screen.width - w * k) / 2, (Screen.height - h * k) / 2, w * k, h * k);
+            float rw = Mathf.Min(w * k, Screen.width - 16), rh = Mathf.Min(h * k, Screen.height - 16);
+            var r = new Rect((Screen.width - rw) / 2, (Screen.height - rh) / 2, rw, rh);
             ViewerUi.Block(r);
             GUI.Box(r, GUIContent.none);
             GUI.Box(r, GUIContent.none);   // twice: the default skin's box is very transparent
@@ -496,7 +497,7 @@ namespace DicomViewer
 
         private void DrawHelp(float k)
         {
-            var r = Centered(820, 860, k);
+            var r = Centered(820, 960, k);
             GUILayout.BeginArea(new Rect(r.x + 24 * k, r.y + 16 * k, r.width - 48 * k, r.height - 32 * k));
             GUILayout.Label("Controls  (every key also has a button in the toolbar)", title);
             Row("1 finger / left-drag", "rotate (Rotate tool) or cut (cutting tools)");
@@ -523,6 +524,10 @@ namespace DicomViewer
             Row("Ctrl+O", "open another scan");
             Row("F11 / F1 / H", "full screen / FPS counter / this help");
             GUILayout.FlexibleSpace();
+            GUILayout.Label("For education only - not for diagnostic use.", title);
+            if (!string.IsNullOrEmpty(loader.Meta?.credit)) GUILayout.Label($"Body: {loader.Meta.credit}. {loader.Meta.notice}", text);
+            GUILayout.Label("Structure labels: TotalSegmentator (Wasserthal et al., Radiology: Artificial Intelligence, 2023).", text);
+            GUILayout.Space(6 * k);
             if (GUILayout.Button("Close", bar, GUILayout.Height(36 * k))) dialog = Dialog.None;
             GUILayout.EndArea();
 

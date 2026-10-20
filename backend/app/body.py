@@ -19,45 +19,62 @@ AIR_HU = -1024
 TISSUE_HU = -400
 
 
-def body_mask(hu: np.ndarray) -> np.ndarray:
-    labels, n = ndimage.label(hu > TISSUE_HU)
+def body_mask(hu: np.ndarray, threshold: float = TISSUE_HU, seed: np.ndarray | None = None) -> np.ndarray:
+    """The patient: the largest connected region denser than `threshold`, holes filled slice by slice.
+
+    With `seed`, every connected region that overlaps it is kept instead of only the largest. A region of a
+    body (say the abdomen) passes the whole body's mask as the seed: an arm that joins the trunk only above the
+    region is a separate piece inside it, but still the patient."""
+    labels, n = ndimage.label(hu > threshold)
     if n == 0:
         raise ValueError("No tissue found in the volume")
-    sizes = np.bincount(labels.ravel())
-    sizes[0] = 0
-    mask = labels == int(sizes.argmax())
+    if seed is None:
+        sizes = np.bincount(labels.ravel())
+        sizes[0] = 0
+        mask = labels == int(sizes.argmax())
+    else:
+        keep = np.unique(labels[seed & (labels > 0)])
+        if keep.size == 0:
+            raise ValueError("No tissue found inside the seed mask")
+        mask = np.isin(labels, keep)
     del labels
     for z in range(mask.shape[0]):           # axial slices: fill lungs, airways, bowel gas
         mask[z] = ndimage.binary_fill_holes(mask[z])
     return mask
 
 
-def crop_to_body(vol: Volume, margin_mm: float = 6.0, probe_mm: float = 4.0) -> Volume:
-    """Crop to the patient's bounding box (plus a margin), before resampling.
-
-    Scans include a lot of air around the patient (the round field of view, space above the head, under
-    the table). Cropping it first lets the same voxel budget buy a finer resampling grid. The body is
-    found on a coarse copy (about probe_mm per voxel), so this costs well under a second.
-    """
-    if not vol.is_hu:
-        return vol
+def body_box(vol: Volume, margin_mm: float = 6.0, probe_mm: float = 4.0,
+             threshold: float = TISSUE_HU) -> tuple[slice, slice, slice] | None:
+    """Index ranges (z, y, x) of the patient plus a margin, or None if no tissue was found.
+    The body is found on a coarse copy (about probe_mm per voxel), so this costs well under a second."""
     sx, sy, sz = vol.spacing
     step = [max(1, int(round(probe_mm / s))) for s in (sz, sy, sx)]
     coarse = vol.data[::step[0], ::step[1], ::step[2]]
     try:
-        mask = body_mask(coarse)
+        mask = body_mask(coarse, threshold)
     except ValueError:
-        return vol
-    nz, ny, nx = vol.data.shape
-    slices, kept = [], 1.0
-    for axis, (n, st, sp) in enumerate(zip((nz, ny, nx), step, (sz, sy, sx))):
+        return None
+    box = []
+    for axis, (n, st, sp) in enumerate(zip(vol.data.shape, step, (sz, sy, sx))):
         idx = np.nonzero(mask.any(axis=tuple(a for a in range(3) if a != axis)))[0]
         pad = int(np.ceil(margin_mm / sp))
-        lo, hi = max(0, idx[0] * st - pad), min(n, (idx[-1] + 1) * st + pad)
-        slices.append(slice(lo, hi))
-        kept *= (hi - lo) / n
-    data = vol.data[tuple(slices)]
-    return replace(vol, data=data,
+        box.append(slice(max(0, idx[0] * st - pad), min(n, (idx[-1] + 1) * st + pad)))
+    return tuple(box)  # type: ignore[return-value]
+
+
+def crop_to_body(vol: Volume, margin_mm: float = 6.0, probe_mm: float = 4.0) -> Volume:
+    """Crop to the patient's bounding box (plus a margin), before resampling.
+
+    Scans include a lot of air around the patient (the round field of view, space above the head, under
+    the table). Cropping it first lets the same voxel budget buy a finer resampling grid.
+    """
+    if not vol.is_hu:
+        return vol
+    box = body_box(vol, margin_mm, probe_mm)
+    if box is None:
+        return vol
+    kept = float(np.prod([(b.stop - b.start) / n for b, n in zip(box, vol.data.shape)]))
+    return replace(vol, data=vol.data[box],
                    warnings=vol.warnings + [f"Cropped to the patient: {kept:.0%} of the scanned volume kept"])
 
 
