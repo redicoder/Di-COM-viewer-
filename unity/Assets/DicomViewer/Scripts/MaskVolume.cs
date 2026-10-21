@@ -14,13 +14,14 @@ namespace DicomViewer
     /// Every edit is a MaskOp in millimetres. The main thread owns the op history (undo/redo, lessons) and runs
     /// each op on the GPU at once. A CPU copy of the mask (MaskModel) is kept up to date on a background thread
     /// with copies of the same ops; picking reads it. Undo/redo/reset replay the history on both sides.
+    /// Works for the scan viewer (attaches itself to a VolumeLoader on the same object) and for the Anatomy Lab's
+    /// photographed body (which calls Attach).
     /// </summary>
-    [RequireComponent(typeof(VolumeLoader))]
     public class MaskVolume : MonoBehaviour
     {
         public event Action Changed;
 
-        private VolumeLoader loader;
+        private Func<Material> materialOf;
         private MaskGpu gpu;
 
         private readonly List<MaskOp> ops = new List<MaskOp>();
@@ -40,30 +41,36 @@ namespace DicomViewer
 
         private void Awake()
         {
-            loader = GetComponent<VolumeLoader>();
-            loader.Loaded += _ => OnVolumeLoaded();
+            var loader = GetComponent<VolumeLoader>();
+            if (loader == null) return;
+            loader.Loaded += _ =>
+            {
+                VolumeMeta m = loader.Meta;
+                Attach(new VolumeSpace(new Vector3Int(m.dim_x, m.dim_y, m.dim_z),
+                        new Vector3(m.spacing_mm[0], m.spacing_mm[1], m.spacing_mm[2])),
+                    () => loader.Volume != null && loader.Volume.meshRenderer != null ? loader.Volume.meshRenderer.sharedMaterial : null);
+            };
         }
 
-        private void OnVolumeLoaded()
+        /// <summary>A new volume: a full body again on its grid, bound every frame to the material `material` returns.</summary>
+        public void Attach(VolumeSpace space, Func<Material> material)
         {
             gpu?.Dispose();
             gpu = null;
             ops.Clear();
             redo.Clear();
             live = null;
+            materialOf = material;
 
-            VolumeMeta m = loader.Meta;
-            Space = new VolumeSpace(new Vector3Int(m.dim_x, m.dim_y, m.dim_z),
-                new Vector3(m.spacing_mm[0], m.spacing_mm[1], m.spacing_mm[2]));
+            Space = space;
             if (!MaskGpu.Supported)
             {
                 Debug.LogWarning("Dissection mask unavailable: compute shaders not supported or MaskOps.compute missing");
                 return;
             }
-            gpu = new MaskGpu(Space);
+            gpu = new MaskGpu(space);
             Bind();
 
-            VolumeSpace space = Space;
             lane = Task.Run(() => cpu = new MaskModel(space));
             Changed?.Invoke();
         }
@@ -73,11 +80,14 @@ namespace DicomViewer
 
         private void Bind()
         {
-            var mr = loader.Volume != null ? loader.Volume.meshRenderer : null;
-            if (mr == null || mr.sharedMaterial == null) return;
-            mr.sharedMaterial.SetTexture("_MaskTex", gpu?.Texture);
-            mr.sharedMaterial.SetFloat("_MaskEnabled", gpu != null ? 1f : 0f);
+            Material m = materialOf?.Invoke();
+            if (m == null) return;
+            m.SetTexture("_MaskTex", gpu?.Texture);
+            m.SetFloat("_MaskEnabled", gpu != null ? 1f : 0f);
         }
+
+        /// <summary>The GPU mask (null until attached), for other GPU work such as the blood simulation.</summary>
+        public Texture MaskTexture => gpu?.Texture;
 
         private void OnDestroy() => gpu?.Dispose();
 

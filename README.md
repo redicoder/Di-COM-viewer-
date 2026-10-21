@@ -39,6 +39,12 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   This gives `out/visible_human_female/` with the whole body (2 mm) and head, thorax, abdomen and pelvis (~1 mm),
   each with layered labels (names in Latin, English and Italian). The viewer loads the whole body; **N** cycles
   through the regions.
+- **Build the Anatomy Lab body** (Visible Human male, colour photographs; same credit):
+  ```powershell
+  .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_head_photos --first 1001 --last 1225
+  .\.venv-seg\Scripts\python.exe tools\prepare_photo_volume.py data\vhp_male_head_photos out\photo_head --first 1001 --last 1225 --unity --eye-slice 1095
+  ```
+  In the app choose **Anatomy lab** on the start screen.
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`
   (Unity menu **DICOM Viewer → Build Windows App**).
 

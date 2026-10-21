@@ -12,6 +12,8 @@ Output (x = patient left, rows = front to back, slices = bottom to top; the CT's
     photo.raw    uint8 RGBA, x fastest. RGB = the photo; A = tissue (0 = outside, gelatin-filled air spaces)
     photo.json   dims, spacing, slice range, crop in photo pixels, licence and credit
     --web DIR    the same volume as JPEG colour atlases + PNG alpha atlases for the browser sample
+    --unity      body.raw / body.json in the Unity viewer's layout (x left, y up, z back) for the Anatomy Lab;
+                 with --eye-slice also the eye positions and an eyelid map (lids.raw)
 
 Steps: rows flipped (the photo's rows run back to front); a coarse pass finds the body's 3D box; each slice is
 cropped and averaged down by --factor (2 -> 0.66 mm); tissue = not blue and not the black frame, the largest 3D
@@ -131,6 +133,72 @@ def write_web(vol: np.ndarray, out: Path, per_file: int = 64, cols: int = 8, qua
     return files
 
 
+def find_eyes(vol: np.ndarray, eye_k: int, px: float) -> tuple[list[dict], np.ndarray]:
+    """The two eyeballs (dark, grey vitreous in the orbits, within 30 slices of eye_k) and the eyelids: the tissue
+    in front of each eyeball inside its outline seen from the front, 128 = upper lid, 64 = lower lid.
+    Returns eyes in voxel units (x, row, slice index from the bottom) and the lid map (slices, rows, x)."""
+    D, H, W, _ = vol.shape
+    alpha = vol[..., 3] > 127
+    k0, k1 = max(0, eye_k - 30), min(D, eye_k + 30)
+    rgb = vol[k0:k1, ..., :3].astype(np.int16)
+    lum, sat = rgb.mean(-1), rgb.max(-1) - rgb.min(-1)
+    front = int(np.nonzero(alpha.any(axis=(0, 2)))[0][0])
+    cand = alpha[k0:k1] & (lum < 115) & (sat < 50) & (rgb[..., 2] >= rgb[..., 0] - 12)
+    cand[:, front + int(80 / px):, :] = False
+    cand[:, :, : W // 2 - int(55 / px)] = False
+    cand[:, :, W // 2 + int(55 / px):] = False
+    lab, _ = ndimage.label(ndimage.binary_opening(cand, iterations=1))
+    sizes = np.bincount(lab.ravel())
+    sizes[0] = 0
+    eyes, lids = [], np.zeros((D, H, W), np.uint8)
+    kk, rr, xx = np.mgrid[0:D, 0:H, 0:W]
+    for i in np.argsort(sizes)[::-1][:2]:
+        z, y, x = np.nonzero(lab == i)
+        radius = (3 * sizes[i] * px * px * SLICE_MM / (4 * np.pi)) ** (1 / 3) + 2.0   # vitreous + wall, mm
+        xc, rc, kc = float(x.mean()), float(y.mean()), float(z.mean() + k0)
+        dx, dz = (xx - xc) * px, (kk - kc) * SLICE_MM
+        inside = dx ** 2 + dz ** 2 < radius ** 2
+        globe_front = rc * px - np.sqrt(np.clip(radius ** 2 - dx ** 2 - dz ** 2, 0, None))
+        lid = inside & alpha & (rr * px < globe_front - 0.3)
+        k_line = kc - 1.0 / SLICE_MM
+        lids[lid & (kk >= k_line)] = 128
+        lids[lid & (kk < k_line)] = 64
+        skin_row = int(np.argmax(alpha[int(round(kc)), :, int(round(xc))]))
+        eyes.append({"x": xc, "row": rc, "k": kc, "radius_mm": float(radius), "line_k": float(k_line),
+                     "skin_row": skin_row, "vitreous_ml": round(float(sizes[i] * px * px * SLICE_MM / 1000), 2)})
+    eyes.sort(key=lambda e: e["x"])                     # patient's right first
+    return eyes, lids
+
+
+def export_unity(vol: np.ndarray, meta: dict, out: Path, eyes: list[dict] | None = None,
+                 lids: np.ndarray | None = None) -> dict:
+    """The volume in the Unity viewer's texture layout: x = patient left (fastest), y = up, z = back, so texture
+    axes and the body's local axes coincide (VolumeSpace, MaskGpu, MaskModel work unchanged).
+    Writes body.raw (RGBA), lids.raw (R8, optional) and body.json; positions in metres, origin at the centre."""
+    D, H, W, _ = vol.shape
+    px, sz = meta["spacing_mm"][0], meta["spacing_mm"][2]
+    np.ascontiguousarray(np.transpose(vol, (1, 0, 2, 3))).tofile(out / "body.raw")
+    size = np.array([W * px, D * sz, H * px]) / 1000.0                      # metres: x left, y up, z back
+
+    def local(x, row, k):
+        return [float(((x + 0.5) / W - 0.5) * size[0]), float(((k + 0.5) / D - 0.5) * size[1]),
+                float(((row + 0.5) / H - 0.5) * size[2])]
+
+    body = {"dims": [W, D, H], "spacing_mm": [px, sz, px], "size_m": size.tolist(),
+            "axes": {"x": "patient left (+)", "y": "up (+)", "z": "back (+)"}, "format": "RGBA8",
+            "slices": meta.get("slices"), "credit": CREDIT, "licence": LICENCE, "eyes": []}
+    for e in eyes or []:
+        c = local(e["x"], e["row"], e["k"])
+        body["eyes"].append({"centre_m": c, "radius_m": e["radius_mm"] / 1000,
+                             "lid_line_y_m": local(e["x"], e["row"], e["line_k"])[1],
+                             "skin_front_z_m": local(e["x"], e["skin_row"], e["k"])[2]})
+    if lids is not None:
+        np.ascontiguousarray(np.transpose(lids, (1, 0, 2))).tofile(out / "lids.raw")
+        body["lids"] = "lids.raw"
+    (out / "body.json").write_text(json.dumps(body, indent=2))
+    return body
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("photos", help="folder of colour photo DICOMs")
@@ -139,6 +207,8 @@ def main() -> None:
     ap.add_argument("--last", type=int, required=True, help="bottom slice number")
     ap.add_argument("--factor", type=int, default=2, help="average N x N photo pixels (2 -> 0.66 mm)")
     ap.add_argument("--web", help="also write browser atlases into this folder")
+    ap.add_argument("--unity", action="store_true", help="also write body.raw/json in the Unity viewer's layout")
+    ap.add_argument("--eye-slice", type=int, help="slice number at eye level: find the eyes and eyelids (male: 1095)")
     args = ap.parse_args()
 
     found = index_slices(Path(args.photos))
@@ -157,6 +227,12 @@ def main() -> None:
         meta["web"] = {"cols": 8, "files": write_web(vol, Path(args.web))}
         (Path(args.web) / "photo.json").write_text(json.dumps(meta))
     (out / "photo.json").write_text(json.dumps(meta, indent=2))
+    if args.unity:
+        eyes = lids = None
+        if args.eye_slice:
+            eyes, lids = find_eyes(vol, args.last - args.eye_slice, meta["spacing_mm"][0])
+            print("eyes:", [(round(e["x"]), round(e["row"]), round(e["k"]), round(e["radius_mm"], 1)) for e in eyes])
+        export_unity(vol, meta, out, eyes, lids)
     w, h, d = meta["dims"]
     print(f"{w} x {h} x {d} voxels at {meta['spacing_mm'][0]:.2f} x {meta['spacing_mm'][1]:.2f} x "
           f"{meta['spacing_mm'][2]:.1f} mm -> {out}")

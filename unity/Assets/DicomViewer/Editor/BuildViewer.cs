@@ -26,6 +26,12 @@ public static class BuildViewer
     {
         "VolumeRendering/URP/VolumeRendering",
         "VolumeRendering/URP/CrossSectionPlane",
+        "DicomViewer/PhotoBody",       // Anatomy Lab
+        "DicomViewer/BloodDrop",
+        "DicomViewer/SimpleEye",
+        "DicomViewer/BloodFluidDrops",
+        "DicomViewer/BloodFluidBlur",
+        "DicomViewer/BloodFluidComposite",
     };
 
     [MenuItem("DICOM Viewer/Set Up Scene")]
@@ -58,6 +64,7 @@ public static class BuildViewer
     {
         SetUpScene();
         IncludeShaders();
+        DicomViewer.AnatomyLab.EditorTools.BloodFluidDemo.EnsureRendererFeature();   // liquid blood in the Anatomy Lab
 
         PlayerSettings.productName = "DICOM 3D Viewer";
         PlayerSettings.fullScreenMode = FullScreenMode.Windowed;

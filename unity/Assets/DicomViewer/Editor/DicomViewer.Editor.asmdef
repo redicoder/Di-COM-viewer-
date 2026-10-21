@@ -3,7 +3,9 @@
     "rootNamespace": "",
     "references": [
         "DicomViewer.Runtime",
-        "UnityVolumeRendering.Runtime"
+        "UnityVolumeRendering.Runtime",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
     ],
     "includePlatforms": [
         "Editor"

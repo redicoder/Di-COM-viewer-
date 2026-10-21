@@ -1,0 +1,176 @@
+// Bleeding on the photographed body (DicomViewer.AnatomyLab.BloodSim). Positions in metres, body local
+// (x left, y up, z back, origin at the volume's centre). Tissue = photo alpha x dissection mask.
+// A drop on the skin is pulled along it by gravity, snapped back onto the surface each step, and leaves a stain;
+// one that runs off an edge (or hangs under a ledge) falls until it lands lower down. Stains are summed in a
+// 32-bit texture (atomic adds) and resolved into an 8-bit one the body's shader filters.
+
+#pragma kernel Emit
+#pragma kernel Step
+#pragma kernel Resolve
+#pragma kernel Clear
+
+struct Drop { float3 position; float radius; float3 normal; uint alive; };
+struct State { float3 velocity; float age; uint attached; uint rest; uint steps; float pad; };
+struct EmitRequest { float3 position; float radius; float3 normal; float pad; };
+
+RWStructuredBuffer<Drop> _Drops;
+RWStructuredBuffer<State> _State;
+StructuredBuffer<EmitRequest> _Emit;
+Texture3D<float4> _ColorTex;
+Texture3D<float> _MaskTex;
+SamplerState sampler_linear_clamp;
+RWTexture3D<uint> _StainAccum;
+RWTexture3D<unorm float> _Stain;
+
+uint _Capacity, _EmitCount, _EmitStart;
+uint3 _StainDims;
+float3 _SizeM, _VoxelM, _Gravity;
+float _Dt, _MaskOn;
+
+float Density(float3 p)
+{
+    float3 uvw = p / _SizeM + 0.5;
+    if (any(uvw < 0.0) || any(uvw > 1.0)) return 0.0;
+    float a = _ColorTex.SampleLevel(sampler_linear_clamp, uvw, 0).a;
+    float m = _MaskOn > 0.5 ? _MaskTex.SampleLevel(sampler_linear_clamp, uvw, 0) : 1.0;
+    return a * m;
+}
+
+float3 Outward(float3 p, float3 fallback)
+{
+    float3 e = _VoxelM;
+    float3 g = float3(Density(p + float3(e.x, 0, 0)) - Density(p - float3(e.x, 0, 0)),
+                      Density(p + float3(0, e.y, 0)) - Density(p - float3(0, e.y, 0)),
+                      Density(p + float3(0, 0, e.z)) - Density(p - float3(0, 0, e.z))) / (2.0 * e);
+    float l = length(g);
+    return l > 1e-3 ? -g / l : fallback;
+}
+
+// Onto the tissue surface along n: outwards if inside, inwards if outside. False if no surface within reach.
+bool Snap(float3 p, float3 n, float reach, out float3 q)
+{
+    float dir = Density(p) > 0.5 ? 1.0 : -1.0;
+    [loop] for (int i = 0; i <= 24; i++)
+    {
+        float3 x = p + n * (reach * i / 24.0) * dir;
+        float g = Density(x);
+        if ((dir > 0 && g <= 0.5) || (dir < 0 && g > 0.5)) { q = x + n * 0.00012; return true; }
+    }
+    q = p;
+    return false;
+}
+
+void Stain(float3 p, float amount)
+{
+    int3 v = int3(floor((p / _SizeM + 0.5) * float3(_StainDims)));
+    if (any(v < 0) || any(v >= int3(_StainDims))) return;
+    InterlockedAdd(_StainAccum[uint3(v)], (uint)(amount * 1000.0));
+}
+
+[numthreads(64, 1, 1)]
+void Emit(uint id : SV_DispatchThreadID)
+{
+    if (id >= _EmitCount) return;
+    uint slot = (_EmitStart + id) % _Capacity;
+    EmitRequest r = _Emit[id];
+    float3 n = normalize(r.normal);
+    float3 q;
+    if (!Snap(r.position, n, 0.006, q)) q = r.position;
+    Drop d;
+    d.position = q;
+    d.radius = r.radius;
+    d.normal = Outward(q, n);
+    d.alive = 1;
+    State s;
+    s.velocity = 0;
+    s.age = 0;
+    s.attached = 1;
+    s.rest = 0;
+    s.steps = slot;
+    s.pad = 0;
+    _Drops[slot] = d;
+    _State[slot] = s;
+}
+
+[numthreads(64, 1, 1)]
+void Step(uint id : SV_DispatchThreadID)
+{
+    if (id >= _Capacity) return;
+    Drop d = _Drops[id];
+    if (d.alive == 0) return;
+    State s = _State[id];
+    float dt = _Dt, G = length(_Gravity);
+    float3 p = d.position, v = s.velocity, n = d.normal;
+    s.age += dt;
+    s.steps++;
+    if (s.attached)
+    {
+        float gn = dot(_Gravity, n);
+        if (gn > 0.85 * G) s.attached = 0;                    // hanging under a ledge: it drips off
+        else
+        {
+            v += (_Gravity - n * gn) * dt;
+            v -= n * dot(v, n);
+            v *= exp(-dt * 7.0);                              // thick: it creeps
+            float sp = length(v);
+            if (sp > 0.03) v *= 0.03 / sp;
+            float3 q;
+            if (Snap(p + v * dt, n, 0.003, q))
+            {
+                p = q;
+                n = Outward(p, n);
+                if ((s.steps & 3) == 0) Stain(p - n * 0.0004, 0.35);
+            }
+            else s.attached = 0;                              // ran off an edge
+        }
+        s.rest = length(v) < 0.0012 ? s.rest + 1 : 0;
+    }
+    else
+    {
+        v += _Gravity * 2.5 * dt;
+        float sp = length(v);
+        if (sp > 0.25) v *= 0.25 / sp;
+        float3 np = p + v * dt;
+        if (Density(np) > 0.5)                                // lands on skin lower down
+        {
+            float a0 = 0.0, a1 = 1.0;
+            [unroll] for (int k = 0; k < 6; k++)
+            {
+                float m = 0.5 * (a0 + a1);
+                if (Density(p + v * dt * m) > 0.5) a1 = m; else a0 = m;
+            }
+            p += v * dt * a0;
+            n = Outward(p, -normalize(v));
+            v = (v - n * dot(v, n)) * 0.2;
+            s.attached = 1;
+            Stain(p - n * 0.0004, 0.8);                       // a splash where it lands
+        }
+        else p = np;
+    }
+    if ((s.attached && s.rest > 30) || s.age > 30.0)
+    {
+        if (s.attached) Stain(p - n * 0.0004, 1.5);           // it dries where it stopped
+        d.alive = 0;
+    }
+    if (p.y < -0.5 * _SizeM.y - 0.03) d.alive = 0;
+    d.position = p;
+    d.normal = s.attached ? n : float3(0, 0, 0);
+    s.velocity = v;
+    _Drops[id] = d;
+    _State[id] = s;
+}
+
+[numthreads(8, 8, 8)]
+void Resolve(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _StainDims)) return;
+    _Stain[id] = saturate(_StainAccum[id] / 1000.0);
+}
+
+[numthreads(8, 8, 8)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _StainDims)) return;
+    _StainAccum[id] = 0;
+    _Stain[id] = 0;
+}

@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityVolumeRendering;
 
 namespace DicomViewer
 {
@@ -12,8 +11,8 @@ namespace DicomViewer
     /// Sony's "Run Without Spatial Reality Display" uses right-drag and the wheel for its own navigation:
     /// turn off useWheelAndRightDrag there.
     /// Requires Project Settings > Player > Active Input Handling = Both (or Input Manager).
+    /// Follows the VolumeLoader on the same object, or any object given to SetTarget (the Anatomy Lab's body).
     /// </summary>
-    [RequireComponent(typeof(VolumeLoader))]
     public class VolumeOrbitController : MonoBehaviour
     {
         public float mouseSensitivity = 0.25f;   // degrees per pixel
@@ -44,11 +43,16 @@ namespace DicomViewer
         private Vector3 animFromPos, animToPos, animFromScale, animToScale;
         private const float AnimSeconds = 0.35f;
 
-        private void Awake() => GetComponent<VolumeLoader>().Loaded += OnLoaded;
-
-        private void OnLoaded(VolumeRenderedObject vol)
+        private void Awake()
         {
-            target = vol.transform;
+            var loader = GetComponent<VolumeLoader>();
+            if (loader != null) loader.Loaded += vol => SetTarget(vol.transform);
+        }
+
+        /// <summary>The object to turn, move and zoom; its current pose becomes the Reset pose.</summary>
+        public void SetTarget(Transform t)
+        {
+            target = t;
             initialPosition = target.localPosition;
             initialRotation = target.localRotation;
             initialScale = target.localScale;

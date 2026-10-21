@@ -78,6 +78,26 @@ to top) + `photo.json`; `--web` writes JPEG colour + PNG alpha atlases for the b
 the first tissue sample along each ray: on a cut face it shows the photo itself; on the skin it shades the
 surface and reads the colour 1.5 mm below it, blended over neighbouring slices.
 
+## Anatomy Lab (`unity/Assets/DicomViewer/Scripts/AnatomyLab`)
+
+The app opens on a start screen (`AppMode`): **Scan viewer** (everything below) or **Anatomy lab**. Each mode is its
+own object and only the chosen one is active; the lab's objects are built in code (`AnatomyLab.CreateRig`), so the
+scene is unchanged. `-mode lab` / `-mode viewer` on the command line skips the menu.
+
+| Component | Role |
+|---|---|
+| `PhotoBody` | loads `backend/out/photo_head/body.raw + body.json` (`prepare_photo_volume.py --unity`) into an sRGB RGBA 3D texture, an eyelid map and an empty-space map (one cell per 8^3 voxels); CPU picking that respects cuts. Its transform is the body's (metres, x left, y up, z back); the child cube is scaled to the body, so cube-local = VolumeSpace's convention |
+| `Shaders/AnatomyLab/PhotoBody.shader` | first-hit ray march with empty-space skipping; cut walls show the photo itself, skin takes its colour from 1.5 mm under the surface (blended over neighbouring slices); eyelids fold open, the real eyeballs can be swapped for modelled ones; blood stains, wet highlights, soft occlusion in folds; writes SV_Depth so meshes and drops mix in |
+| `MaskVolume` (shared with the viewer) | the dissection mask on the photo grid: undo / redo / heal |
+| `LabScalpel` | drag to cut: V-shaped wound (capsules) per stroke, one undo step; tells BloodSim how red the tissue is |
+| `BloodSim` + `Resources/BloodSim.compute` | GPU drops that fill the wound, spill at leak points and run along the skin by real gravity (turn the head, the blood follows), drying into a half-resolution 3D stain texture; drops in `BloodDrops.Buffer` for any renderer (`Shaders/AnatomyLab/BloodDrop.shader` for now) |
+| `AnatomyLab` | the coordinator: body placement, orbit target, eyes (modelled `SimpleEye` spheres for now), eyelid tool, heal |
+| `LabToolbar` | Turn / Scalpel / Eyelids, open / close eyes, undo / redo / heal, living or real eyes, front view, credit |
+| `Editor/LabSnapshot.cs` | renders the lab to `build/snapshots/*.png` without Play mode (batch-mode check of the shader) |
+
+Parts written by Claude Fable from the prompts in `docs/prompts/` (living eye, liquid blood, tissue pulling) plug in
+through fixed interfaces: `LivingEye.Create(...)`, `BloodDrops`, `WarpUVW(uvw)`.
+
 ## Viewer components (`unity/Assets/DicomViewer/Scripts`)
 
 Scripts compile into the `DicomViewer.Runtime` assembly; the editor menu into `DicomViewer.Editor`; tests into
