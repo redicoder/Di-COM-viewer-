@@ -22,6 +22,7 @@ public static class LabSnapshot
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
         var camGo = new GameObject("Camera");
+        camGo.tag = "MainCamera";                                      // the instruments face Camera.main
         var cam = camGo.AddComponent<Camera>();
         cam.fieldOfView = 30f;
         cam.nearClipPlane = 0.01f;
@@ -40,7 +41,10 @@ public static class LabSnapshot
         byte[] data = File.ReadAllBytes(Path.Combine(dir, "body.raw"));
         string lidPath = meta.lids != null ? Path.Combine(dir, meta.lids) : null;
         byte[] lids = lidPath != null && File.Exists(lidPath) ? File.ReadAllBytes(lidPath) : null;
-        body.Build(meta, data, lids);
+        string depthPath = meta.skin_depth != null ? Path.Combine(dir, meta.skin_depth) : null;
+        ushort[] depth = depthPath != null && File.Exists(depthPath)
+            ? PhotoBody.SkinDepthHalf(File.ReadAllBytes(depthPath), meta.skin_depth_unit_mm) : null;
+        body.Build(meta, data, lids, null, default, depth);
         Material m = body.Material;
 
         // Living eyes and lids, as AnatomyLab sets them up.
@@ -106,32 +110,56 @@ public static class LabSnapshot
             m.SetFloat("_MaskEnabled", 1f);
             var blood = bodyGo.AddComponent<BloodSim>();
             blood.Attach(body, mask);
+            var warp = bodyGo.AddComponent<TissueWarp>();
+            warp.fieldResolution = 192;
+            warp.Setup(body.Space.Dims, body.Space.SpacingMm, body.SkinDepthTexture);
+            warp.Bind(m);
+            var tools = bodyGo.AddComponent<LabInstruments>();
+            tools.Build(Shader.Find("DicomViewer/LabInstrument"));
+
+            // A scalpel stroke across the forehead as LabScalpel makes it: the V track, bleeding, the edges drawn apart.
             mask.BeginStroke("scalpel");
+            var cutUvw = new System.Collections.Generic.List<Vector3>();
             bool havePrev = false;
             Vector3 prevWorld = default, prevN = default;
+            float cutMm = 0f;
             for (float x = -0.03f; x <= 0.0351f; x += 0.0015f)
             {
                 var ray = new Ray(bodyGo.transform.TransformPoint(new Vector3(x, 0.045f, -0.2f)), Vector3.forward);
                 if (!body.Raycast(ray, mask.IsRemovedLocal, out Vector3 hit, out Vector3 n)) continue;
                 if (havePrev)
                 {
-                    Vector3 nn = (n + prevN).normalized;
-                    Vector3 a = body.Space.WorldToMm(body.Volume, prevWorld), b = body.Space.WorldToMm(body.Volume, hit);
-                    Vector3 inward = -body.Space.WorldDirToMm(body.Volume, nn).normalized;
-                    foreach (var c in new[] { new Vector2(-0.6f, 2.6f), new Vector2(2f, 1.7f), new Vector2(4f, 1f), new Vector2(5.4f, 0.6f) })
-                        mask.ExtendStroke(new MaskCapsule(a + inward * c.x, b + inward * c.x, c.y));
-                    float perMm = body.Space.WorldPerMm(body.Volume);
-                    Color32 col = body.ColourAt(body.Volume.InverseTransformPoint((prevWorld + hit) * 0.5f - nn * (3f * perMm)));
-                    blood.AddWound(prevWorld, hit, nn, Mathf.Clamp01((col.r - 0.5f * (col.g + col.b)) / 255f * 3f));
+                    float cutDepth = 5f * Mathf.Lerp(0.4f, 1f, Mathf.Clamp01(cutMm / 3f));
+                    LabScalpel.Incise(body, mask, blood, prevWorld, hit, (n + prevN).normalized, 1.8f, cutDepth);
+                    cutMm += Vector3.Distance(prevWorld, hit) / body.Space.WorldPerMm(body.Volume);
                 }
                 prevWorld = hit;
                 prevN = n;
                 havePrev = true;
+                cutUvw.Add(VolumeSpace.LocalToUvw(body.Volume.InverseTransformPoint(hit)));
             }
             mask.EndStroke();
+
+            // Half way through the stroke, the blade in the skin and the wound opening behind it.
+            int halfway = cutUvw.Count / 2;
+            warp.SaveState();
+            warp.Gape(cutUvw.GetRange(0, halfway + 1), LabScalpel.GapeFor(cutMm * 0.5f), 8f, 5f);
+            Vector3 bladeAt = body.Volume.TransformPoint(VolumeSpace.UvwToLocal(cutUvw[halfway]));
+            tools.ShowScalpel(bladeAt, Vector3.back, Vector3.right, 4f);
+            tools.Apply();
+            View(15f, 12f, dist * 0.6f);
+            Shot("lab_scalpel.png");
+            View(0f, 4f, dist * 0.32f);
+            Shot("lab_scalpel_close.png");
+            tools.Apply();                                             // nothing asked for: the scalpel goes
+            warp.RestoreState();
+            warp.Gape(cutUvw, LabScalpel.GapeFor(cutMm), 8f, 5f);
             View(15f, 12f, dist * 0.6f);
             Shot("lab_cut.png");
+            View(0f, 4f, dist * 0.32f);
+            Shot("lab_cut_close.png");
             blood.Advance(6f);
+            View(15f, 12f, dist * 0.6f);
             Shot("lab_blood.png");
             View(0f, 4f, dist * 0.45f);
             Shot("lab_blood_close.png");
@@ -141,6 +169,53 @@ public static class LabSnapshot
             Shot("lab_blood_off.png");
             blood.showBlood = true;
             m.SetFloat("_ShowStain", 1f);
+
+            // The Pull tool: fold the skin below the cut back as a flap, then stretch a cheek.
+            var flaps = bodyGo.AddComponent<TissueFlaps>();
+            flaps.Bind(m, body.Space.SizeMm);
+            int flap = flaps.Begin(cutUvw, Vector3.down, Vector3.back, 14f, 5f);
+            flaps.SetFold(flap, 0.4f);
+            flaps.PushNow();
+            View(12f, 18f, dist * 0.5f);
+            Shot("lab_flap_half.png");
+            flaps.SetFold(flap, 0.85f);
+            flaps.PushNow();
+            Shot("lab_flap.png");
+            Vector3 grabUvw = cutUvw[cutUvw.Count / 2] + new Vector3(0f, -6f / body.Space.SizeMm.y, 0f);
+            Vector3 nUvw = new Vector3(0f, 0f, -3f / body.Space.SizeMm.z);
+            Vector3 heldAt = body.Volume.TransformPoint(VolumeSpace.UvwToLocal(flaps.DisplayUvw(flap, grabUvw)));
+            Vector3 heldUp = body.Volume.TransformPoint(VolumeSpace.UvwToLocal(flaps.DisplayUvw(flap, grabUvw + nUvw))) - heldAt;
+            tools.ShowHand(heldAt, heldUp.normalized, true);
+            tools.Apply();
+            View(12f, 10f, dist * 0.6f);
+            Shot("lab_hand.png");
+            View(60f, 5f, dist * 0.6f);
+            Shot("lab_hand_side.png");
+            tools.Apply();
+            View(12f, 18f, dist * 0.5f);
+            View(70f, 0f, dist * 0.5f);
+            Shot("lab_flap_side.png");
+            View(0f, -10f, dist * 0.45f);
+            Shot("lab_flap_low.png");
+            flaps.Clear();
+            flaps.PushNow();
+            warp.ResetAll();
+            var cheekRay = new Ray(bodyGo.transform.TransformPoint(new Vector3(0.045f, -0.02f, -0.2f)), Vector3.forward);
+            if (body.Raycast(cheekRay, mask.IsRemovedLocal, out Vector3 cheek, out Vector3 cheekN))
+            {
+                Vector3 from = VolumeSpace.LocalToUvw(body.Volume.InverseTransformPoint(cheek));
+                Vector3 to = VolumeSpace.LocalToUvw(body.Volume.InverseTransformPoint(cheek + cheekN * 0.007f + Vector3.down * 0.004f));
+                int id = warp.BeginGrab(from, 10f);
+                warp.UpdateGrab(id, to);
+                warp.Bind(m);                                          // pushes the handle (Update does it in Play mode)
+                tools.ShowHand(cheek + cheekN * 0.007f + Vector3.down * 0.004f, cheekN, true);
+                tools.Apply();
+            }
+            View(35f, 5f, dist * 0.5f);
+            Shot("lab_pull.png");
+            tools.Apply();
+            warp.ResetAll();
+            warp.Bind(m);
             m.SetFloat("_MaskEnabled", 0f);
         }
 

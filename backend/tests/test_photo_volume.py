@@ -95,3 +95,29 @@ def test_build_meta_is_plain_json(tmp_path):
     _, meta = ppv.build(list(reversed(phantom(tmp_path, n=4))), factor=2)
     json.dumps(meta)                                       # numpy integers would raise here
     assert meta["spacing_mm"] == [0.66, 0.66, 1.0]
+
+
+def test_skin_depth_grows_inwards_and_ignores_inner_air(tmp_path):
+    vol, meta = ppv.build(list(reversed(phantom(tmp_path))), factor=1)
+    depth = ppv.skin_depth(vol[..., 3], meta["spacing_mm"][0]).astype(float) * ppv.SKIN_DEPTH_UNIT_MM
+    d, h, w = depth.shape
+    mid = d // 2
+    assert depth[mid, 0, 0] == 0                                    # outside
+    row = depth[mid, h // 2]                                        # left-right through the middle
+    xs = np.nonzero(row)[0]
+    assert row[xs[0]] < 1.0 and row[xs[-1]] < 1.0                   # just under the skin on both sides
+    # The gelatin-filled cavity in the middle is not "outside": depth keeps growing towards the centre.
+    assert depth[mid, h // 2, w // 2] > depth[mid, h // 2, xs[0] + 5] > 0
+
+
+def test_unity_export_layout(tmp_path):
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    vol, meta = ppv.build(list(reversed(phantom(photos, n=6))), factor=1)
+    body = ppv.export_unity(vol, meta, tmp_path)
+    W, Dy, H = body["dims"]
+    assert (W, Dy, H) == (vol.shape[2], vol.shape[0], vol.shape[1])          # x, up (slices), back (rows)
+    raw = np.fromfile(tmp_path / "body.raw", np.uint8).reshape(H, Dy, W, 4)  # z (back) slowest, x fastest
+    assert (raw[:, 2] == vol[2]).all()                                       # photo slice 2 = texture y 2
+    assert (tmp_path / "depth.raw").stat().st_size == W * Dy * H
+    assert body["skin_depth_unit_mm"] == 0.25

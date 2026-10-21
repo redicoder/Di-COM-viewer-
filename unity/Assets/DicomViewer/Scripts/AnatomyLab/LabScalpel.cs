@@ -1,37 +1,69 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace DicomViewer.AnatomyLab
 {
     /// <summary>
-    /// The Anatomy Lab's scalpel: drag across the body and the skin opens along the path. Each stroke is one undo step
-    /// in the dissection mask (MaskVolume), made of capsules stacked into a V: wide at the skin, narrow at the bottom,
-    /// so the wound gapes like a real incision. The tissue the blade reaches decides how much it bleeds (BloodSim).
+    /// The Anatomy Lab's scalpel: drag across the body and a No. 10 blade (LabInstruments) draws an incision along
+    /// the path. The blade parts the tissue in a thin V (MaskVolume, one undo step per stroke), and behind it the skin's
+    /// tension draws the edges apart into a lens-shaped wound (TissueWarp.Gape): widest in the middle and at the skin,
+    /// closed at the ends. The tissue the blade reaches decides how much it bleeds (BloodSim).
     /// </summary>
     [RequireComponent(typeof(AnatomyLab))]
     public class LabScalpel : MonoBehaviour
     {
-        [Tooltip("Width of the wound at the skin, mm.")]
-        public float widthMm = 5f;
-        [Tooltip("Depth of the wound, mm.")]
-        public float depthMm = 6f;
+        [Tooltip("Width of the blade's track at the skin, mm (the wound is wider once its edges draw apart).")]
+        public float widthMm = 1.8f;
+        [Tooltip("Depth of the incision, mm: through the skin into the fat beneath.")]
+        public float depthMm = 5f;
         [Tooltip("A new piece of wound every this many mm of finger movement.")]
         public float stepMm = 1.2f;
+        [Tooltip("How far each edge of a long incision draws back at the skin, mm.")]
+        public float maxGapeMm = 1.6f;
+        [Tooltip("Gape per mm of incision length (short cuts hardly open).")]
+        public float gapePerMm = 0.035f;
+        [Tooltip("How far beside the incision the skin is drawn along, mm.")]
+        public float gapeReachMm = 8f;
 
         // V profile: (centre depth below the skin, radius), as fractions of depth and half-width.
         private static readonly Vector2[] Profile =
         {
-            new Vector2(-0.10f, 1.04f), new Vector2(0.33f, 0.68f), new Vector2(0.66f, 0.40f), new Vector2(0.90f, 0.24f),
+            new Vector2(-0.10f, 1.04f), new Vector2(0.30f, 0.80f), new Vector2(0.60f, 0.62f), new Vector2(0.88f, 0.55f),
         };
+        private const float MinRadiusMm = 0.45f;          // below about a voxel the mask would miss the cut
+        private const float EntryMm = 3f;                 // the blade sinks to full depth over the first mm
 
         private AnatomyLab lab;
+        private MaskVolume mask;
         private BloodSim blood;
+        private TissueWarp warp;
+        private LabInstruments instruments;
         private bool cutting;
-        private Vector3 lastPoint, lastNormal;
+        private Vector3 lastPoint, lastNormal, strokeDir;
+        private float strokeMm, gapedAtMm;
+        private MaskOp liveOp;
+        private readonly List<Vector3> stroke = new List<Vector3>();      // this stroke's path, texture coordinates
+        private readonly List<Vector3> lastCut = new List<Vector3>();
+        // Each stroke's opened wound, so undo, redo and heal can rebuild the gapes the mask still has.
+        private readonly Dictionary<MaskOp, (Vector3[] path, float gape)> gapes = new Dictionary<MaskOp, (Vector3[], float)>();
+        private readonly List<MaskOp> gaped = new List<MaskOp>();
+
+        /// <summary>The last finished cut's path in texture coordinates (at most 64 points), for folding back flaps.</summary>
+        public IReadOnlyList<Vector3> LastCutUvw => lastCut;
 
         private void Awake()
         {
             lab = GetComponent<AnatomyLab>();
+            mask = GetComponent<MaskVolume>();
             blood = GetComponent<BloodSim>();
+            warp = GetComponent<TissueWarp>();
+            instruments = GetComponent<LabInstruments>();
+            if (mask != null) mask.Changed += OnMaskChanged;
+        }
+
+        private void OnDestroy()
+        {
+            if (mask != null) mask.Changed -= OnMaskChanged;
         }
 
         private void OnDisable() => End();
@@ -48,14 +80,21 @@ namespace DicomViewer.AnatomyLab
             Camera cam = Camera.main;
             if (cam == null) return;
 
-            if (Input.GetMouseButtonDown(0) && !ViewerUi.PointerOverUi && Pick(cam, out Vector3 p, out Vector3 n))
+            bool picked = Pick(cam, out Vector3 p, out Vector3 n);
+            if (Input.GetMouseButtonDown(0) && !ViewerUi.PointerOverUi && picked)
             {
                 lab.Mask.BeginStroke("scalpel");
+                liveOp = lab.Mask.StrokeActive ? lab.Mask.Ops[lab.Mask.Ops.Count - 1] : null;
+                if (warp != null && warp.IsSetUp) warp.SaveState();
                 cutting = true;
                 lastPoint = p;
                 lastNormal = n;
+                strokeMm = gapedAtMm = 0f;
+                strokeDir = Vector3.zero;
+                stroke.Clear();
+                stroke.Add(Uvw(lab.Body, p));
             }
-            else if (cutting && Input.GetMouseButton(0) && Pick(cam, out p, out n))
+            else if (cutting && Input.GetMouseButton(0) && picked)
             {
                 float perMm = body.Space.WorldPerMm(body.Volume);
                 float mm = Vector3.Distance(p, lastPoint) / perMm;
@@ -66,25 +105,97 @@ namespace DicomViewer.AnatomyLab
                 }
                 else if (mm > stepMm)
                 {
-                    Segment(body, lastPoint, p, (lastNormal + n).normalized);
+                    float depthScale = Mathf.Lerp(0.4f, 1f, Mathf.Clamp01(strokeMm / EntryMm));
+                    Incise(body, lab.Mask, blood, lastPoint, p, (lastNormal + n).normalized, widthMm, depthMm * depthScale);
+                    strokeDir = Vector3.Slerp(strokeDir == Vector3.zero ? (p - lastPoint).normalized : strokeDir, (p - lastPoint).normalized, 0.5f);
                     lastPoint = p;
                     lastNormal = n;
+                    strokeMm += mm;
+                    stroke.Add(Uvw(body, p));
+                    if (strokeMm - gapedAtMm >= 3f) OpenWound(liveStroke: true);
                 }
             }
             if (cutting && !Input.GetMouseButton(0)) End();
+
+            // The blade: pressed into the skin while cutting, hovering just above it under a mouse pointer.
+            if (instruments != null)
+            {
+                bool hover = !cutting && picked && Input.mousePresent && Input.touchCount == 0 && !ViewerUi.PointerOverUi;
+                if (cutting) instruments.ShowScalpel(lastPoint, lastNormal, strokeDir, depthMm * 0.8f);
+                else if (hover) instruments.ShowScalpel(p, n, Vector3.zero, -2f);
+            }
         }
 
         private void End()
         {
             if (!cutting) return;
             cutting = false;
-            lab.Mask.EndStroke();
+            if (stroke.Count >= 2)
+            {
+                OpenWound(liveStroke: false);
+                lastCut.Clear();
+                lastCut.AddRange(Resample(stroke, TissueWarp.MaxFlapPoints));
+            }
+            lab.Mask.EndStroke();                     // fires Changed: a stroke that removed nothing loses its gape
+            liveOp = null;
         }
+
+        /// <summary>Forget the last cut (Heal).</summary>
+        public void ForgetCut()
+        {
+            lastCut.Clear();
+            gapes.Clear();
+        }
+
+        // The stroke's wound opens behind the blade: the field as it was before the stroke, plus this stroke's gape.
+        private void OpenWound(bool liveStroke)
+        {
+            gapedAtMm = strokeMm;
+            if (warp == null || !warp.IsSetUp || liveOp == null || stroke.Count < 2) return;
+            float gape = Mathf.Min(maxGapeMm, strokeMm * gapePerMm);
+            var path = Resample(stroke, TissueWarp.MaxFlapPoints).ToArray();
+            warp.RestoreState();
+            warp.Gape(path, gape, gapeReachMm, depthMm);
+            if (liveStroke) return;
+            gapes[liveOp] = (path, gape);
+            gaped.Remove(liveOp);
+            gaped.Add(liveOp);
+        }
+
+        // Undo, redo, heal: rebuild the gapes of the strokes the mask still has, in order.
+        private void OnMaskChanged()
+        {
+            if (mask.StrokeActive || warp == null || !warp.IsSetUp) return;
+            var want = new List<MaskOp>();
+            foreach (MaskOp op in mask.Ops) if (gapes.ContainsKey(op)) want.Add(op);
+            bool same = want.Count == gaped.Count;
+            for (int i = 0; same && i < want.Count; i++) same = want[i] == gaped[i];
+            if (same) return;
+            warp.ClearDeformation();
+            foreach (MaskOp op in want) warp.Gape(gapes[op].path, gapes[op].gape, gapeReachMm, depthMm);
+            gaped.Clear();
+            gaped.AddRange(want);
+        }
+
+        private static List<Vector3> Resample(List<Vector3> points, int max)
+        {
+            if (points.Count <= max) return new List<Vector3>(points);
+            var r = new List<Vector3>(max);
+            for (int i = 0; i < max; i++) r.Add(points[Mathf.RoundToInt(i * (points.Count - 1) / (float)(max - 1))]);
+            return r;
+        }
+
+        private static Vector3 Uvw(PhotoBody body, Vector3 world) => VolumeSpace.LocalToUvw(body.Volume.InverseTransformPoint(world));
 
         private bool Pick(Camera cam, out Vector3 point, out Vector3 normal) =>
             lab.Body.Raycast(cam.ScreenPointToRay(Input.mousePosition), lab.Mask.IsRemovedLocal, out point, out normal);
 
-        private void Segment(PhotoBody body, Vector3 aWorld, Vector3 bWorld, Vector3 normalWorld)
+        /// <summary>
+        /// One piece of incision from aWorld to bWorld (points on the skin): a V-shaped track removed from the mask,
+        /// and bleeding from it. Also used by the editor snapshots.
+        /// </summary>
+        public static void Incise(PhotoBody body, MaskVolume mask, BloodSim blood, Vector3 aWorld, Vector3 bWorld,
+            Vector3 normalWorld, float widthMm, float depthMm)
         {
             VolumeSpace space = body.Space;
             Vector3 a = space.WorldToMm(body.Volume, aWorld), b = space.WorldToMm(body.Volume, bWorld);
@@ -93,10 +204,14 @@ namespace DicomViewer.AnatomyLab
             foreach (Vector2 c in Profile)
             {
                 Vector3 off = inward * (c.x * depthMm);
-                lab.Mask.ExtendStroke(new MaskCapsule(a + off, b + off, c.y * half));
+                mask.ExtendStroke(new MaskCapsule(a + off, b + off, Mathf.Max(c.y * half, MinRadiusMm)));
             }
             if (blood != null) blood.AddWound(aWorld, bWorld, normalWorld, Redness(body, (aWorld + bWorld) * 0.5f, normalWorld));
         }
+
+        /// <summary>How far each edge of an incision this long draws back, mm (the scalpel's defaults).</summary>
+        public static float GapeFor(float lengthMm, float maxGapeMm = 1.6f, float gapePerMm = 0.035f) =>
+            Mathf.Min(maxGapeMm, lengthMm * gapePerMm);
 
         // Red muscle and vessels 3 mm down bleed a lot, yellow fat hardly, white bone not at all.
         private static float Redness(PhotoBody body, Vector3 surfaceWorld, Vector3 normalWorld)

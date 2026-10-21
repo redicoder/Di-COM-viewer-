@@ -4,7 +4,7 @@ namespace DicomViewer.AnatomyLab
 {
     /// <summary>
     /// The Anatomy Lab's buttons (IMGUI, like the scan viewer's toolbar until the UI Toolkit port): tools (Turn,
-    /// Scalpel, Eyelids), eyes open / close, undo / redo / heal, living or real eyes, blood on / off, front view; the body's credit
+    /// Scalpel, Pull, Eyelids), eyes open / close, undo / redo / heal, living or real eyes, blood on / off, front view; the body's credit
     /// and the note that bleeding is a simulation. Ctrl+Z / Ctrl+Y undo and redo cuts.
     /// </summary>
     [RequireComponent(typeof(AnatomyLab))]
@@ -40,6 +40,7 @@ namespace DicomViewer.AnatomyLab
 
             Tool("Turn", ViewerUi.Tool.Rotate);
             Tool("Scalpel", ViewerUi.Tool.Scalpel);
+            Tool("Pull", ViewerUi.Tool.Pull);
             Tool("Eyelids", ViewerUi.Tool.Eyelids);
             x += pad * 2;
             if (Button("Open eyes", 120)) lab.OpenEyes(true);

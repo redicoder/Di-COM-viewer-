@@ -170,14 +170,30 @@ def find_eyes(vol: np.ndarray, eye_k: int, px: float) -> tuple[list[dict], np.nd
     return eyes, lids
 
 
+SKIN_DEPTH_UNIT_MM = 0.25
+
+
+def skin_depth(alpha: np.ndarray, px: float) -> np.ndarray:
+    """Millimetres below the body's outer surface (slices, rows, x), in units of SKIN_DEPTH_UNIT_MM, 0 outside.
+    The outer surface ignores the air spaces inside (sinuses, mouth): holes are filled slice by slice first, so a
+    flap of skin and fat is measured from the skin, not from the inside of the nose. Capped at 63.75 mm."""
+    outer = alpha > 127
+    for k in range(outer.shape[0]):
+        outer[k] = ndimage.binary_fill_holes(outer[k])
+    depth = ndimage.distance_transform_edt(outer, sampling=(SLICE_MM, px, px))
+    return np.clip(np.rint(depth / SKIN_DEPTH_UNIT_MM), 0, 255).astype(np.uint8)
+
+
 def export_unity(vol: np.ndarray, meta: dict, out: Path, eyes: list[dict] | None = None,
                  lids: np.ndarray | None = None) -> dict:
     """The volume in the Unity viewer's texture layout: x = patient left (fastest), y = up, z = back, so texture
     axes and the body's local axes coincide (VolumeSpace, MaskGpu, MaskModel work unchanged).
-    Writes body.raw (RGBA), lids.raw (R8, optional) and body.json; positions in metres, origin at the centre."""
+    Writes body.raw (RGBA), depth.raw (skin depth, R8), lids.raw (R8, optional) and body.json; positions in metres,
+    origin at the centre."""
     D, H, W, _ = vol.shape
     px, sz = meta["spacing_mm"][0], meta["spacing_mm"][2]
     np.ascontiguousarray(np.transpose(vol, (1, 0, 2, 3))).tofile(out / "body.raw")
+    np.ascontiguousarray(np.transpose(skin_depth(vol[..., 3], px), (1, 0, 2))).tofile(out / "depth.raw")
     size = np.array([W * px, D * sz, H * px]) / 1000.0                      # metres: x left, y up, z back
 
     def local(x, row, k):
@@ -186,7 +202,8 @@ def export_unity(vol: np.ndarray, meta: dict, out: Path, eyes: list[dict] | None
 
     body = {"dims": [W, D, H], "spacing_mm": [px, sz, px], "size_m": size.tolist(),
             "axes": {"x": "patient left (+)", "y": "up (+)", "z": "back (+)"}, "format": "RGBA8",
-            "slices": meta.get("slices"), "credit": CREDIT, "licence": LICENCE, "eyes": []}
+            "slices": meta.get("slices"), "credit": CREDIT, "licence": LICENCE, "eyes": [],
+            "skin_depth": "depth.raw", "skin_depth_unit_mm": SKIN_DEPTH_UNIT_MM}
     for e in eyes or []:
         c = local(e["x"], e["row"], e["k"])
         body["eyes"].append({"centre_m": c, "radius_m": e["radius_mm"] / 1000,

@@ -24,6 +24,9 @@ namespace DicomViewer.AnatomyLab
 
         private VolumeOrbitController orbit;
         private BloodSim blood;
+        private TissueWarp warp;
+        private TissueFlaps flaps;
+        private LabScalpel scalpel;
         private readonly List<LivingEye> eyeObjects = new List<LivingEye>();
         private bool lidDrag;
         private float lidDragY;
@@ -37,8 +40,12 @@ namespace DicomViewer.AnatomyLab
             go.AddComponent<MaskVolume>();
             go.AddComponent<VolumeOrbitController>();
             go.AddComponent<BloodSim>();
+            go.AddComponent<TissueWarp>();
+            go.AddComponent<TissueFlaps>();
             go.AddComponent<AnatomyLab>();          // before the parts that require it, or they would add a second
+            go.AddComponent<LabInstruments>();
             go.AddComponent<LabScalpel>();
+            go.AddComponent<LabPull>();
             go.AddComponent<LabToolbar>();
             var light = new GameObject("Lab light").AddComponent<Light>();
             light.type = LightType.Directional;
@@ -56,6 +63,9 @@ namespace DicomViewer.AnatomyLab
             Mask = GetComponent<MaskVolume>();
             orbit = GetComponent<VolumeOrbitController>();
             blood = GetComponent<BloodSim>();
+            warp = GetComponent<TissueWarp>();
+            flaps = GetComponent<TissueFlaps>();
+            scalpel = GetComponent<LabScalpel>();
             Body.Loaded += OnBodyLoaded;
         }
 
@@ -72,6 +82,13 @@ namespace DicomViewer.AnatomyLab
             Mask.Attach(Body.Space, () => Body.Material);
             MakeEyes();
             if (blood != null) blood.Attach(Body, Mask);
+            if (warp != null)
+            {
+                warp.fieldResolution = 192;          // ~1.3 mm cells on a head: flaps are only a few mm thick
+                warp.Setup(Body.Space.Dims, Body.Space.SpacingMm, Body.SkinDepthTexture);
+                warp.Bind(Body.Material);
+            }
+            if (flaps != null) flaps.Bind(Body.Material, Body.Space.SizeMm);
         }
 
         private void PlaceInFrontOfCamera()
@@ -172,11 +189,14 @@ namespace DicomViewer.AnatomyLab
             set { if (blood != null) blood.showBlood = value; }
         }
 
-        /// <summary>Every cut gone, all blood gone: the body as it came.</summary>
+        /// <summary>Every cut gone, all blood gone, every flap back in place: the body as it came.</summary>
         public void HealAll()
         {
             Mask.ResetBody();
             if (blood != null) blood.Clear();
+            if (warp != null) warp.ResetAll();
+            if (flaps != null) flaps.Clear();
+            if (scalpel != null) scalpel.ForgetCut();
         }
     }
 

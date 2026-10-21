@@ -1,0 +1,219 @@
+// Persistent backward-displacement field for TissueWarp.
+// Every kernel that changes the field reads a snapshot (_FieldOld, copied by C# first) and writes _Field,
+// composing the new deformation g with the old field:  F'(x) = g(x) + F(x + g(x)).
+// That is the backward map of "apply g on top of what is shown now", so grabs and flaps stack in any order.
+// Field.w = 1 marks space vacated by a lifted flap (shown as empty).
+// Gape (added for the Anatomy Lab scalpel): the edges of an incision drawn apart by the skin's tension.
+
+#pragma kernel Clear
+#pragma kernel BakeGrab
+#pragma kernel Flap
+#pragma kernel Gape
+
+RWTexture3D<float4> _Field;
+Texture3D<float4>   _FieldOld;
+SamplerState        sampler_FieldOld;     // trilinear
+Texture3D<float>    _SkinDepth;           // millimetres below the body surface, 0 outside the body
+SamplerState        sampler_SkinDepth;
+
+uint3  _Dims;          // field resolution
+uint3  _Origin;        // first voxel of the dispatch window
+float3 _SizeMm;        // physical size of the volume
+float3 _SkinStepUvw;   // one skin-depth texel in uvw, for gradients
+
+float4 _HandleFrom;    // uvw
+float4 _HandleTo;      // uvw
+float  _HandleRadiusMm;
+
+float4 _FlapPoints[64];   // cut polyline, millimetres
+int    _FlapCount;
+float3 _FlapDir;          // unit, millimetres; points from the cut into the flap
+float  _FlapWidthMm;      // cut-to-hinge distance
+float  _FlapDepthMm;      // flap thickness below the skin
+float  _FlapAngle;        // radians, outward
+
+float4 _CutPoints[64];    // incision polyline, millimetres; w = distance along the cut from its start
+int    _CutCount;
+float  _GapeMm;           // how far each edge moves at the middle of the cut, at the skin
+float  _GapeReachMm;      // the pull fades out this far from the cut
+float  _GapeDepthMm;      // and to nothing at this depth (the bottom of the wound)
+
+float3 VoxelToUvw(uint3 id) { return (float3(id) + 0.5) / float3(_Dims); }
+
+float DepthAt(float3 uvw) { return _SkinDepth.SampleLevel(sampler_SkinDepth, uvw, 0); }
+
+float Wendland(float t)
+{
+    float q = saturate(1.0 - t);
+    return q * q * q * q * (4.0 * t + 1.0);
+}
+
+// Surface normal (outward, unit, mm space) from the skin-depth gradient. Zero length where depth is flat.
+float3 SkinOutward(float3 uvw)
+{
+    float3 e = _SkinStepUvw;
+    float3 g;
+    g.x = DepthAt(uvw + float3(e.x, 0, 0)) - DepthAt(uvw - float3(e.x, 0, 0));
+    g.y = DepthAt(uvw + float3(0, e.y, 0)) - DepthAt(uvw - float3(0, e.y, 0));
+    g.z = DepthAt(uvw + float3(0, 0, e.z)) - DepthAt(uvw - float3(0, 0, e.z));
+    g /= 2.0 * e * _SizeMm;                       // depth per millimetre; depth grows inward
+    float l = length(g);
+    return l > 1e-5 ? -g / l : float3(0, 0, 0);
+}
+
+[numthreads(4, 4, 4)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= _Dims)) return;
+    _Field[id] = float4(0, 0, 0, 0);
+}
+
+[numthreads(4, 4, 4)]
+void BakeGrab(uint3 tid : SV_DispatchThreadID)
+{
+    uint3 id = tid + _Origin;
+    if (any(id >= _Dims)) return;
+    float3 x = VoxelToUvw(id);
+
+    float t = length((x - _HandleTo.xyz) * _SizeMm) / max(_HandleRadiusMm, 1e-4);
+    float3 g = (t < 1.0) ? -(_HandleTo.xyz - _HandleFrom.xyz) * Wendland(t) : float3(0, 0, 0);
+
+    float4 old = _FieldOld.SampleLevel(sampler_FieldOld, x + g, 0);
+    _Field[id] = (old.w > 0.5) ? float4(0, 0, 0, 1) : float4(g + old.xyz, 0);
+}
+
+// Rigid hinge: the flap (tissue on the _FlapDir side of the cut, within _FlapWidthMm of it, down to
+// _FlapDepthMm) rotates outward by _FlapAngle about the hinge line, which runs parallel to the cut at
+// _FlapWidthMm from it. The cut is the free edge, as in a real reflected skin flap. A rotation has unit
+// Jacobian, so the warp inside the flap cannot fold; the crease at the hinge is a discontinuity by design.
+// Backward form: for a displayed point x, undo the rotation to find p; if p was flap tissue, x shows p.
+[numthreads(4, 4, 4)]
+void Flap(uint3 tid : SV_DispatchThreadID)
+{
+    uint3 id = tid + _Origin;
+    if (any(id >= _Dims)) return;
+    float3 xu = VoxelToUvw(id);
+    float3 x = xu * _SizeMm;
+    float4 oldX = _FieldOld.SampleLevel(sampler_FieldOld, xu, 0);
+
+    // Nearest cut segment. Beyond the polyline's ends the flap stops.
+    float best = 1e30;
+    float3 C = float3(0, 0, 0), T = float3(1, 0, 0);
+    bool interior = false;
+    for (int i = 0; i < _FlapCount - 1; i++)
+    {
+        float3 A = _FlapPoints[i].xyz;
+        float3 AB = _FlapPoints[i + 1].xyz - A;
+        float len2 = max(dot(AB, AB), 1e-8);
+        float t = dot(x - A, AB) / len2;
+        float3 P = A + AB * saturate(t);
+        float d2 = dot(x - P, x - P);
+        if (d2 < best)
+        {
+            best = d2;
+            C = P;
+            T = AB * rsqrt(len2);
+            interior = !((i == 0 && t < 0.0) || (i == _FlapCount - 2 && t > 1.0));
+        }
+    }
+    if (_FlapCount < 2 || !interior) { _Field[id] = oldX; return; }
+
+    float3 Nf = _FlapDir - dot(_FlapDir, T) * T;
+    float nl = length(Nf);
+    if (nl < 1e-4) { _Field[id] = oldX; return; }   // fold direction parallel to the cut: undefined
+    Nf /= nl;
+    float3 U = cross(T, Nf);
+    float3 outward = SkinOutward(C / _SizeMm);
+    if (dot(U, outward) < 0.0) U = -U;               // "up" is out of the body
+
+    float3 H = C + Nf * _FlapWidthMm;                 // hinge
+    float3 rel = x - H;
+    float a = dot(rel, Nf);
+    float b = dot(rel, U);
+    float3 along = rel - a * Nf - b * U;
+
+    // Inverse of the outward rotation in the (Nf, U) plane.
+    float sn, cs;
+    sincos(_FlapAngle, sn, cs);
+    float a2 = a * cs - b * sn;
+    float b2 = a * sn + b * cs;
+    float3 pu = (H + a2 * Nf + b2 * U + along) / _SizeMm;
+
+    // Was the tissue at p part of the flap? Judge depth in the original (undeformed) coordinates.
+    float4 oldP = _FieldOld.SampleLevel(sampler_FieldOld, pu, 0);
+    if (oldP.w < 0.5 && a2 >= -_FlapWidthMm && a2 <= 0.0)
+    {
+        float dp = DepthAt(pu + oldP.xyz);
+        if (dp > 0.0 && dp <= _FlapDepthMm)
+        {
+            _Field[id] = float4((pu - xu) + oldP.xyz, 0.0);
+            return;
+        }
+    }
+
+    // The flap's former place is now open.
+    if (oldX.w < 0.5 && a >= -_FlapWidthMm && a <= 0.0)
+    {
+        float dx = DepthAt(xu + oldX.xyz);
+        if (dx > 0.0 && dx <= _FlapDepthMm)
+        {
+            _Field[id] = float4(0, 0, 0, 1);
+            return;
+        }
+    }
+    _Field[id] = oldX;
+}
+
+// Incision gape. Skin is under tension, so a cut's edges draw apart: most at the skin and in the middle of the cut
+// (a lens-shaped wound), less with depth, not at all at its ends. Backward form: a displayed point beside the cut
+// shows tissue from nearer the cut; points inside the opened gap show the cut itself (removed by the mask: empty).
+// Fold-free while _GapeMm * 2.109 / _GapeReachMm < 1 (the Wendland bound above).
+[numthreads(4, 4, 4)]
+void Gape(uint3 tid : SV_DispatchThreadID)
+{
+    uint3 id = tid + _Origin;
+    if (any(id >= _Dims)) return;
+    float3 xu = VoxelToUvw(id);
+    float3 x = xu * _SizeMm;
+    float4 oldX = _FieldOld.SampleLevel(sampler_FieldOld, xu, 0);
+
+    float best = 1e30, along = 0.0;
+    float3 C = float3(0, 0, 0), T = float3(1, 0, 0);
+    for (int i = 0; i < _CutCount - 1; i++)
+    {
+        float3 A = _CutPoints[i].xyz;
+        float3 AB = _CutPoints[i + 1].xyz - A;
+        float len2 = max(dot(AB, AB), 1e-8);
+        float t = saturate(dot(x - A, AB) / len2);
+        float3 P = A + AB * t;
+        float d2 = dot(x - P, x - P);
+        if (d2 < best)
+        {
+            best = d2;
+            C = P;
+            T = AB * rsqrt(len2);
+            along = lerp(_CutPoints[i].w, _CutPoints[i + 1].w, t);
+        }
+    }
+    float dist = sqrt(best);
+    float total = _CutCount >= 2 ? _CutPoints[_CutCount - 1].w : 0.0;
+    if (_CutCount < 2 || total < 1e-3 || dist >= _GapeReachMm) { _Field[id] = oldX; return; }
+
+    float3 n = SkinOutward(C / _SizeMm);
+    float3 S = cross(T, n);
+    float sl = length(S);
+    if (sl < 1e-4) { _Field[id] = oldX; return; }
+    S /= sl;                                           // across the cut, along the skin
+
+    float3 rel = x - C;
+    float d = dot(rel, S);
+    float h = -dot(rel, n);                            // depth below the skin at the cut
+    float u = along / total;
+    float lens = sqrt(saturate(4.0 * u * (1.0 - u)));
+    float m = _GapeMm * lens * (1.0 - smoothstep(0.0, _GapeDepthMm, h)) * Wendland(dist / _GapeReachMm);
+
+    float3 g = abs(d) <= m ? -d * S : -sign(d) * m * S;   // inside the gap: the cut's own plane
+    float3 gu = g / _SizeMm;
+    float4 old = _FieldOld.SampleLevel(sampler_FieldOld, xu + gu, 0);
+    _Field[id] = (old.w > 0.5) ? float4(0, 0, 0, 1) : float4(gu + old.xyz, 0);
+}

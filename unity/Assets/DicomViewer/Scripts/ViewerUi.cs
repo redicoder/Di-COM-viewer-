@@ -44,9 +44,9 @@ namespace DicomViewer
         /// <summary>
         /// The armed tool. Rotate is the default: one finger rotates, a tap selects a structure to inspect.
         /// With a cutting tool armed, one finger (left mouse) cuts; two fingers (right mouse) still navigate.
-        /// Eyelids belongs to the Anatomy Lab: one finger opens and closes the eyes.
+        /// Eyelids and Pull belong to the Anatomy Lab: one finger opens and closes the eyes / pulls tissue.
         /// </summary>
-        public enum Tool { Rotate, Scalpel, Dig, Knife, Eyelids }
+        public enum Tool { Rotate, Scalpel, Dig, Knife, Eyelids, Pull }
 
         public static Tool ActiveTool { get; set; } = Tool.Rotate;
         public static bool CuttingToolArmed => ActiveTool != Tool.Rotate;

@@ -27,6 +27,8 @@ namespace DicomViewer.AnatomyLab
         public string licence;
         public BodyEye[] eyes;
         public string lids;
+        public string skin_depth;            // R8, units of skin_depth_unit_mm below the outer skin
+        public float skin_depth_unit_mm;
     }
 
     /// <summary>
@@ -51,6 +53,8 @@ namespace DicomViewer.AnatomyLab
         public Transform Volume { get; private set; }
         public Material Material { get; private set; }
         public Texture3D ColourTexture { get; private set; }
+        /// <summary>Millimetres below the outer skin (R16 float), for TissueWarp's flaps; null if the export has none.</summary>
+        public Texture3D SkinDepthTexture { get; private set; }
         public Vector3 SizeM { get; private set; }
         public bool IsLoaded => Material != null;
         public bool IsLoading { get; private set; }
@@ -73,15 +77,18 @@ namespace DicomViewer.AnatomyLab
             {
                 var meta = JsonUtility.FromJson<BodyMeta>(File.ReadAllText(Path.Combine(dir, "body.json")));
                 string lidPath = string.IsNullOrEmpty(meta.lids) ? null : Path.Combine(dir, meta.lids);
+                string depthPath = string.IsNullOrEmpty(meta.skin_depth) ? null : Path.Combine(dir, meta.skin_depth);
                 var dims = new Vector3Int(meta.dims[0], meta.dims[1], meta.dims[2]);
-                var (data, lids, occ, occDims) = await Task.Run(() =>
+                var (data, lids, occ, occDims, depth) = await Task.Run(() =>
                 {
                     byte[] d = File.ReadAllBytes(Path.Combine(dir, "body.raw"));
                     byte[] l = lidPath != null && File.Exists(lidPath) ? File.ReadAllBytes(lidPath) : null;
                     byte[] o = Occupancy(d, dims, out var od);
-                    return (d, l, o, od);
+                    ushort[] sd = depthPath != null && File.Exists(depthPath)
+                        ? SkinDepthHalf(File.ReadAllBytes(depthPath), meta.skin_depth_unit_mm) : null;
+                    return (d, l, o, od, sd);
                 });
-                Build(meta, data, lids, occ, occDims);
+                Build(meta, data, lids, occ, occDims, depth);
             }
             catch (Exception e)
             {
@@ -95,7 +102,8 @@ namespace DicomViewer.AnatomyLab
         }
 
         /// <summary>Creates the textures, the volume cube and its material. Public so tests can build a body in memory.</summary>
-        public void Build(BodyMeta meta, byte[] data, byte[] lids, byte[] occupancy = null, Vector3Int occDims = default)
+        public void Build(BodyMeta meta, byte[] data, byte[] lids, byte[] occupancy = null, Vector3Int occDims = default,
+            ushort[] skinDepthHalf = null)
         {
             var dims = new Vector3Int(meta.dims[0], meta.dims[1], meta.dims[2]);
             if (data.Length != dims.x * dims.y * dims.z * 4)
@@ -117,6 +125,17 @@ namespace DicomViewer.AnatomyLab
             bool hasLids = lids != null && lids.Length == dims.x * dims.y * dims.z;
             lidTexture = R8(hasLids ? lids : new byte[1], hasLids ? dims : Vector3Int.one, FilterMode.Bilinear, "PhotoBody eyelids");
             occupancyTexture = R8(occupancy, occDims, FilterMode.Point, "PhotoBody occupancy");
+            if (SkinDepthTexture != null) Kill(SkinDepthTexture);
+            SkinDepthTexture = null;
+            if (skinDepthHalf != null && skinDepthHalf.Length == dims.x * dims.y * dims.z)
+            {
+                SkinDepthTexture = new Texture3D(dims.x, dims.y, dims.z, GraphicsFormat.R16_SFloat, TextureCreationFlags.None)
+                {
+                    wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = "PhotoBody skin depth (mm)",
+                };
+                SkinDepthTexture.SetPixelData(skinDepthHalf, 0);
+                SkinDepthTexture.Apply(false, true);
+            }
             if (noStain == null) noStain = R8(new byte[1], Vector3Int.one, FilterMode.Point, "PhotoBody no stain");
 
             if (Volume != null) Kill(Volume.gameObject);
@@ -142,6 +161,7 @@ namespace DicomViewer.AnatomyLab
             Material.SetVector("_Dims", new Vector4(dims.x, dims.y, dims.z, 0));
             Material.SetVector("_SizeM", SizeM);
             Material.SetFloat("_HasLids", hasLids ? 1f : 0f);
+            if (SkinDepthTexture != null) Material.SetTexture("_SkinDepthTex", SkinDepthTexture);
             mr.sharedMaterial = Material;
             Loaded?.Invoke();
         }
@@ -155,6 +175,17 @@ namespace DicomViewer.AnatomyLab
             t.SetPixelData(data, 0);
             t.Apply(false, true);
             return t;
+        }
+
+        /// <summary>Skin depth from the export (bytes x unit mm) as half floats in millimetres.</summary>
+        public static ushort[] SkinDepthHalf(byte[] depth, float unitMm)
+        {
+            if (unitMm <= 0f) unitMm = 0.25f;
+            var lut = new ushort[256];
+            for (int i = 0; i < 256; i++) lut[i] = Mathf.FloatToHalf(i * unitMm);
+            var half = new ushort[depth.Length];
+            for (int i = 0; i < depth.Length; i++) half[i] = lut[depth[i]];
+            return half;
         }
 
         /// <summary>
@@ -298,6 +329,7 @@ namespace DicomViewer.AnatomyLab
             if (lidTexture != null) Kill(lidTexture);
             if (occupancyTexture != null) Kill(occupancyTexture);
             if (noStain != null) Kill(noStain);
+            if (SkinDepthTexture != null) Kill(SkinDepthTexture);
             if (Material != null) Kill(Material);
         }
 
