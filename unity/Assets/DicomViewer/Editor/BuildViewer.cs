@@ -28,7 +28,9 @@ public static class BuildViewer
         "VolumeRendering/URP/CrossSectionPlane",
         "DicomViewer/PhotoBody",       // Anatomy Lab
         "DicomViewer/BloodDrop",
-        "DicomViewer/SimpleEye",
+        "DicomViewer/LivingEyeSclera",
+        "DicomViewer/LivingEyeIris",
+        "DicomViewer/LivingEyeCornea",
         "DicomViewer/BloodFluidDrops",
         "DicomViewer/BloodFluidBlur",
         "DicomViewer/BloodFluidComposite",

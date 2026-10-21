@@ -12,6 +12,7 @@ Shader "DicomViewer/PhotoBody"
         _StainTex ("Blood stain", 3D) = "black" {}
         _LidTex ("Eyelids (0.25 lower, 0.5 upper)", 3D) = "black" {}
         _OccTex ("Occupancy (tissue somewhere in this brick)", 3D) = "white" {}
+        _ShowStain ("Show blood stains", Float) = 1
     }
     SubShader
     {
@@ -47,6 +48,7 @@ Shader "DicomViewer/PhotoBody"
                 float _Open;               // eyelids: 0 shut .. 1 open
                 float _ModelEyes;          // 1: the real eyeballs are hidden, modelled eyes sit in their place
                 float _StepScale;          // ray step in voxels: 0.5 at rest, 1 while the body moves
+                float _ShowStain;          // 0: blood hidden (dry dissection)
                 float4 _Eye0, _Eye1;       // per eye: x, lid line y, eyeball centre z, radius (metres)
                 float4 _EyeBall0, _EyeBall1;   // the real eyeballs (centre xyz, radius), hidden when _ModelEyes
             CBUFFER_END
@@ -166,7 +168,7 @@ Shader "DicomViewer/PhotoBody"
 
                 float stain = max(SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, p + 0.5, 0).r,
                                   SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, p + 0.5 + inwardM * 0.0006 / _SizeM.xyz, 0).r);
-                float wet = smoothstep(0.04, 0.35, stain);
+                float wet = smoothstep(0.04, 0.35, stain) * _ShowStain;
                 albedo = lerp(albedo, float3(0.13, 0.0018, 0.0025), wet * 0.92);
 
                 float3 wpos = TransformObjectToWorld(p);

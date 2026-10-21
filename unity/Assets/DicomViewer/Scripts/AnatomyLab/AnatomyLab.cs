@@ -24,7 +24,7 @@ namespace DicomViewer.AnatomyLab
 
         private VolumeOrbitController orbit;
         private BloodSim blood;
-        private readonly List<GameObject> eyeObjects = new List<GameObject>();
+        private readonly List<LivingEye> eyeObjects = new List<LivingEye>();
         private bool lidDrag;
         private float lidDragY;
 
@@ -87,7 +87,7 @@ namespace DicomViewer.AnatomyLab
 
         private void MakeEyes()
         {
-            foreach (var e in eyeObjects) if (e != null) Destroy(e);
+            foreach (var e in eyeObjects) if (e != null) Destroy(e.gameObject);
             eyeObjects.Clear();
             BodyEye[] eyes = Body.Meta.eyes;
             Material m = Body.Material;
@@ -96,26 +96,27 @@ namespace DicomViewer.AnatomyLab
                 m.SetFloat("_HasLids", 0f);
                 return;
             }
-            Shader shader = Shader.Find("DicomViewer/SimpleEye");
             for (int i = 0; i < 2; i++)
             {
                 BodyEye e = eyes[i];
                 var real = new Vector4(e.centre_m[0], e.centre_m[1], e.centre_m[2], e.radius_m + 0.0005f);
                 m.SetVector(i == 0 ? "_Eye0" : "_Eye1", new Vector4(e.centre_m[0], e.lid_line_y_m, e.centre_m[2], e.radius_m));
                 m.SetVector(i == 0 ? "_EyeBall0" : "_EyeBall1", real);
-                if (shader == null) continue;
-                // A living eye's cornea sits just behind the closed lids, not sunken like his.
-                const float radius = 0.012f;
-                var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                go.name = i == 0 ? "Right eye" : "Left eye";
-                DestroyImmediate(go.GetComponent<Collider>());
-                go.transform.SetParent(transform, false);
-                go.transform.localPosition = new Vector3(e.centre_m[0], e.centre_m[1], e.skin_front_z_m + 0.0025f + radius);
-                go.transform.localScale = Vector3.one * radius * 2f;
-                go.GetComponent<MeshRenderer>().sharedMaterial = new Material(shader);
-                eyeObjects.Add(go);
+                LivingEye eye = LivingEye.Create(transform, LivingEyeCentre(e), LivingEyeRadius, Vector3.back);
+                eye.name = i == 0 ? "Right eye" : "Left eye";
+                eyeObjects.Add(eye);
             }
         }
+
+        public const float LivingEyeRadius = 0.012f;
+
+        /// <summary>
+        /// Where a living eye goes: on his eyeball's axis, with the cornea's tip 2.5 mm behind the closed lids' skin
+        /// (his own eyes have sunk since death; a living one sits forward). The cornea's apex is ~13 mm in front of
+        /// the eye's centre for a 12 mm eye (LivingEye's geometry).
+        /// </summary>
+        public static Vector3 LivingEyeCentre(BodyEye e) =>
+            new Vector3(e.centre_m[0], e.centre_m[1], e.skin_front_z_m + 0.0025f + LivingEyeRadius * 1.085f);
 
         private void Update()
         {
@@ -123,7 +124,14 @@ namespace DicomViewer.AnatomyLab
             EyelidInput();
             EyesOpen = Mathf.MoveTowards(EyesOpen, eyesOpenTarget, eyelidSpeed * Time.deltaTime);
             bool modelled = livingEyes && eyeObjects.Count == 2;
-            foreach (var e in eyeObjects) e.SetActive(modelled);
+            Camera cam = Camera.main;
+            foreach (LivingEye e in eyeObjects)
+            {
+                e.gameObject.SetActive(modelled);
+                if (!modelled) continue;
+                if (EyesOpen > 0.3f && cam != null) e.LookAt(cam.transform.position);   // open eyes look at you
+                else e.LookForward();
+            }
             bool moving = Input.GetMouseButton(0) || Input.GetMouseButton(1) || Input.touchCount > 0;
             Material m = Body.Material;
             m.SetFloat("_Open", EyesOpen);
@@ -156,6 +164,13 @@ namespace DicomViewer.AnatomyLab
         public void OpenEyes(bool open) => eyesOpenTarget = open ? 1f : 0f;
 
         public void ResetView() => orbit.ResetView();
+
+        /// <summary>Blood shown and cuts bleeding, or a dry dissection (blood hidden, new cuts do not bleed).</summary>
+        public bool ShowBlood
+        {
+            get => blood == null || blood.showBlood;
+            set { if (blood != null) blood.showBlood = value; }
+        }
 
         /// <summary>Every cut gone, all blood gone: the body as it came.</summary>
         public void HealAll()

@@ -4,7 +4,7 @@ namespace DicomViewer.AnatomyLab
 {
     /// <summary>
     /// The Anatomy Lab's buttons (IMGUI, like the scan viewer's toolbar until the UI Toolkit port): tools (Turn,
-    /// Scalpel, Eyelids), eyes open / close, undo / redo / heal, living or real eyes, front view; the body's credit
+    /// Scalpel, Eyelids), eyes open / close, undo / redo / heal, living or real eyes, blood on / off, front view; the body's credit
     /// and the note that bleeding is a simulation. Ctrl+Z / Ctrl+Y undo and redo cuts.
     /// </summary>
     [RequireComponent(typeof(AnatomyLab))]
@@ -53,14 +53,25 @@ namespace DicomViewer.AnatomyLab
             if (Button("Heal all", 100)) lab.HealAll();
             x += pad * 2;
             if (Button(lab.livingEyes ? "Eyes: living" : "Eyes: his real", 150)) lab.livingEyes = !lab.livingEyes;
+            if (Button(lab.ShowBlood ? "Blood: on" : "Blood: off", 120)) lab.ShowBlood = !lab.ShowBlood;
             if (Button("Front view", 120)) lab.ResetView();
 
             string credit = string.IsNullOrEmpty(body.Meta.credit) ? "" : body.Meta.credit + ". ";
             var noteRect = new Rect(pad, y + h + pad, Screen.width - 2 * pad, 30 * k);
-            GUI.Label(noteRect, credit + "Bleeding is a simulation: a real dead body does not bleed. For education only.", note);
+            string bleeding = lab.ShowBlood ? "Bleeding is a simulation: a real dead body does not bleed. "
+                : "Dry dissection: cuts do not bleed, blood hidden. ";
+            GUI.Label(noteRect, credit + bleeding + "For education only.", note);
+
+            void Wrap(float width)                     // touch screens make buttons bigger: continue on a new row
+            {
+                if (x + width <= Screen.width - pad || x <= pad) return;
+                x = pad;
+                y += h + pad;
+            }
 
             void Tool(string label, ViewerUi.Tool tool)
             {
+                Wrap(110 * k);
                 var r = new Rect(x, y, 110 * k, h);
                 ViewerUi.Block(r);
                 if (GUI.Button(r, label, ViewerUi.ActiveTool == tool ? barOn : bar)) ViewerUi.ActiveTool = tool;
@@ -69,6 +80,7 @@ namespace DicomViewer.AnatomyLab
 
             bool Button(string label, float width)
             {
+                Wrap(width * k);
                 var r = new Rect(x, y, width * k, h);
                 ViewerUi.Block(r);
                 x += r.width + pad;

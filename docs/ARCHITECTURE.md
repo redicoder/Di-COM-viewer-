@@ -90,9 +90,10 @@ scene is unchanged. `-mode lab` / `-mode viewer` on the command line skips the m
 | `Shaders/AnatomyLab/PhotoBody.shader` | first-hit ray march with empty-space skipping; cut walls show the photo itself, skin takes its colour from 1.5 mm under the surface (blended over neighbouring slices); eyelids fold open, the real eyeballs can be swapped for modelled ones; blood stains, wet highlights, soft occlusion in folds; writes SV_Depth so meshes and drops mix in |
 | `MaskVolume` (shared with the viewer) | the dissection mask on the photo grid: undo / redo / heal |
 | `LabScalpel` | drag to cut: V-shaped wound (capsules) per stroke, one undo step; tells BloodSim how red the tissue is |
-| `BloodSim` + `Resources/BloodSim.compute` | GPU drops that fill the wound, spill at leak points and run along the skin by real gravity (turn the head, the blood follows), drying into a half-resolution 3D stain texture; drops in `BloodDrops.Buffer` for any renderer (`Shaders/AnatomyLab/BloodDrop.shader` for now) |
-| `AnatomyLab` | the coordinator: body placement, orbit target, eyes (modelled `SimpleEye` spheres for now), eyelid tool, heal |
-| `LabToolbar` | Turn / Scalpel / Eyelids, open / close eyes, undo / redo / heal, living or real eyes, front view, credit |
+| `BloodSim` + `Resources/BloodSim.compute` | GPU drops that fill the wound, spill at leak points and run along the skin by real gravity (turn the head, the blood follows), drying into a half-resolution 3D stain texture. `showBlood` off = dry dissection (hidden, paused, cuts do not bleed) |
+| `BloodFluidFeature` (URP renderer feature, by Claude Fable) | draws `BloodDrops.Buffer` as liquid: sphere-imposter depth, narrow-range smoothing, thickness, Beer-Lambert shading; `BloodDrop.shader` is the simple fallback |
+| `AnatomyLab` | the coordinator: body placement, orbit target, living eyes (`LivingEye`, by Claude Fable: sclera, refracting iris under a clear cornea, pupil and gaze; they look at the viewer when open), eyelid tool, blood on / off, heal |
+| `LabToolbar` | Turn / Scalpel / Eyelids, open / close eyes, undo / redo / heal, living or real eyes, blood on / off, front view, credit; wraps onto a second row on touch screens |
 | `Editor/LabSnapshot.cs` | renders the lab to `build/snapshots/*.png` without Play mode (batch-mode check of the shader) |
 
 Parts written by Claude Fable from the prompts in `docs/prompts/` (living eye, liquid blood, tissue pulling) plug in

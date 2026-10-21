@@ -43,20 +43,14 @@ public static class LabSnapshot
         body.Build(meta, data, lids);
         Material m = body.Material;
 
-        // Modelled eyes and lids, as AnatomyLab sets them up.
+        // Living eyes and lids, as AnatomyLab sets them up.
         var eyes = new GameObject[2];
-        Shader eyeShader = Shader.Find("DicomViewer/SimpleEye");
         for (int i = 0; i < 2 && meta.eyes != null && i < meta.eyes.Length; i++)
         {
             BodyEye e = meta.eyes[i];
             m.SetVector(i == 0 ? "_Eye0" : "_Eye1", new Vector4(e.centre_m[0], e.lid_line_y_m, e.centre_m[2], e.radius_m));
             m.SetVector(i == 0 ? "_EyeBall0" : "_EyeBall1", new Vector4(e.centre_m[0], e.centre_m[1], e.centre_m[2], e.radius_m + 0.0005f));
-            eyes[i] = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            Object.DestroyImmediate(eyes[i].GetComponent<Collider>());
-            eyes[i].transform.SetParent(bodyGo.transform, false);
-            eyes[i].transform.localPosition = new Vector3(e.centre_m[0], e.centre_m[1], e.skin_front_z_m + 0.0025f + 0.012f);
-            eyes[i].transform.localScale = Vector3.one * 0.024f;
-            eyes[i].GetComponent<MeshRenderer>().sharedMaterial = new Material(eyeShader);
+            eyes[i] = LivingEye.Create(bodyGo.transform, AnatomyLab.LivingEyeCentre(e), AnatomyLab.LivingEyeRadius, Vector3.back).gameObject;
         }
 
         float dist = body.SizeM.y * 0.5f / 0.42f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
@@ -95,6 +89,9 @@ public static class LabSnapshot
         foreach (var e in eyes) if (e != null) e.SetActive(true);
         View(0f, 3f, dist * 0.55f);
         Shot("lab_eyes_living.png");
+        View(8f, 2f, dist * 0.22f);
+        Shot("lab_eye_close.png");
+        View(0f, 3f, dist * 0.55f);
         m.SetFloat("_ModelEyes", 0f);
         foreach (var e in eyes) if (e != null) e.SetActive(false);
         Shot("lab_eyes_real.png");
@@ -138,6 +135,12 @@ public static class LabSnapshot
             Shot("lab_blood.png");
             View(0f, 4f, dist * 0.45f);
             Shot("lab_blood_close.png");
+            blood.showBlood = false;                                   // the Blood: off button
+            m.SetFloat("_ShowStain", 0f);
+            blood.Advance(0.1f);
+            Shot("lab_blood_off.png");
+            blood.showBlood = true;
+            m.SetFloat("_ShowStain", 1f);
             m.SetFloat("_MaskEnabled", 0f);
         }
 

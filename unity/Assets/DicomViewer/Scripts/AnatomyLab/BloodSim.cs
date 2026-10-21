@@ -41,6 +41,8 @@ namespace DicomViewer.AnatomyLab
         public bool drawSimpleDrops = true;
         [Tooltip("Drops per second per cm of wound, before the tissue's redness multiplies it.")]
         public float bleedRate = 25f;
+        [Tooltip("Off: a dry dissection. Blood is hidden and paused, and new cuts do not bleed; on again shows it.")]
+        public bool showBlood = true;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct EmitRequest
@@ -137,7 +139,7 @@ namespace DicomViewer.AnatomyLab
         /// <summary>A new piece of wound (world space). redness 0..1: how much the tissue under it bleeds.</summary>
         public void AddWound(Vector3 aWorld, Vector3 bWorld, Vector3 normalWorld, float redness)
         {
-            if (!Ready) return;
+            if (!Ready || !showBlood) return;
             Transform t = body.transform;
             var w = new Wound
             {
@@ -183,6 +185,7 @@ namespace DicomViewer.AnatomyLab
 
         private void Update()
         {
+            if (body != null && body.Material != null) body.Material.SetFloat("_ShowStain", showBlood ? 1f : 0f);
             if (Ready && body != null && body.IsLoaded) Tick(Mathf.Min(Time.deltaTime, 0.05f));
         }
 
@@ -195,6 +198,11 @@ namespace DicomViewer.AnatomyLab
 
         private void Tick(float dt)
         {
+            if (!showBlood)
+            {
+                Publish(false);                  // hidden and paused where it is
+                return;
+            }
             clock += dt;
             for (int i = wounds.Count - 1; i >= 0; i--)
             {
