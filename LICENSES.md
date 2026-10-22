@@ -20,6 +20,7 @@ the row says "confirmed".
 | **pylibjpeg-libjpeg** | backend (JPEG lossless DICOM) | **GPL-3.0** (to verify) | **do not ship** in a commercial build until resolved (replace or confirm) |
 | scikit-image | backend/.venv-seg (skin mesh extraction, `tools/extract_skin_mesh.py`) | BSD-3-Clause | confirmed |
 | fast-simplification | backend/.venv-seg (mesh decimation) | MIT | confirmed |
+| tifffile | backend/.venv (reads the SIO label TIFFs) | BSD-3-Clause | confirmed |
 | PyTorch | backend/.venv-seg | BSD-3-Clause | verify |
 | nnU-Net v2 | backend/.venv-seg (used by TotalSegmentator) | Apache-2.0 | verify |
 | nibabel, SimpleITK, dipy | backend/.venv-seg | MIT / Apache-2.0 / BSD-3 | verify |
@@ -41,6 +42,7 @@ TotalSegmentator usage statistics are disabled (`%USERPROFILE%\.totalsegmentator
 | Item | Terms | Status |
 |---|---|---|
 | NLM Visible Human Project: male colour cryosection photographs (the photographed body, `tools/prepare_photo_volume.py`), male frozen CT, female fresh CT | "National Library of Medicine Terms and Conditions; May 21, 2019" (licence listed by NCI Imaging Data Commons, collection `nlm_visible_human_project`, DOI 10.5281/zenodo.12690049). Free use; credit line **"Courtesy of the U.S. National Library of Medicine"** on the About screen; no suggestion that NLM endorses the product; state that the data may not reflect the most current or accurate data available from NLM. `tools/build_body.py` writes all of this into each export's `provenance.json` | confirmed; demo body |
+| Segmented Internal Organs of the Visible Human Male (SIO), VOXEL-MAN group, University Medical Center Hamburg-Eppendorf: Höhne K.H., Pflesser B., Pommert A., Riemer M., Schiemann T., Schubert R., Tiede U., Schumacher U. — a 1 mm voxel model of the torso with 202 labelled structures, made from the NLM photographs (`tools/import_sio_labels.py` registers it onto the photographed body; `labels.raw` / `labels.json` in the export) | **CC BY 4.0**, Zenodo, DOI 10.5281/zenodo.15882018 (v1 10.5281/zenodo.15882019). Credit the authors, title, source and licence (the lab's toolbar and the About screen); cite the DOI; mark changes (resampled onto the photographs' grid, objects re-indexed) | confirmed |
 | TCIA collections used in development (C4KC-KiTS, LIDC-IDRI, FDG-PET-CT-Lesions) | per collection page (CC BY 3.0/4.0 typical) — verify | development/testing only, not shipped |
 | `5 RibWB Standard.nrrd` | unknown origin | development fixture only, never committed or shipped |
 | `anonymized_20261019` | origin to be confirmed | development only, never committed or shipped |

@@ -33,6 +33,7 @@ public static class LabSnapshot
         light.intensity = 1.9f;
         light.color = new Color(1f, 0.96f, 0.9f);
         light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+        AnatomyLab.LabShadows(light);
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
         var bodyGo = new GameObject("Body");
@@ -308,6 +309,8 @@ public static class LabSnapshot
         ushort[] depth = depthPath != null && File.Exists(depthPath)
             ? PhotoBody.SkinDepthHalf(File.ReadAllBytes(depthPath), meta.skin_depth_unit_mm) : null;
         body.Build(meta, data, lids, null, default, depth);
+        var labels = BodyLabels.Read(dir, meta);
+        body.AttachLabels(BodyLabels.Build(new Vector3Int(meta.dims[0], meta.dims[1], meta.dims[2]), labels.index, labels.table));
         return meta;
     }
 
@@ -339,6 +342,7 @@ public static class LabSnapshot
         light.intensity = 1.9f;
         light.color = new Color(1f, 0.96f, 0.9f);
         light.transform.rotation = Quaternion.Euler(50f, -25f, 0f);
+        AnatomyLab.LabShadows(light);
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
         var bodyGo = new GameObject("Body");
@@ -472,6 +476,22 @@ public static class LabSnapshot
         mask.EndStroke();
         blood.Advance(5f);
         Shot("body_chest_cut.png");
+        if (body.Labels != null)
+        {
+            // What the cut shows at its middle, named as the lab names what is under the cursor, and lifted.
+            Vector3 start = bodyGo.transform.TransformPoint(new Vector3(0.01f, 0.30f, -0.30f));
+            Vector3 dir = bodyGo.transform.TransformDirection(Vector3.forward);
+            if (body.Raycast(new Ray(start, dir), mask.IsRemovedLocal, out Vector3 hit, out _))
+            {
+                Vector3 uvw = VolumeSpace.LocalToUvw(body.Volume.InverseTransformPoint(hit));
+                int index = body.Labels.IndexAt(uvw);
+                Debug.Log($"LabSnapshot: under the chest cut: {body.Labels.Name(index) ?? "nothing labelled"} (index {index}); "
+                          + $"skin there: {body.Labels.NameAt(uvw + new Vector3(0f, 0f, -0.012f / body.SizeM.z)) ?? "none"}");
+                m.SetFloat("_HighlightIndex", index);
+                Shot("body_chest_label.png");
+                m.SetFloat("_HighlightIndex", 0f);
+            }
+        }
         Debug.Log($"LabSnapshot: whole body done -> {outDir}");
     }
 

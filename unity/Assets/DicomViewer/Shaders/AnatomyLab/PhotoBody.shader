@@ -31,6 +31,8 @@ Shader "DicomViewer/PhotoBody"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -57,6 +59,10 @@ Shader "DicomViewer/PhotoBody"
 
             #include "TissueWarp.hlsl"         // live grabs (GrabDisplacement) and the baked grab field
             #include "LabSkin.hlsl"            // the skin's lighting
+
+            // Names for his voxels (BodyLabels.cs): an object index per voxel; the one under the cursor is lifted.
+            TEXTURE3D(_LabelTex);  SAMPLER(sampler_LabelTex);
+            float _HighlightIndex;
 
             #include "LabBody.hlsl"            // the body's textures, sheets, lids, instruments (shared with the skin mesh)
 
@@ -237,6 +243,11 @@ Shader "DicomViewer/PhotoBody"
                 Tissue(pc + up, c2);
                 float3 albedo = 0.18 * c0 + 0.64 * c1 + 0.18 * c2;    // softens the 1 mm steps between photos
                 albedo = LabSkinGrade(albedo, skin);
+                [branch] if (_HighlightIndex > 0.5)
+                {
+                    float li = round(SAMPLE_TEXTURE3D_LOD(_LabelTex, sampler_LabelTex, srcHit, 0).r * 255.0);
+                    if (abs(li - _HighlightIndex) < 0.5) albedo = lerp(albedo, albedo * float3(1.35, 1.3, 0.55) + 0.10, 0.6);
+                }
 
                 float stain = max(SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, srcHit, 0).r,
                                   SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, SourceUVW(p + 0.5 + inwardM * 0.0006 / _SizeM.xyz), 0).r);
@@ -245,10 +256,10 @@ Shader "DicomViewer/PhotoBody"
 
                 float3 wpos = TransformObjectToWorld(p);
                 float3 V = normalize(_WorldSpaceCameraPos - wpos);
-                Light light = GetMainLight();
+                Light light = GetMainLight(TransformWorldToShadowCoord(wpos));
                 float3 L = light.direction;
-                float aoInstr = 1.0, shade = 1.0;
-                if (_InstrCount > 0.5) shade = InstrumentShade(wpos, L, aoInstr);
+                float aoInstr = 1.0, shade = light.shadowAttenuation;              // the skin mesh's shadow
+                if (_InstrCount > 0.5) shade *= InstrumentShade(wpos, L, aoInstr);
                 float occ = 0.0;
                 if (!flat)
                 {

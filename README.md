@@ -53,6 +53,9 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   ```powershell
   .\.venv-seg\Scripts\python.exe tools\extract_skin_mesh.py out\photo_head --triangles 200000
   .\.venv-seg\Scripts\python.exe tools\extract_skin_mesh.py out\photo_body --triangles 400000 --smooth 1.5
+  # Organ labels for the whole body: the SIO (CC BY 4.0) from https://zenodo.org/records/15882019, unpacked
+  # into data\sio\ (the zip's folder plus 'SIO Object Labels.xlsx' beside it); registered slice by slice
+  .\.venv\Scripts\python.exe tools\import_sio_labels.py data\sio\VOXEL-MAN_segmented-internal-organs data\vhp_male_photos out\photo_body
   ```
   In the app choose **Anatomy lab** on the start screen.
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`

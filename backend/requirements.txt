@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30
 pydicom>=2.4
 numpy>=1.26
 scipy>=1.11
+tifffile>=2024.1   # SIO organ labels (tools/import_sio_labels.py)
 # Only needed for compressed hospital exports (JPEG Lossless / JPEG 2000):
 pylibjpeg>=2.0
 pylibjpeg-libjpeg>=2.0

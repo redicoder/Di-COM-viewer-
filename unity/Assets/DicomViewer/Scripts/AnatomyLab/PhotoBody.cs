@@ -41,6 +41,8 @@ namespace DicomViewer.AnatomyLab
         public float skin_depth_unit_mm;
         public string skin_mesh;             // skin.mesh (tools/extract_skin_mesh.py), the skin as a mesh over the volume
         public BodyRegion[] regions;         // finer exports drawn inside this one (LabRegion)
+        public string labels;                // labels.raw (tools/import_sio_labels.py): an object index per voxel
+        public string label_table;           // labels.json: the objects' names
     }
 
     /// <summary>
@@ -67,6 +69,8 @@ namespace DicomViewer.AnatomyLab
         public Texture3D ColourTexture { get; private set; }
         /// <summary>Millimetres below the outer skin (R16 float), for TissueWarp and the skin's physics; null if the export has none.</summary>
         public Texture3D SkinDepthTexture { get; private set; }
+        /// <summary>Names for his voxels (SIO organ labels), or null.</summary>
+        public BodyLabels Labels { get; private set; }
         public Vector3 SizeM { get; private set; }
         public bool IsLoaded => Material != null;
         public bool IsLoading { get; private set; }
@@ -92,16 +96,17 @@ namespace DicomViewer.AnatomyLab
                 string lidPath = string.IsNullOrEmpty(meta.lids) ? null : Path.Combine(dir, meta.lids);
                 string depthPath = string.IsNullOrEmpty(meta.skin_depth) ? null : Path.Combine(dir, meta.skin_depth);
                 var dims = new Vector3Int(meta.dims[0], meta.dims[1], meta.dims[2]);
-                var (data, lids, occ, occDims, depth) = await Task.Run(() =>
+                var (data, lids, occ, occDims, depth, labels) = await Task.Run(() =>
                 {
                     byte[] d = File.ReadAllBytes(Path.Combine(dir, "body.raw"));
                     byte[] l = lidPath != null && File.Exists(lidPath) ? File.ReadAllBytes(lidPath) : null;
                     byte[] o = Occupancy(d, dims, out var od);
                     ushort[] sd = depthPath != null && File.Exists(depthPath)
                         ? SkinDepthHalf(File.ReadAllBytes(depthPath), meta.skin_depth_unit_mm) : null;
-                    return (d, l, o, od, sd);
+                    return (d, l, o, od, sd, BodyLabels.Read(dir, meta));
                 });
                 Build(meta, data, lids, occ, occDims, depth);
+                AttachLabels(BodyLabels.Build(dims, labels.index, labels.table));
             }
             catch (Exception e)
             {
@@ -188,6 +193,17 @@ namespace DicomViewer.AnatomyLab
             if (SkinDepthTexture != null) Material.SetTexture("_SkinDepthTex", SkinDepthTexture);
             mr.sharedMaterial = Material;
             Loaded?.Invoke();
+        }
+
+        /// <summary>Gives the body its labels (after Build); null takes them away.</summary>
+        public void AttachLabels(BodyLabels labels)
+        {
+            Labels?.Dispose();
+            Labels = labels;
+            if (Material == null) return;
+            if (labels != null) Material.SetTexture("_LabelTex", labels.Texture);
+            Material.SetFloat("_HighlightIndex", 0f);
+            if (labels != null) Debug.Log($"PhotoBody: {labels.Count} labelled objects ({labels.Credit})");
         }
 
         private static Texture3D R8(byte[] data, Vector3Int dims, FilterMode filter, string name)
@@ -366,6 +382,8 @@ namespace DicomViewer.AnatomyLab
             if (Material != null) Kill(Material);
             skinGrid?.Dispose();
             skinGrid = null;
+            Labels?.Dispose();
+            Labels = null;
         }
 
         private static void Kill(UnityEngine.Object o)

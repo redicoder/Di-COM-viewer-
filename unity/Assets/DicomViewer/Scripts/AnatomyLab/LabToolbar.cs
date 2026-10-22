@@ -65,7 +65,9 @@ namespace DicomViewer.AnatomyLab
                 : "Dry dissection: cuts do not bleed, blood hidden. ";
             var skin = lab.GetComponent<SkinMesh>();
             string skinNote = skin != null ? skin.Status + ". " : "";
-            GUI.Label(noteRect, credit + bleeding + skinNote + "For education only.", note);
+            string labels = body.Labels != null ? "Organ labels: Segmented Internal Organs of the Visible Human Male (Höhne et al., UKE Hamburg), CC BY 4.0. " : "";
+            string under = lab.UnderCursor != null ? "Under the cursor: " + lab.UnderCursor + ". " : "";
+            GUI.Label(noteRect, under + credit + labels + bleeding + skinNote + "For education only.", note);
 
             void Wrap(float width)                     // touch screens make buttons bigger: continue on a new row
             {

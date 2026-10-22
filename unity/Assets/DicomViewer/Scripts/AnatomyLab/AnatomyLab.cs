@@ -64,6 +64,7 @@ namespace DicomViewer.AnatomyLab
             light.type = LightType.Directional;
             light.intensity = 1.9f;                  // tone-mapped (ACES) rendering wants more light
             light.color = new Color(1f, 0.96f, 0.9f);
+            LabShadows(light);
             light.transform.SetParent(null);
             light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
             light.gameObject.AddComponent<FollowActive>().owner = go;
@@ -152,6 +153,15 @@ namespace DicomViewer.AnatomyLab
         }
 
         public bool IsWholeBody => bodyName == WholeBody;
+
+        /// <summary>The lab's key light casts soft shadows (the skin mesh casts and receives them).</summary>
+        public static void LabShadows(Light light)
+        {
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = 0.9f;
+            light.shadowBias = 0.02f;
+            light.shadowNormalBias = 0.4f;
+        }
 
         /// <summary>Inside a region drawn at finer detail (the face on the whole body): the tools look away.</summary>
         public bool InRegion(Vector3 world) => region != null && region.Contains(world);
@@ -269,6 +279,23 @@ namespace DicomViewer.AnatomyLab
             m.SetFloat("_Open", EyesOpen);
             m.SetFloat("_ModelEyes", modelled ? 1f : 0f);
             m.SetFloat("_StepScale", moving ? 1f : 0.5f);
+            m.SetFloat("_HighlightIndex", Hover(cam));
+        }
+
+        /// <summary>The name of the structure under the cursor (the SIO labels), or null: for the toolbar.</summary>
+        public string UnderCursor { get; private set; }
+
+        // Whatever tool is in hand, the structure under the pointer is named and, where a cut shows it, lifted.
+        private int Hover(Camera cam)
+        {
+            UnderCursor = null;
+            if (Body.Labels == null || cam == null || ViewerUi.ModalOpen || ViewerUi.PointerOverUi) return 0;
+            Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+            if (!Body.Raycast(ray, IsGoneLocal, out Vector3 hit, out _) || InRegion(hit)) return 0;
+            Vector3 uvw = VolumeSpace.LocalToUvw(Body.Volume.InverseTransformPoint(hit));
+            int index = Body.Labels.IndexAt(uvw);
+            UnderCursor = Body.Labels.Name(index);
+            return index;
         }
 
         // Eyelids tool: one finger (or the mouse) up opens the eyes, down closes them.

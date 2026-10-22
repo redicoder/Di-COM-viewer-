@@ -10,7 +10,8 @@ namespace DicomViewer.AnatomyLab
     /// to him: it is told (_SkinByMesh) to leave the intact outer skin to the mesh and draw only cut tissue, the
     /// wound beds and what is deeper, while the mesh cuts itself away where the mask, a lifted sheet or the eyes'
     /// opening say so. Every frame the mesh's material takes the body material's state (mask, blood, sheets,
-    /// instruments, eyes), so the two always agree.
+    /// instruments, eyes), so the two always agree. At load, SkinBake.cs bakes occlusion, thickness and curvature
+    /// into the vertices, and the mesh casts the main light's shadow (the arm on the belly, the chin on the neck).
     /// </summary>
     [RequireComponent(typeof(PhotoBody))]
     public class SkinMesh : MonoBehaviour
@@ -44,8 +45,10 @@ namespace DicomViewer.AnatomyLab
             if (shader == null) { Status = "Skin: volume (shader DicomViewer/LabSkinMesh not found)"; Debug.LogWarning(Status); return false; }
             mesh = Load(path);
             if (mesh == null) { Status = "Skin: volume (skin.mesh unreadable)"; Debug.LogWarning(Status); return false; }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            mesh.colors32 = SkinBake.Bake(mesh.vertices, mesh.normals, mesh.triangles, body.SkinGrid);
             Status = $"Skin: mesh, {mesh.triangles.Length / 3 / 1000}k triangles";
-            Debug.Log($"{Status} over {body.Meta.dims[0]} x {body.Meta.dims[1]} x {body.Meta.dims[2]}");
+            Debug.Log($"{Status} over {body.Meta.dims[0]} x {body.Meta.dims[1]} x {body.Meta.dims[2]}, baked in {clock.ElapsedMilliseconds} ms");
 
             Material = new Material(shader) { name = "Skin mesh" };
             Material.SetTexture("_ColorTex", body.ColourTexture);
@@ -53,6 +56,8 @@ namespace DicomViewer.AnatomyLab
             Material.SetVector("_SizeMm", body.Space.SizeMm);
             Material.SetVector("_SizeM", body.SizeM);
             Material.SetFloat("_Living", living);
+            Material.SetTexture("_SkinLut", SkinBake.PreintegratedLut());
+            Material.SetFloat("_SkinLutOn", 1f);
 
             part = new GameObject("Skin mesh") { hideFlags = HideFlags.DontSave };
             part.transform.SetParent(body.Volume, false);
@@ -62,7 +67,7 @@ namespace DicomViewer.AnatomyLab
             part.AddComponent<MeshFilter>().sharedMesh = mesh;
             var r = part.AddComponent<MeshRenderer>();
             r.sharedMaterial = Material;
-            r.shadowCastingMode = ShadowCastingMode.Off;
+            r.shadowCastingMode = ShadowCastingMode.On;                            // the arm's shadow on the belly
             body.Material.SetFloat("_SkinByMesh", 1f);
             Sync();
             return true;
