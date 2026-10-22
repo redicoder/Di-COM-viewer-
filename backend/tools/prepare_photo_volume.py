@@ -107,10 +107,11 @@ def running_median(x: np.ndarray, size: int = 9) -> np.ndarray:
 
 
 def repair_gaps(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
-    """Slices at a block's end (a sliver of the body, under 80 % of the neighbours' tissue) take the photo of the
-    nearest whole slice, so the seam between blocks is not a dark ring round the body. Returns the tissue mask."""
+    """Slices at a block's end (a sliver of the body or nothing: under 80 % of the neighbours' tissue; the joint
+    at the shins is six blank photos) take the photo of the nearest whole slice, so the seam between blocks is
+    not a dark ring round the body. Returns the tissue mask."""
     area = tissue.sum(axis=(1, 2)).astype(float)
-    median = running_median(area)
+    median = running_median(area, 25)                               # sees across a joint of up to 12 blank photos
     gap = (area < 0.8 * median) & (median > 0)
     good = np.flatnonzero(~gap & (area > 0))
     if gap.any() and len(good) > 0:

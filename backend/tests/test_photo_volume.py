@@ -111,8 +111,7 @@ def test_block_joints_keep_the_legs_and_lose_their_seam():
     # A column of tissue in 12 slices, cut by an empty slice (the joint between two blocks) with a sliver next to it.
     tissue = np.zeros((12, 20, 20), bool)
     tissue[:, 5:15, 5:15] = True
-    tissue[6] = False
-    tissue[7] = False
+    tissue[4:8] = False                                              # four blank photos at the joint
     tissue[7, 5:8, 5:15] = True
     rgb = np.zeros((12, 20, 20, 3), np.uint8)
     rgb[..., 0] = 200
@@ -127,7 +126,7 @@ def test_block_joints_keep_the_legs_and_lose_their_seam():
     assert not kept[:, 1:3, 2:17].any(), "the label card is not"
     assert kept[0, 10, 10], "the tissue is"
     repaired = ppv.repair_gaps(rgb, kept.copy())
-    assert repaired[6].sum() == 100 and repaired[7].sum() == 100, "the joint slices are whole again"
+    assert all(repaired[k].sum() == 100 for k in range(4, 8)), "the joint slices are whole again"
     assert rgb[7, 10, 10, 0] == 200, "with a whole neighbour's photo"
 
 
