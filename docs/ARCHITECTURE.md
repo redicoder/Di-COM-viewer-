@@ -74,9 +74,9 @@ pixels, body in blue gelatin). Each photo's `SliceLocation` is the same slice nu
 flips the rows to the CT's layout (front to back), crops to the body, averages down (factor 2 = 0.66 mm), keeps
 tissue (redder than blue) as the body's 3D pieces (every piece at least 2 % of the largest, connectivity judged across the
 joints between the specimen's blocks; a piece that does not change from photo to photo is the label card beside him,
-not tissue) with holes filled, repairs the sliver photos at the block joints from their neighbours, leaves gelatin-filled air spaces empty, gives the
+not tissue) with holes filled, repairs the sliver and blank photos at the block joints from their neighbours (a sliver lacks a rim of the body and is lit differently), matches each block's exposure to the next across its joint on the skin (12 cm either side, then an exact ramp at the joint), leaves gelatin-filled air spaces empty, gives the
 outermost voxel of tissue the colour beneath it (it was skin averaged with the gelatin) and bleeds tissue colour into
-the gelatin, equalises each photo's exposure to its neighbours', makes the outer surface a 1.5 mm smoothing of the
+the gelatin, equalises each photo's exposure to its neighbours' (judged on the skin: the tissue inside changes with the anatomy), makes the outer surface a 1.5 mm smoothing of the
 filled outline (the inside stays sharp), and writes `photo.raw` (RGBA, x = patient left, rows front to back, slices bottom
 to top) + `photo.json`; `--web` writes JPEG colour + PNG alpha atlases for the browser sample. The renderer finds
 the first tissue sample along each ray: on a cut face it shows the photo itself; on the skin it shades the
