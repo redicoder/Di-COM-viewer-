@@ -277,88 +277,17 @@ namespace DicomViewer.AnatomyLab
             return mb.Build("Scalpel handle");
         }
 
-        // A gloved right hand, in metres, in a pinch: thumb and index tips sep apart around the origin (the pinch).
-        // x: towards the little finger, y: back of the hand, z: where the fingers point.
+        // A gloved right hand in a pinch (HandMesh: one smooth surface), with the gown's sleeve behind it.
         private static Mesh Hand(float sep, out List<(Vector3 a, Vector3 b, float r)> caps)
         {
-            caps = new List<(Vector3, Vector3, float)>();
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+            HandMesh.Glove(sep, verts, tris, out Vector3 pinch, out caps);
             var mb = new MeshBuilder(2);
-            var chains = new List<Vector3[]>();
-            var radii = new List<float[]>();
-
-            // Fingers: knuckle, spread (deg about y), segment lengths, flexion of each joint (deg), radii.
-            void Finger(Vector3 mcp, float spread, Vector3 len, Vector3 flex, Vector4 r)
-            {
-                var pts = new Vector3[4];
-                pts[0] = mcp;
-                Quaternion q = Quaternion.Euler(0f, spread, 0f);
-                float bend = 0f;
-                for (int i = 0; i < 3; i++)
-                {
-                    bend += flex[i];
-                    Vector3 dir = q * (Quaternion.Euler(bend, 0f, 0f) * Vector3.forward);   // +x rotation bends towards -y
-                    pts[i + 1] = pts[i] + dir * len[i];
-                }
-                chains.Add(pts);
-                r *= 0.88f;                                       // gloved, but slender
-                radii.Add(new[] { r.x, r.y, r.z, r.w });
-            }
-            Finger(new Vector3(-0.024f, 0f, 0.088f), -6f, new Vector3(0.040f, 0.024f, 0.019f), new Vector3(42f, 33f, 15f), new Vector4(0.0098f, 0.0088f, 0.0080f, 0.0074f));
-            Finger(new Vector3(-0.004f, 0.003f, 0.092f), 0f, new Vector3(0.044f, 0.028f, 0.020f), new Vector3(58f, 72f, 40f), new Vector4(0.0100f, 0.0090f, 0.0082f, 0.0076f));
-            Finger(new Vector3(0.014f, 0.001f, 0.087f), 5f, new Vector3(0.041f, 0.026f, 0.019f), new Vector3(64f, 80f, 45f), new Vector4(0.0095f, 0.0086f, 0.0078f, 0.0072f));
-            Finger(new Vector3(0.029f, -0.004f, 0.076f), 11f, new Vector3(0.032f, 0.019f, 0.017f), new Vector3(68f, 85f, 45f), new Vector4(0.0086f, 0.0077f, 0.0070f, 0.0065f));
-
-            // Thumb: metacarpal from the wrist, then two bones reaching (two-bone IK) to face the index tip.
-            Vector3 indexTip = chains[0][3];
-            Vector3 cmc = new Vector3(-0.020f, -0.010f, 0.020f);
-            Vector3 m1 = cmc + new Vector3(-0.35f, -0.55f, 0.75f).normalized * 0.045f;
-            Vector3 target = indexTip + new Vector3(-0.003f, 0f, -sep);
-            Vector3 joint = TwoBone(m1, target, 0.037f, 0.031f, new Vector3(-1f, 0.6f, 0f));
-            Vector3 thumbTip = joint + (target - joint).normalized * 0.031f;
-            chains.Add(new[] { cmc, m1, joint, thumbTip });
-            radii.Add(new[] { 0.0115f, 0.0095f, 0.0086f, 0.0077f });
-
-            Vector3 pinch = (indexTip + thumbTip) * 0.5f;
-
-            mb.Sub = 0;
-            for (int c = 0; c < chains.Count; c++)
-            {
-                Vector3[] p = chains[c];
-                float[] r = radii[c];
-                for (int i = 0; i < 4; i++) mb.Ellipsoid(Matrix4x4.TRS(p[i] - pinch, Quaternion.identity, Vector3.one * r[i]), 16, 10);
-                for (int i = 0; i < 3; i++) mb.Frustum(p[i] - pinch, p[i + 1] - pinch, r[i], r[i + 1], 18);
-            }
-            // Palm and the thenar pad under the thumb, the wrist, the glove's cuff.
-            mb.Ellipsoid(Matrix4x4.TRS(new Vector3(0.003f, -0.001f, 0.050f) - pinch, Quaternion.Euler(0f, 0f, -6f), new Vector3(0.042f, 0.016f, 0.050f)), 28, 16);
-            mb.Ellipsoid(Matrix4x4.TRS(new Vector3(-0.024f, -0.010f, 0.036f) - pinch, Quaternion.Euler(-20f, -30f, 0f), new Vector3(0.017f, 0.015f, 0.030f)), 20, 12);
-            mb.Frustum(chains[0][0] - pinch, chains[3][0] - pinch, 0.011f, 0.010f, 16);
-            mb.Frustum(new Vector3(0.003f, 0f, 0.012f) - pinch, new Vector3(0.003f, 0.004f, -0.065f) - pinch, 0.029f, 0.033f, 24);
-            mb.Ellipsoid(Matrix4x4.TRS(new Vector3(0.003f, 0f, 0.012f) - pinch, Quaternion.identity, new Vector3(0.036f, 0.018f, 0.020f)), 20, 12);
+            mb.Append(verts, tris, 0);
             mb.Sub = 1;
-            mb.Frustum(new Vector3(0.003f, 0.004f, -0.060f) - pinch, new Vector3(0.0f, 0.03f, -0.36f) - pinch, 0.036f, 0.052f, 24);
-
-            caps.Add((new Vector3(0.003f, 0f, 0.0f) - pinch, new Vector3(0.0f, 0.03f, -0.30f) - pinch, 0.035f));   // wrist, forearm
-            caps.Add((new Vector3(0.003f, 0f, 0.02f) - pinch, chains[1][0] - pinch, 0.03f));                       // palm
-            caps.Add((chains[0][0] - pinch, chains[0][1] - pinch, 0.0095f));
-            caps.Add((chains[0][1] - pinch, chains[0][3] - pinch, 0.0082f));
-            caps.Add((chains[4][1] - pinch, chains[4][2] - pinch, 0.0105f));
-            caps.Add((chains[4][2] - pinch, chains[4][3] - pinch, 0.009f));
-            caps.Add((chains[1][0] - pinch, chains[1][2] - pinch, 0.0095f));
-            caps.Add((chains[2][0] - pinch, chains[3][2] - pinch, 0.0095f));
+            mb.Frustum(new Vector3(0.003f, 0.004f, -0.060f) - pinch, new Vector3(0f, 0.03f, -0.36f) - pinch, 0.036f, 0.052f, 24);
             return mb.Build(sep > 0.025f ? "Hand (open)" : "Hand (pinching)");
-        }
-
-        // The middle joint of a two-bone chain from a reaching b, bending towards pole.
-        private static Vector3 TwoBone(Vector3 a, Vector3 b, float l1, float l2, Vector3 pole)
-        {
-            Vector3 ab = b - a;
-            float d = Mathf.Clamp(ab.magnitude, Mathf.Abs(l1 - l2) + 1e-4f, (l1 + l2) * 0.999f);
-            Vector3 dir = ab.normalized;
-            float along = (l1 * l1 - l2 * l2 + d * d) / (2f * d);
-            float h = Mathf.Sqrt(Mathf.Max(l1 * l1 - along * along, 0f));
-            Vector3 side = pole - Vector3.Dot(pole, dir) * dir;
-            side = side.sqrMagnitude > 1e-8f ? side.normalized : Vector3.Cross(dir, Vector3.right).normalized;
-            return a + dir * along + side * h;
         }
 
         /// <summary>Triangle lists for the instruments, each face wound to face away from a given inside point.</summary>
@@ -378,6 +307,14 @@ namespace DicomViewer.AnatomyLab
             {
                 v.Add(p);
                 return v.Count - 1;
+            }
+
+            /// <summary>A ready-made surface (shared vertices) into a submesh.</summary>
+            public void Append(List<Vector3> vertices, List<int> triangles, int submesh)
+            {
+                int o = v.Count;
+                v.AddRange(vertices);
+                foreach (int i in triangles) sub[submesh].Add(o + i);
             }
 
             private void Tri(int a, int b, int c, Vector3 outward)

@@ -392,6 +392,13 @@ public static class LabSnapshot
         }
         View(0f, 0f, dist);
         Shot("body_above.png");
+        {
+            // How big he is on the frame: the lab places him with the same formula.
+            cam.aspect = aspect;
+            Vector3 head = cam.WorldToViewportPoint(bodyGo.transform.TransformPoint(new Vector3(0f, body.SizeM.y * 0.5f, 0f)));
+            Vector3 feet = cam.WorldToViewportPoint(bodyGo.transform.TransformPoint(new Vector3(0f, -body.SizeM.y * 0.5f, 0f)));
+            Debug.Log($"LabSnapshot: camera {dist:F2} m away, aspect {cam.aspect:F2}, fov {cam.fieldOfView}; head at viewport x {head.x:F2}, feet at {feet.x:F2} (z {head.z:F2})");
+        }
         if (DebugNoBricks)
         {
             Vector3 chestFocus = bodyGo.transform.TransformPoint(new Vector3(0f, 0.32f, -0.06f));
