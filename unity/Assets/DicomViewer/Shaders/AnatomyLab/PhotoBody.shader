@@ -249,7 +249,7 @@ Shader "DicomViewer/PhotoBody"
                         + Density(p + outM * 0.0045 / _SizeM.xyz);
                 }
                 float ao = (1.0 - 0.45 * saturate(occ / 3.0) * lerp(0.3, 1.0, skin)) * aoInstr;
-                float3 lit = LabShadeSkin(albedo, N, V, L, light.color, wet, skin, ao, shade, srcHit * _SizeM.xyz * 1000.0);
+                float3 lit = LabShadeSkin(albedo, N, V, L, light.color, wet, skin, ao, shade, (p + 0.5) * _SizeM.xyz * 1000.0, LabPixelMm(wpos));
 
                 FragOut f;
                 f.color = half4(lit, 1.0);

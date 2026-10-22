@@ -36,11 +36,12 @@ namespace DicomViewer.AnatomyLab
             body = photoBody;
             if (body == null || !body.IsLoaded || string.IsNullOrEmpty(body.Meta.skin_mesh)) return false;
             string path = Path.Combine(body.Folder, body.Meta.skin_mesh);
-            if (!File.Exists(path)) return false;
+            if (!File.Exists(path)) { Debug.LogWarning($"Skin mesh: {path} not found (tools/extract_skin_mesh.py makes it)"); return false; }
             Shader shader = Shader.Find("DicomViewer/LabSkinMesh");
-            if (shader == null) return false;
+            if (shader == null) { Debug.LogWarning("Skin mesh: shader DicomViewer/LabSkinMesh not found"); return false; }
             mesh = Load(path);
-            if (mesh == null) return false;
+            if (mesh == null) { Debug.LogWarning($"Skin mesh: {path} is not a skin.mesh file"); return false; }
+            Debug.Log($"Skin mesh: {mesh.vertexCount} vertices, {mesh.triangles.Length / 3} triangles over {body.Meta.dims[0]} x {body.Meta.dims[1]} x {body.Meta.dims[2]}");
 
             Material = new Material(shader) { name = "Skin mesh" };
             Material.SetTexture("_ColorTex", body.ColourTexture);
@@ -90,16 +91,16 @@ namespace DicomViewer.AnatomyLab
         {
             if (Material == null || body == null || body.Material == null) return;
             Material src = body.Material;
-            foreach (string n in Floats) if (src.HasProperty(n)) Material.SetFloat(n, src.GetFloat(n));
-            foreach (string n in Vectors) if (src.HasProperty(n)) Material.SetVector(n, src.GetVector(n));
+            foreach (string n in Floats) if (src.HasFloat(n)) Material.SetFloat(n, src.GetFloat(n));
+            foreach (string n in Vectors) if (src.HasVector(n)) Material.SetVector(n, src.GetVector(n));
             foreach (string n in Textures)
             {
-                Texture t = src.HasProperty(n) ? src.GetTexture(n) : null;
+                Texture t = src.HasTexture(n) ? src.GetTexture(n) : null;
                 if (t != null) Material.SetTexture(n, t);
             }
             foreach (string n in VectorArrays)
             {
-                Vector4[] a = src.HasProperty(n) ? src.GetVectorArray(n) : null;
+                Vector4[] a = src.HasVector(n) ? src.GetVectorArray(n) : null;
                 if (a != null && a.Length > 0) Material.SetVectorArray(n, a);
             }
             Material.SetFloat("_Living", living);

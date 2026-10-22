@@ -66,10 +66,10 @@ Shader "DicomViewer/LabSkinMesh"
             // gone, a little more saturation. Set by eye; _Living blends from the photographs (0) to this (1).
             float3 Living(float3 albedo)
             {
-                float3 g = albedo * float3(1.10, 1.00, 1.12);
+                float3 g = albedo * float3(1.14, 1.00, 1.16);
                 float l = dot(g, float3(0.3, 0.59, 0.11));
-                g = lerp(l.xxx, g, 1.02);
-                g += float3(0.02, 0.0, 0.012) * saturate(1.0 - l);          // a little warmth in the shadows
+                g = lerp(l.xxx, g, 1.06);
+                g += float3(0.03, 0.0, 0.015) * saturate(1.0 - l);          // warmth in the shadows
                 return lerp(LabSkinGrade(albedo, 1.0), saturate(g), _Living);
             }
 
@@ -105,7 +105,7 @@ Shader "DicomViewer/LabSkinMesh"
                 Light light = GetMainLight();
                 float aoInstr = 1.0, shade = 1.0;
                 if (_InstrCount > 0.5) shade = InstrumentShade(i.positionWS, light.direction, aoInstr);
-                float3 lit = LabShadeSkin(albedo, N, V, light.direction, light.color, wet, skin, aoInstr, shade, i.positionMm);
+                float3 lit = LabShadeSkin(albedo, N, V, light.direction, light.color, wet, skin, aoInstr, shade, i.positionMm, LabPixelMm(i.positionWS));
                 return half4(lit, 1.0);
             }
             ENDHLSL

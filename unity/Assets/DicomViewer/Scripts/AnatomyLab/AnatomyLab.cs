@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace DicomViewer.AnatomyLab
 {
@@ -58,7 +60,7 @@ namespace DicomViewer.AnatomyLab
             go.AddComponent<LabToolbar>();
             var light = new GameObject("Lab light").AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1.25f;
+            light.intensity = 1.9f;                  // tone-mapped (ACES) rendering wants more light
             light.color = new Color(1f, 0.96f, 0.9f);
             light.transform.SetParent(null);
             light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
@@ -82,6 +84,37 @@ namespace DicomViewer.AnatomyLab
         public static readonly Color RoomBackground = new Color(0.10f, 0.105f, 0.115f);
         private Color savedBackground;
         private CameraClearFlags savedClear;
+        private bool savedPost;
+
+        /// <summary>
+        /// The lab's look as a game renders: ACES tone mapping, a little bloom on the wet highlights, contrast and
+        /// a vignette, as a global volume under `parent` (gone with it) and post-processing on the camera.
+        /// </summary>
+        public static Volume AddPostProcessing(Transform parent, Camera cam)
+        {
+            if (cam != null) cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
+            var profile = ScriptableObject.CreateInstance<VolumeProfile>();
+            profile.hideFlags = HideFlags.DontSave;
+            profile.Add<Tonemapping>(true).mode.Override(TonemappingMode.ACES);
+            var bloom = profile.Add<Bloom>(true);
+            bloom.intensity.Override(0.3f);
+            bloom.threshold.Override(0.95f);
+            bloom.scatter.Override(0.6f);
+            var colour = profile.Add<ColorAdjustments>(true);
+            colour.postExposure.Override(0.3f);
+            colour.contrast.Override(10f);
+            colour.saturation.Override(6f);
+            var vignette = profile.Add<Vignette>(true);
+            vignette.intensity.Override(0.26f);
+            vignette.smoothness.Override(0.5f);
+            var go = new GameObject("Lab post-processing") { hideFlags = HideFlags.DontSave };
+            go.transform.SetParent(parent, false);
+            var volume = go.AddComponent<Volume>();
+            volume.isGlobal = true;
+            volume.priority = 10f;
+            volume.profile = profile;
+            return volume;
+        }
 
         private void OnEnable()
         {
@@ -93,7 +126,9 @@ namespace DicomViewer.AnatomyLab
                 savedClear = cam.clearFlags;
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = RoomBackground;
+                savedPost = cam.GetUniversalAdditionalCameraData().renderPostProcessing;
             }
+            if (transform.Find("Lab post-processing") == null) AddPostProcessing(transform, cam);
             if (!Body.IsLoaded && !Body.IsLoading)
             {
                 Body.folder = BodyFolder(bodyName);
@@ -153,6 +188,7 @@ namespace DicomViewer.AnatomyLab
             if (cam == null) return;
             cam.backgroundColor = savedBackground;
             cam.clearFlags = savedClear;
+            cam.GetUniversalAdditionalCameraData().renderPostProcessing = savedPost;
         }
 
         private void PlaceInFrontOfCamera()

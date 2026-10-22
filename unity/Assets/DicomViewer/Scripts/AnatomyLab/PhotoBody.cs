@@ -172,7 +172,8 @@ namespace DicomViewer.AnatomyLab
             Material.SetTexture("_StainTex", noStain);   // until BloodSim binds its own (an unset 3D texture reads grey)
             Material.SetVector("_Dims", new Vector4(dims.x, dims.y, dims.z, 0));
             Material.SetVector("_SizeM", SizeM);
-            Material.SetFloat("_HasLids", hasLids ? 1f : 0f);
+            // The eyes open geometrically round the eyeballs the export found (the lid map is no longer needed).
+            Material.SetFloat("_HasLids", meta.eyes != null && meta.eyes.Length >= 2 ? 1f : 0f);
             if (SkinDepthTexture != null) Material.SetTexture("_SkinDepthTex", SkinDepthTexture);
             mr.sharedMaterial = Material;
             Loaded?.Invoke();

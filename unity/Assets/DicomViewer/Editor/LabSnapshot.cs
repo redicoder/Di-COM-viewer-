@@ -30,9 +30,10 @@ public static class LabSnapshot
         cam.backgroundColor = AnatomyLab.RoomBackground;
         var light = new GameObject("Light").AddComponent<Light>();
         light.type = LightType.Directional;
-        light.intensity = 1.25f;
+        light.intensity = 1.9f;
         light.color = new Color(1f, 0.96f, 0.9f);
         light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+        AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
         var bodyGo = new GameObject("Body");
         var body = bodyGo.AddComponent<PhotoBody>();
@@ -335,14 +336,15 @@ public static class LabSnapshot
         cam.backgroundColor = AnatomyLab.RoomBackground;
         var light = new GameObject("Light").AddComponent<Light>();
         light.type = LightType.Directional;
-        light.intensity = 1.25f;
+        light.intensity = 1.9f;
         light.color = new Color(1f, 0.96f, 0.9f);
         light.transform.rotation = Quaternion.Euler(50f, -25f, 0f);
+        AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
         var bodyGo = new GameObject("Body");
         var body = bodyGo.AddComponent<PhotoBody>();
         body.folder = AnatomyLab.BodyFolder(AnatomyLab.WholeBody);
-        LoadBody(body);
+        BodyMeta meta2 = LoadBody(body);
         Material m = body.Material;
         m.SetFloat("_StepScale", 0.5f);
         Texture occupancy = m.GetTexture("_OccTex");
@@ -423,6 +425,29 @@ public static class LabSnapshot
         }
         View(0f, 35f, dist);
         Shot("body_oblique.png");
+        // His face on the table, eyes closed and open (the eyes carried over from the head export).
+        if (meta2.eyes != null && meta2.eyes.Length >= 2)
+        {
+            var eyes2 = new GameObject[2];
+            for (int i = 0; i < 2; i++)
+            {
+                BodyEye e = meta2.eyes[i];
+                m.SetVector(i == 0 ? "_Eye0" : "_Eye1", new Vector4(e.centre_m[0], e.lid_line_y_m, e.centre_m[2], e.radius_m));
+                m.SetVector(i == 0 ? "_EyeBall0" : "_EyeBall1", new Vector4(e.centre_m[0], e.centre_m[1], e.centre_m[2], e.radius_m + 0.0005f));
+                eyes2[i] = LivingEye.Create(bodyGo.transform, AnatomyLab.LivingEyeCentre(e), AnatomyLab.LivingEyeRadius, Vector3.back).gameObject;
+                eyes2[i].SetActive(false);
+            }
+            Vector3 face = bodyGo.transform.TransformPoint(new Vector3(0f, body.SizeM.y * 0.5f - 0.10f, -0.08f));
+            View(-25f, 20f, dist * 0.12f, face);
+            Shot("body_face.png");
+            m.SetFloat("_Open", 1f);
+            m.SetFloat("_ModelEyes", 1f);
+            foreach (var e in eyes2) e.SetActive(true);
+            Shot("body_face_eyes.png");
+            m.SetFloat("_Open", 0f);
+            m.SetFloat("_ModelEyes", 0f);
+            foreach (var e in eyes2) e.SetActive(false);
+        }
         // The chest from closer; the body's +y (head) runs to the viewer's left.
         Vector3 chest = bodyGo.transform.TransformPoint(new Vector3(0f, 0.32f, -0.06f));
         View(-20f, 25f, dist * 0.3f, chest);

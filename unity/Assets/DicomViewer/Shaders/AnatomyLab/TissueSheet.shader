@@ -71,7 +71,7 @@ Shader "DicomViewer/TissueSheet"
                 albedo = lerp(albedo, float3(0.13, 0.0018, 0.0025), wet * 0.92);
 
                 Light light = GetMainLight();
-                float3 lit = LabShadeSkin(albedo, N, V, light.direction, light.color, wet, 1.0 - cut, 1.0, 1.0, i.uvw * _SizeMm.xyz);
+                float3 lit = LabShadeSkin(albedo, N, V, light.direction, light.color, wet, 1.0 - cut, 1.0, 1.0, i.uvw * _SizeMm.xyz, LabPixelMm(i.positionWS));
                 return half4(lit, 1.0);
             }
             ENDHLSL
