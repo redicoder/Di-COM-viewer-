@@ -63,7 +63,9 @@ namespace DicomViewer.AnatomyLab
             var noteRect = new Rect(pad, y + h + pad, Screen.width - 2 * pad, 30 * k);
             string bleeding = lab.ShowBlood ? "Bleeding is a simulation: a real dead body does not bleed. "
                 : "Dry dissection: cuts do not bleed, blood hidden. ";
-            GUI.Label(noteRect, credit + bleeding + "For education only.", note);
+            var skin = lab.GetComponent<SkinMesh>();
+            string skinNote = skin != null ? skin.Status + ". " : "";
+            GUI.Label(noteRect, credit + bleeding + skinNote + "For education only.", note);
 
             void Wrap(float width)                     // touch screens make buttons bigger: continue on a new row
             {

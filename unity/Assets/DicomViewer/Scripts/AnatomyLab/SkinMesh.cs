@@ -19,6 +19,8 @@ namespace DicomViewer.AnatomyLab
 
         public Material Material { get; private set; }
         public bool IsLoaded => mesh != null;
+        /// <summary>For the toolbar: what is drawn and why.</summary>
+        public string Status { get; private set; } = "Skin: volume";
 
         private PhotoBody body;
         private Mesh mesh;
@@ -34,14 +36,16 @@ namespace DicomViewer.AnatomyLab
         {
             Clear();
             body = photoBody;
+            Status = "Skin: volume (export has no skin.mesh)";
             if (body == null || !body.IsLoaded || string.IsNullOrEmpty(body.Meta.skin_mesh)) return false;
             string path = Path.Combine(body.Folder, body.Meta.skin_mesh);
-            if (!File.Exists(path)) { Debug.LogWarning($"Skin mesh: {path} not found (tools/extract_skin_mesh.py makes it)"); return false; }
+            if (!File.Exists(path)) { Status = "Skin: volume (skin.mesh missing: run tools/extract_skin_mesh.py)"; Debug.LogWarning(Status); return false; }
             Shader shader = Shader.Find("DicomViewer/LabSkinMesh");
-            if (shader == null) { Debug.LogWarning("Skin mesh: shader DicomViewer/LabSkinMesh not found"); return false; }
+            if (shader == null) { Status = "Skin: volume (shader DicomViewer/LabSkinMesh not found)"; Debug.LogWarning(Status); return false; }
             mesh = Load(path);
-            if (mesh == null) { Debug.LogWarning($"Skin mesh: {path} is not a skin.mesh file"); return false; }
-            Debug.Log($"Skin mesh: {mesh.vertexCount} vertices, {mesh.triangles.Length / 3} triangles over {body.Meta.dims[0]} x {body.Meta.dims[1]} x {body.Meta.dims[2]}");
+            if (mesh == null) { Status = "Skin: volume (skin.mesh unreadable)"; Debug.LogWarning(Status); return false; }
+            Status = $"Skin: mesh, {mesh.triangles.Length / 3 / 1000}k triangles";
+            Debug.Log($"{Status} over {body.Meta.dims[0]} x {body.Meta.dims[1]} x {body.Meta.dims[2]}");
 
             Material = new Material(shader) { name = "Skin mesh" };
             Material.SetTexture("_ColorTex", body.ColourTexture);

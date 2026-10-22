@@ -14,6 +14,7 @@ Shader "DicomViewer/PhotoBody"
         _OccTex ("Occupancy (tissue somewhere in this brick)", 3D) = "white" {}
         _ShowStain ("Show blood stains", Float) = 1
         _SkinDepthTex ("Skin depth (mm)", 3D) = "black" {}
+        _SheetMaps ("Sheet maps (TissueSheets)", 2DArray) = "" {}
     }
     SubShader
     {

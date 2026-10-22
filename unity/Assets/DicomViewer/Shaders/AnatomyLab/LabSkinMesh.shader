@@ -10,6 +10,7 @@ Shader "DicomViewer/LabSkinMesh"
         _MaskTex ("Dissection mask", 3D) = "white" {}
         _StainTex ("Blood stain", 3D) = "black" {}
         _SkinDepthTex ("Skin depth (mm)", 3D) = "black" {}
+        _SheetMaps ("Sheet maps (TissueSheets)", 2DArray) = "" {}
         _ShowStain ("Show blood stains", Float) = 1
         _Living ("Living tone (0 as photographed, 1 alive)", Range(0, 1)) = 1
     }
