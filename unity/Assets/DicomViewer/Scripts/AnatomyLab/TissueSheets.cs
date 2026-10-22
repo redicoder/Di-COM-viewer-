@@ -363,6 +363,7 @@ namespace DicomViewer.AnatomyLab
             if (sheetMaterial != null)
             {
                 sheetMaterial.SetTexture("_ColorTex", body.ColourTexture);
+                sheetMaterial.SetVector("_SizeMm", body.Space.SizeMm);
                 Texture stain = m.GetTexture("_StainTex");
                 if (stain != null) sheetMaterial.SetTexture("_StainTex", stain);
                 sheetMaterial.SetFloat("_ShowStain", m.GetFloat("_ShowStain"));

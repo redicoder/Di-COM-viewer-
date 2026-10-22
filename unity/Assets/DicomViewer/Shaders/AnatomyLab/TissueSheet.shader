@@ -26,12 +26,14 @@ Shader "DicomViewer/TissueSheet"
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "LabSkin.hlsl"
 
             TEXTURE3D(_ColorTex);  SAMPLER(sampler_ColorTex);
             TEXTURE3D(_StainTex);  SAMPLER(sampler_StainTex);
 
             CBUFFER_START(UnityPerMaterial)
                 float _ShowStain;
+                float4 _SizeMm;            // the body's size, to carry a millimetre position with the tissue
             CBUFFER_END
 
             struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float3 uvw : TEXCOORD0; float2 flags : TEXCOORD1; };
@@ -68,13 +70,7 @@ Shader "DicomViewer/TissueSheet"
                 albedo = lerp(albedo, float3(0.13, 0.0018, 0.0025), wet * 0.92);
 
                 Light light = GetMainLight();
-                float3 L = light.direction;
-                float wrap = saturate((dot(N, L) + 0.35) / 1.35);
-                float3 H = normalize(L + V);
-                float glisten = max(wet, cut);                            // cut tissue and blood are wet
-                float spec = pow(saturate(dot(N, H)), lerp(36.0, 90.0, glisten)) * lerp(0.06, 0.45, glisten);
-                float3 ambient = max(SampleSH(N), 0.22);
-                float3 lit = albedo * (ambient + light.color * wrap * 0.95) + light.color * spec;
+                float3 lit = LabShadeSkin(albedo, N, V, light.direction, light.color, wet, 1.0 - cut, 1.0, 1.0, i.uvw * _SizeMm.xyz);
                 return half4(lit, 1.0);
             }
             ENDHLSL

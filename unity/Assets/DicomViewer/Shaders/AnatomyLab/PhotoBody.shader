@@ -55,6 +55,7 @@ Shader "DicomViewer/PhotoBody"
             CBUFFER_END
 
             #include "TissueWarp.hlsl"         // live grabs (GrabDisplacement) and the baked grab field
+            #include "LabSkin.hlsl"            // the skin's lighting
 
             TEXTURE3D(_SkinDepthTex);  SAMPLER(sampler_SkinDepthTex);   // mm below the outer skin
             #define MAX_INSTR 8
@@ -234,29 +235,41 @@ Shader "DicomViewer/PhotoBody"
                 }
                 float3 p = o + d * b;
 
-                // Gradient in object space; the tissue grows inwards, so the outward normal is -g.
+                // Gradient in object space; the tissue grows inwards, so the outward normal is -g. Over one voxel it
+                // follows every step between photos; intact skin takes its normal over 1.2 mm instead, so the face
+                // is as smooth as a face. Cut walls keep the fine one: the mask's edge is sharp.
+                float3 srcHit = SourceUVW(p + 0.5);
+                float m0 = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, srcHit, 0).r : 1.0;
+                float skin = smoothstep(0.8, 1.0, m0);                  // 1 on intact skin, 0 on a cut wall
                 float3 e = 1.0 / _Dims.xyz;
                 float3 g = float3(Density(p + float3(e.x, 0, 0)) - Density(p - float3(e.x, 0, 0)),
                                   Density(p + float3(0, e.y, 0)) - Density(p - float3(0, e.y, 0)),
                                   Density(p + float3(0, 0, e.z)) - Density(p - float3(0, 0, e.z))) / (2.0 * e);
+                if (skin > 0.01)
+                {
+                    float3 ew = 0.0012 / _SizeM.xyz;
+                    float3 gw = float3(Density(p + float3(ew.x, 0, 0)) - Density(p - float3(ew.x, 0, 0)),
+                                       Density(p + float3(0, ew.y, 0)) - Density(p - float3(0, ew.y, 0)),
+                                       Density(p + float3(0, 0, ew.z)) - Density(p - float3(0, 0, ew.z))) / (2.0 * ew);
+                    if (dot(gw, gw) > 1e-8) g = lerp(g, gw, skin);
+                }
                 float3 gm = g / _SizeM.xyz;                             // per metre of body
                 bool flat = first || dot(gm, gm) < 1e-6;                // the specimen's own cut edge
                 float3 inwardM = flat ? float3(0, 0, 1) : normalize(gm);
                 float3 N = flat ? -normalize(TransformObjectToWorldDir(d)) : normalize(TransformObjectToWorldNormal(-g));
-
-                float3 srcHit = SourceUVW(p + 0.5);
-                float m0 = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, srcHit, 0).r : 1.0;
-                float skin = smoothstep(0.8, 1.0, m0);                  // 1 on intact skin, 0 on a cut wall
                 // The bed a sheet was lifted from is cut tissue too: wet, its own colour.
                 if (_SheetCount > 0.5 && !flat && SheetHidden(SourceUVW(p + 0.5 - inwardM * 0.0012 / _SizeM.xyz))) skin = 0.0;
-                float depthM = flat ? 0.0 : lerp(0.0003, 0.0015, skin);
+                // Skin takes its colour from just under the surface: the epidermis itself, not the fat below it.
+                float depthM = flat ? 0.0 : lerp(0.0003, 0.0007, skin);
                 float3 pc = p + inwardM * depthM / _SizeM.xyz;
                 float3 up = float3(0, 1.0 / _Dims.y, 0);                // one photo slice
                 float3 c0, c1, c2;
                 Tissue(pc - up, c0);
                 Tissue(pc, c1);
                 Tissue(pc + up, c2);
-                float3 albedo = 0.25 * c0 + 0.5 * c1 + 0.25 * c2;      // softens the 1 mm steps between photos
+                float3 albedo = 0.18 * c0 + 0.64 * c1 + 0.18 * c2;    // softens the 1 mm steps between photos
+                // The photos were taken of frozen tissue in a blue bath whose light tints the skin: a touch warmer.
+                albedo *= lerp(float3(1, 1, 1), float3(1.04, 0.985, 0.95), skin);
 
                 float stain = max(SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, srcHit, 0).r,
                                   SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, SourceUVW(p + 0.5 + inwardM * 0.0006 / _SizeM.xyz), 0).r);
@@ -269,10 +282,6 @@ Shader "DicomViewer/PhotoBody"
                 float3 L = light.direction;
                 float aoInstr = 1.0, shade = 1.0;
                 if (_InstrCount > 0.5) shade = InstrumentShade(wpos, L, aoInstr);
-                float wrap = saturate((dot(N, L) + 0.35) / 1.35) * shade;
-                float3 H = normalize(L + V);
-                float glisten = max(wet, 1.0 - skin);                    // blood and fresh cut tissue are wet
-                float spec = pow(saturate(dot(N, H)), lerp(36.0, 90.0, glisten)) * lerp(0.06, 0.45, glisten);
                 float occ = 0.0;
                 if (!flat)
                 {
@@ -281,8 +290,7 @@ Shader "DicomViewer/PhotoBody"
                         + Density(p + outM * 0.0045 / _SizeM.xyz);
                 }
                 float ao = (1.0 - 0.45 * saturate(occ / 3.0) * lerp(0.3, 1.0, skin)) * aoInstr;
-                float3 ambient = max(SampleSH(N), 0.22);
-                float3 lit = albedo * (ambient + light.color * wrap * 0.95) * ao + light.color * spec * ao * shade;
+                float3 lit = LabShadeSkin(albedo, N, V, L, light.color, wet, skin, ao, shade, srcHit * _SizeM.xyz * 1000.0);
 
                 FragOut f;
                 f.color = half4(lit, 1.0);

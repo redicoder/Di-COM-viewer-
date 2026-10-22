@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from scipy import ndimage
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 
@@ -83,6 +84,46 @@ def test_build_orientation_cavity_and_bleed(tmp_path):
     outside = ~alpha[d // 2] & ~(vol[d // 2, ..., 3] > 0)
     rgb = vol[d // 2][outside].astype(int)
     assert (rgb[:, 2] < rgb[:, 0]).all()
+
+
+def test_outer_pixel_of_skin_takes_the_colour_beneath(tmp_path):
+    # A phantom whose skin's outermost pixel is greenish (skin mixed with gelatin): after build, the surface is skin.
+    files = phantom(tmp_path, n=3)
+    import pydicom
+    for f in files:
+        ds = pydicom.dcmread(f)
+        img = ds.pixel_array.copy()
+        body = (ppv.tissue_mask(img))
+        rim = body & ~ndimage.binary_erosion(body)
+        img[rim] = (150, 160, 120)
+        ds.PixelData = img.tobytes()
+        ds.save_as(f)
+    vol, _ = ppv.build(list(reversed(files)), factor=1)
+    d, h, w, _ = vol.shape
+    row = vol[d // 2, :, w // 2]
+    first = int(np.argmax(row[:, 3] > 127))
+    assert tuple(row[first, :3]) == SKIN, "the first tissue voxel has the skin's colour, not the rim's"
+
+
+def test_slices_exposed_differently_are_equalised():
+    rgb = np.full((7, 10, 10, 3), 150, np.uint8)
+    tissue = np.ones((7, 10, 10), bool)
+    rgb[3] = 120                                                   # one photo a stop darker
+    out = ppv.equalise_slices(rgb, tissue)
+    assert abs(int(out[3, 5, 5, 0]) - 150) <= 2 and int(out[0, 5, 5, 0]) == 150
+
+
+def test_outer_surface_is_smooth_and_cavities_stay_sharp():
+    tissue = np.zeros((9, 40, 40), bool)
+    yy, xx = np.mgrid[0:40, 0:40]
+    for k in range(9):
+        r = 14 + (k % 2) * 0.8                                     # outline jitters from photo to photo
+        tissue[k] = ((yy - 20) ** 2 + (xx - 20) ** 2) <= r * r
+    tissue[:, 18:22, 18:22] = False                                # a sinus
+    alpha = ppv.body_alpha(tissue, 1.0)
+    edge = alpha[:, 20, 34].astype(int)                            # on the jittering outline
+    assert np.ptp(edge[1:-1]) < 40, "the outer surface no longer steps from slice to slice"
+    assert alpha[4, 20, 20] < 10 and alpha[4, 20, 25] == 255, "the sinus is still empty and the tissue solid"
 
 
 def test_slice_index_reads_slice_numbers(tmp_path):

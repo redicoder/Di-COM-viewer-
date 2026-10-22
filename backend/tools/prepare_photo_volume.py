@@ -98,13 +98,21 @@ def build(files: list[Path], factor: int) -> tuple[np.ndarray, dict]:
     for k in range(tissue.shape[0]):
         tissue[k] = ndimage.binary_fill_holes(tissue[k])
     tissue &= ~gel_mask(rgb)
-    for k in range(tissue.shape[0]):                     # gelatin takes the nearest tissue colour
-        if tissue[k].any():
+    for k in range(tissue.shape[0]):
+        if not tissue[k].any():
+            continue
+        # The outermost pixel of tissue is a mix of skin and the gelatin round it (the photos are averaged in
+        # blocks): it takes the colour of the tissue just inside it, and the gelatin takes the nearest tissue colour.
+        inner = ndimage.binary_erosion(tissue[k])
+        if inner.any():
+            _, (iy, ix) = ndimage.distance_transform_edt(~inner, return_indices=True)
+            rgb[k] = rgb[k][iy, ix]
+        else:
             _, (iy, ix) = ndimage.distance_transform_edt(~tissue[k], return_indices=True)
             rgb[k] = rgb[k][iy, ix]
     px = PIXEL_MM * factor
-    sigma = (0.8, 0.6 * SLICE_MM / px, 0.6 * SLICE_MM / px)       # 0.8 mm up-down (softens the 1 mm steps), 0.6 mm across
-    alpha = (np.clip(ndimage.gaussian_filter(tissue.astype(np.float32), sigma), 0, 1) * 255).astype(np.uint8)
+    rgb = equalise_slices(rgb, tissue)
+    alpha = body_alpha(tissue, px)
     vol = np.concatenate([rgb, alpha[..., None]], axis=-1)
     meta = {"dims": [vol.shape[2], vol.shape[1], vol.shape[0]], "spacing_mm": [px, px, SLICE_MM],
             "crop_photo_px": {"rows": [rows.start, rows.stop], "cols": [cols.start, cols.stop]}}
@@ -171,6 +179,40 @@ def find_eyes(vol: np.ndarray, eye_k: int, px: float) -> tuple[list[dict], np.nd
 
 
 SKIN_DEPTH_UNIT_MM = 0.25
+
+
+def equalise_slices(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
+    """Each photo was exposed on its own, so neighbouring slices differ a little in brightness; on the rendered
+    skin that shows as rings around the head. Every slice's tissue brightness is brought to the running median of
+    its neighbours (gain within 0.75..1.33, so a slice that really is darker, through bone, keeps its look)."""
+    lum = np.array([rgb[k][tissue[k]].mean() if tissue[k].any() else np.nan for k in range(rgb.shape[0])])
+    ok = ~np.isnan(lum)
+    if ok.sum() < 3:
+        return rgb
+    filled = np.interp(np.arange(len(lum)), np.flatnonzero(ok), lum[ok])
+    padded = np.pad(filled, 4, mode="edge")                        # running median of 9 (median_filter misbehaves on short series)
+    smooth = np.array([np.median(padded[i:i + 9]) for i in range(len(filled))])
+    gain = np.clip(smooth / np.maximum(filled, 1.0), 0.75, 1.33)
+    out = np.empty_like(rgb)
+    for k in range(rgb.shape[0]):
+        out[k] = np.clip(rgb[k].astype(np.float32) * gain[k], 0, 255).astype(np.uint8)
+    return out
+
+
+def body_alpha(tissue: np.ndarray, px: float) -> np.ndarray:
+    """Tissue 0..255. The outline of each photo sits a fraction of a millimetre off its neighbours', which the
+    renderer's normals turn into steps across the skin, so the body's OUTER surface is a 1.5 mm smoothing of the
+    filled outline; inside it, the sharp mask (lightly softened) keeps sinuses, mouth and the cut edge of the
+    neck exactly where the photos have them."""
+    sharp_sigma = (0.8, 0.6 * SLICE_MM / px, 0.6 * SLICE_MM / px)      # 0.8 mm up-down (the 1 mm steps), 0.6 across
+    sharp = np.clip(ndimage.gaussian_filter(tissue.astype(np.float32), sharp_sigma), 0, 1)
+    filled = tissue.copy()
+    for k in range(filled.shape[0]):
+        filled[k] = ndimage.binary_fill_holes(filled[k])
+    outer_sigma = (1.5 / SLICE_MM, 1.5 / px, 1.5 / px)
+    outer = np.clip(ndimage.gaussian_filter(filled.astype(np.float32), outer_sigma), 0, 1)
+    alpha = np.where(filled, np.minimum(outer, sharp), outer)
+    return (alpha * 255).astype(np.uint8)
 
 
 def skin_depth(alpha: np.ndarray, px: float) -> np.ndarray:
