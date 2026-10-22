@@ -106,12 +106,13 @@ def running_median(x: np.ndarray, size: int = 9) -> np.ndarray:
     return np.array([np.median(padded[i:i + size]) for i in range(len(x))])
 
 
-def match_blocks(rgb: np.ndarray, tissue: np.ndarray, joints: np.ndarray) -> np.ndarray:
+def match_blocks(rgb: np.ndarray, tissue: np.ndarray, joints: np.ndarray, px: float = 1.0) -> np.ndarray:
     """The specimen's blocks were photographed separately, so across a joint (a run of slices repair_gaps found)
-    the colour steps. Each block below a joint is scaled, per channel, to match the block above it over the eight
-    whole slices on either side; the running equalisation then has only a trend left to even out."""
+    the colour steps. Each block below a joint is scaled, per channel, to match the block above it, judged on the
+    skin of the three whole slices on either side; the running equalisation then has only a trend left."""
     if not joints.any():
         return rgb
+    shell_px = max(1, int(round(2.5 / px)))
     out = rgb.astype(np.float32)
     runs = np.flatnonzero(np.diff(np.concatenate([[False], joints, [False]]).astype(int)))
     for lo, hi in zip(runs[::2], runs[1::2]):                      # each joint: slices lo..hi-1
@@ -119,9 +120,17 @@ def match_blocks(rgb: np.ndarray, tissue: np.ndarray, joints: np.ndarray) -> np.
         below = [k for k in range(lo - 1, max(lo - 21, -1), -1) if not joints[k] and tissue[k].any()][:8]
         if len(above) < 3 or len(below) < 3:
             continue
-        mean_above = np.mean([out[k][tissue[k]].mean(axis=0) for k in above], axis=0)
-        mean_below = np.mean([out[k][tissue[k]].mean(axis=0) for k in below], axis=0)
-        gain = np.clip(mean_above / np.maximum(mean_below, 1.0), 0.6, 1.6)
+        # Judged on the skin alone (the outer shell), by median: the only tissue that is the same on both sides
+        # of a joint, whatever the anatomy inside (belly above the hip, thigh muscle below). A block's exposure
+        # is never off by more than a quarter, so the gain is held to that.
+        def skin(k):
+            shell = tissue[k] & ~ndimage.binary_erosion(tissue[k], iterations=shell_px)
+            return out[k][shell]
+        a = np.concatenate([skin(k) for k in above[:3]])
+        b = np.concatenate([skin(k) for k in below[:3]])
+        if len(a) < 50 or len(b) < 50:
+            continue
+        gain = np.clip(np.median(a, axis=0) / np.maximum(np.median(b, axis=0), 1.0), 0.8, 1.25)
         out[:lo] *= gain
         out[lo:hi] = out[hi] if hi < len(joints) else out[lo - 1]  # the joint itself: the block above's photo
     return np.clip(out, 0, 255).astype(np.uint8)
@@ -159,7 +168,7 @@ def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[n
     rgb = np.stack([block_mean(read_photo(f)[rows, cols], factor) for f in files])
     tissue = largest_piece(tissue_mask(rgb))
     tissue, joints = repair_gaps(rgb, tissue)
-    rgb = match_blocks(rgb, tissue, joints)
+    rgb = match_blocks(rgb, tissue, joints, PIXEL_MM * factor)
     for k in range(tissue.shape[0]):
         tissue[k] = ndimage.binary_fill_holes(tissue[k])
     tissue &= ~gel_mask(rgb)

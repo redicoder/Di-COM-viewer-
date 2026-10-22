@@ -130,7 +130,7 @@ def test_block_joints_keep_the_legs_and_lose_their_seam():
     assert joints[4:8].all() and not joints[0] and not joints[11]
     # The block below the joint was photographed darker: matched to the one above.
     rgb2 = rgb.copy()
-    rgb2[:4] = (rgb2[:4] * 0.7).astype(np.uint8)
+    rgb2[:4] = (rgb2[:4] * 0.85).astype(np.uint8)
     matched = ppv.match_blocks(rgb2, repaired, joints)
     below, above = matched[2][repaired[2]].mean(), matched[9][repaired[9]].mean()
     assert abs(below - above) < 3, f"blocks matched: {below:.1f} vs {above:.1f}"
