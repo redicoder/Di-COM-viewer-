@@ -170,35 +170,88 @@ public static class LabSnapshot
             blood.showBlood = true;
             m.SetFloat("_ShowStain", 1f);
 
-            // The Pull tool: fold the skin below the cut back as a flap, then stretch a cheek.
-            var flaps = bodyGo.AddComponent<TissueFlaps>();
-            flaps.Bind(m, body.Space.SizeMm);
-            int flap = flaps.Begin(cutUvw, Vector3.down, Vector3.back, 14f, 5f);
-            flaps.SetFold(flap, 0.4f);
-            flaps.PushNow();
-            View(12f, 18f, dist * 0.5f);
-            Shot("lab_flap_half.png");
-            flaps.SetFold(flap, 0.85f);
-            flaps.PushNow();
-            Shot("lab_flap.png");
-            Vector3 grabUvw = cutUvw[cutUvw.Count / 2] + new Vector3(0f, -6f / body.Space.SizeMm.y, 0f);
-            Vector3 nUvw = new Vector3(0f, 0f, -3f / body.Space.SizeMm.z);
-            Vector3 heldAt = body.Volume.TransformPoint(VolumeSpace.UvwToLocal(flaps.DisplayUvw(flap, grabUvw)));
-            Vector3 heldUp = body.Volume.TransformPoint(VolumeSpace.UvwToLocal(flaps.DisplayUvw(flap, grabUvw + nUvw))) - heldAt;
-            tools.ShowHand(heldAt, heldUp.normalized, true);
-            tools.Apply();
-            View(12f, 10f, dist * 0.6f);
-            Shot("lab_hand.png");
-            View(60f, 5f, dist * 0.6f);
-            Shot("lab_hand_side.png");
-            tools.Apply();
-            View(12f, 18f, dist * 0.5f);
-            View(70f, 0f, dist * 0.5f);
-            Shot("lab_flap_side.png");
-            View(0f, -10f, dist * 0.45f);
-            Shot("lab_flap_low.png");
-            flaps.Clear();
-            flaps.PushNow();
+            // The Pull tool on a real body: two cuts down from the first make a flap; the hand peels it down and lets go,
+            // it hangs; its base is cut while the hand holds it again, it comes away and falls onto the tray.
+            var sheets = bodyGo.AddComponent<TissueSheets>();
+            sheets.Attach(body, mask);
+            void CutLine(Vector2 from, Vector2 to)
+            {
+                mask.BeginStroke("scalpel");
+                bool have = false;
+                Vector3 pw = default, pn = default;
+                for (int k = 0; k <= 24; k++)
+                {
+                    Vector2 q = Vector2.Lerp(from, to, k / 24f);
+                    var ray = new Ray(bodyGo.transform.TransformPoint(new Vector3(q.x, q.y, -0.2f)), Vector3.forward);
+                    if (!body.Raycast(ray, mask.IsRemovedLocal, out Vector3 hit, out Vector3 n)) continue;
+                    if (have) LabScalpel.Incise(body, mask, blood, pw, hit, (n + pn).normalized, 1.8f, 5f, sheets);
+                    pw = hit;
+                    pn = n;
+                    have = true;
+                }
+                mask.EndStroke();
+            }
+            CutLine(new Vector2(-0.02f, 0.045f), new Vector2(-0.02f, 0.022f));
+            CutLine(new Vector2(0.02f, 0.045f), new Vector2(0.02f, 0.022f));
+            void Run(float seconds, System.Func<float, Vector3> hand = null)
+            {
+                int frames = Mathf.RoundToInt(seconds * 60f);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                for (int f = 1; f <= frames; f++)
+                {
+                    if (hand != null) sheets.MoveHand(hand(f / (float)frames));
+                    sheets.Simulate(1f / 60f);
+                }
+                Debug.Log($"LabSnapshot: skin physics {clock.Elapsed.TotalMilliseconds / frames:F2} ms per frame over {frames} frames; " +
+                          $"rebuild {TissueSheet.Prof[0].Elapsed.TotalMilliseconds / frames:F2} job {TissueSheet.Prof[1].Elapsed.TotalMilliseconds / frames:F2} " +
+                          $"after {TissueSheet.Prof[2].Elapsed.TotalMilliseconds / frames:F2} mesh {TissueSheet.Prof[3].Elapsed.TotalMilliseconds / frames:F2}; {sheets.Sheets[0].ProfCounts}");
+                foreach (var w in TissueSheet.Prof) w.Reset();
+            }
+            void ShowHeld()
+            {
+                if (sheets.HeldPoint(out Vector3 at, out Vector3 up)) tools.ShowHand(at, up, true);
+                tools.Apply();
+            }
+            var pinchRay = new Ray(bodyGo.transform.TransformPoint(new Vector3(0f, 0.0425f, -0.2f)), Vector3.forward);
+            var made = System.Diagnostics.Stopwatch.StartNew();
+            if (body.Raycast(pinchRay, mask.IsRemovedLocal, out Vector3 pinch, out Vector3 pinchN) && sheets.TryPinchSkin(pinch, pinchN))
+            {
+                Debug.Log($"LabSnapshot: taking hold of the skin (a new sheet) took {made.Elapsed.TotalMilliseconds:F0} ms");
+                Vector3 start = pinch;
+                Run(1.2f, u => start + (Vector3.back * 0.03f + Vector3.down * 0.02f) * Mathf.SmoothStep(0f, 1f, u));
+                ShowHeld();
+                View(12f, 10f, dist * 0.6f);
+                Shot("lab_skin_flap.png");
+                View(65f, 5f, dist * 0.6f);
+                Shot("lab_skin_flap_side.png");
+                TissueSheet sheet = sheets.Sheets[0];
+                int heldNode = sheet.HeldNode;
+                sheets.Release();
+                tools.Apply();
+                Run(1.5f);
+                Pieces(sheet, "hanging");
+                View(30f, 8f, dist * 0.6f);
+                Shot("lab_skin_flap_hanging.png");
+
+                // Hold the flap's edge again, cut its base, carry it away and let it fall.
+                sheets.GrabNode(0, heldNode);
+                CutLine(new Vector2(-0.024f, 0.0225f), new Vector2(0.024f, 0.0225f));
+                Vector3 from = sheets.ToWorld(sheet.X[2 * heldNode]);
+                Run(1.2f, u => from + (Vector3.back * 0.04f + Vector3.right * 0.02f) * Mathf.SmoothStep(0f, 1f, u));
+                ShowHeld();
+                Pieces(sheet, "in the hand");
+                View(25f, 8f, dist * 0.7f);
+                Shot("lab_skin_in_hand.png");
+                sheets.Release();
+                tools.Apply();
+                Run(2.5f);
+                View(25f, 22f, dist * 1.1f);
+                Shot("lab_skin_fallen.png");
+                Pieces(sheet, "on the tray");
+                Debug.Log($"LabSnapshot: sheet nodes peeled {Count(sheet, TissueSheet.Node.Peeled)}, gone {Count(sheet, TissueSheet.Node.Gone)}, anchored {sheet.IsAnchored(heldNode)}");
+            }
+            else Debug.LogError("LabSnapshot: could not take hold of the skin beside the cut");
+            sheets.Clear();
             warp.ResetAll();
             var cheekRay = new Ray(bodyGo.transform.TransformPoint(new Vector3(0.045f, -0.02f, -0.2f)), Vector3.forward);
             if (body.Raycast(cheekRay, mask.IsRemovedLocal, out Vector3 cheek, out Vector3 cheekN))
@@ -222,5 +275,18 @@ public static class LabSnapshot
         View(90f, 5f, dist);
         Shot("lab_side.png");
         Debug.Log($"LabSnapshot: done -> {outDir}");
+    }
+
+    private static void Pieces(TissueSheet sheet, string when)
+    {
+        foreach (var p in sheet.Pieces())
+            if (p.nodes > 2) Debug.Log($"LabSnapshot: {when}: piece of {p.nodes} nodes, anchored {p.anchored}, centre {p.centre}, fastest {p.maxSpeed:F0} mm/s, size {p.size} (at rest {p.restSize})");
+    }
+
+    private static int Count(TissueSheet sheet, TissueSheet.Node state)
+    {
+        int c = 0;
+        foreach (TissueSheet.Node s in sheet.State) if (s == state) c++;
+        return c;
     }
 }

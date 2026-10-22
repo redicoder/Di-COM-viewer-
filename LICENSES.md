@@ -12,6 +12,7 @@ the row says "confirmed".
 | openDicom (bundled inside UnityVolumeRendering, `ThirdParty/openDicom`) | **LGPL** | **unused by us** (the backend reads DICOM); remove from the fork before a commercial build, or confirm LGPL compliance |
 | Nifti.NET (bundled inside UnityVolumeRendering, `ThirdParty/Nifti.NET`) | verify | unused by us; remove with openDicom |
 | Unity 6 editor / player, URP | build tool and runtime | Unity terms; Unity Personal only below Unity's revenue/funding threshold | check plan before sale |
+| Unity Burst, Collections, Mathematics packages | skin physics job (`TissueSheetJob`) | Unity Companion License (ship with Unity) | confirmed |
 | numpy, scipy | backend | BSD-3-Clause | confirmed |
 | pydicom | backend | MIT | confirmed |
 | fastapi / uvicorn / httpx | backend (optional HTTP service, tests) | MIT / BSD-3 / BSD-3 | confirmed |

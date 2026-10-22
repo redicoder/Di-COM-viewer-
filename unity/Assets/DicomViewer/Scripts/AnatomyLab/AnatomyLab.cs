@@ -25,7 +25,7 @@ namespace DicomViewer.AnatomyLab
         private VolumeOrbitController orbit;
         private BloodSim blood;
         private TissueWarp warp;
-        private TissueFlaps flaps;
+        private TissueSheets sheets;
         private LabScalpel scalpel;
         private readonly List<LivingEye> eyeObjects = new List<LivingEye>();
         private bool lidDrag;
@@ -41,7 +41,7 @@ namespace DicomViewer.AnatomyLab
             go.AddComponent<VolumeOrbitController>();
             go.AddComponent<BloodSim>();
             go.AddComponent<TissueWarp>();
-            go.AddComponent<TissueFlaps>();
+            go.AddComponent<TissueSheets>();
             go.AddComponent<AnatomyLab>();          // before the parts that require it, or they would add a second
             go.AddComponent<LabInstruments>();
             go.AddComponent<LabScalpel>();
@@ -64,7 +64,7 @@ namespace DicomViewer.AnatomyLab
             orbit = GetComponent<VolumeOrbitController>();
             blood = GetComponent<BloodSim>();
             warp = GetComponent<TissueWarp>();
-            flaps = GetComponent<TissueFlaps>();
+            sheets = GetComponent<TissueSheets>();
             scalpel = GetComponent<LabScalpel>();
             Body.Loaded += OnBodyLoaded;
         }
@@ -84,11 +84,11 @@ namespace DicomViewer.AnatomyLab
             if (blood != null) blood.Attach(Body, Mask);
             if (warp != null)
             {
-                warp.fieldResolution = 192;          // ~1.3 mm cells on a head: flaps are only a few mm thick
+                warp.fieldResolution = 192;          // ~1.3 mm cells on a head: incision gapes are only a few mm
                 warp.Setup(Body.Space.Dims, Body.Space.SpacingMm, Body.SkinDepthTexture);
                 warp.Bind(Body.Material);
             }
-            if (flaps != null) flaps.Bind(Body.Material, Body.Space.SizeMm);
+            if (sheets != null) sheets.Attach(Body, Mask);
         }
 
         private void PlaceInFrontOfCamera()
@@ -178,6 +178,12 @@ namespace DicomViewer.AnatomyLab
             if (Input.GetMouseButtonUp(0)) lidDrag = false;
         }
 
+        /// <summary>
+        /// Picking: is the body's tissue at a volume-cube-local point gone, cut away (the mask) or taken over by a
+        /// lifted sheet of skin (which is picked separately)?
+        /// </summary>
+        public bool IsGoneLocal(Vector3 local) => Mask.IsRemovedLocal(local) || (sheets != null && sheets.IsHiddenLocal(local));
+
         public void OpenEyes(bool open) => eyesOpenTarget = open ? 1f : 0f;
 
         public void ResetView() => orbit.ResetView();
@@ -189,13 +195,13 @@ namespace DicomViewer.AnatomyLab
             set { if (blood != null) blood.showBlood = value; }
         }
 
-        /// <summary>Every cut gone, all blood gone, every flap back in place: the body as it came.</summary>
+        /// <summary>Every cut gone, all blood gone, all lifted or fallen skin back in place: the body as it came.</summary>
         public void HealAll()
         {
             Mask.ResetBody();
             if (blood != null) blood.Clear();
             if (warp != null) warp.ResetAll();
-            if (flaps != null) flaps.Clear();
+            if (sheets != null) sheets.Clear();
             if (scalpel != null) scalpel.ForgetCut();
         }
     }

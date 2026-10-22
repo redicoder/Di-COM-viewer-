@@ -1,7 +1,7 @@
 // The photographed body (DicomViewer.AnatomyLab.PhotoBody): ray-marches the colour photo volume in the unit cube and
 // shades the first tissue it meets. Cut walls (from the dissection mask) show the photo's own colour; intact skin
 // takes its colour from 1.5 mm under the surface (the photos' outermost pixels mix with the blue gelatin). Blood
-// stains, eyelids that slide open, and modelled eyes in place of the real ones; tissue pulled or folded back (TissueWarp.hlsl, sampled where it came from). Writes SV_Depth, so meshes and blood
+// stains, eyelids that slide open, and modelled eyes in place of the real ones; tissue pulled (TissueWarp.hlsl, sampled where it came from), skin lifted away by the sheets (TissueSheets.cs) hidden. Writes SV_Depth, so meshes and blood
 // drops drawn after it are hidden behind tissue.
 Shader "DicomViewer/PhotoBody"
 {
@@ -56,31 +56,7 @@ Shader "DicomViewer/PhotoBody"
 
             #include "TissueWarp.hlsl"         // live grabs (GrabDisplacement) and the baked grab field
 
-            // Skin flaps (TissueFlaps.cs), evaluated exactly: a filtered displacement field would blend a flap's
-            // centimetre moves with the still tissue beside it and spray fragments around the flap.
-            #define MAX_FLAPS 4
             TEXTURE3D(_SkinDepthTex);  SAMPLER(sampler_SkinDepthTex);   // mm below the outer skin
-            float _FlapCount;
-            float4 _FlapA[MAX_FLAPS], _FlapB[MAX_FLAPS];   // the cut's two ends, mm (texture axes)
-            float4 _FlapInfo[MAX_FLAPS];                // -, width mm, depth mm, fold angle (rad)
-            float4 _FlapDir[MAX_FLAPS];                 // from the cut into the flap (unit, mm space)
-            float4 _FlapOut[MAX_FLAPS];                 // out of the body at the cut
-            // The cut's curve: its offset from the straight line A..B (x along _FlapOut, y along the fold direction,
-            // mm) at s = k/8, k = 1..7, in _FlapCurve[f * 8 + k]; the ends lie on the line. A forehead cut bows ~1 cm
-            // out of that line, and a hinge on the line would fold the middle of the flap into the head.
-            #define CURVE_KNOTS 8
-            float4 _FlapCurve[MAX_FLAPS * CURVE_KNOTS];
-
-            float2 FlapCurveAt(int f, float s)
-            {
-                float u = saturate(s) * CURVE_KNOTS;
-                int k = min((int)u, CURVE_KNOTS - 1);
-                float2 c0 = k == 0 ? float2(0, 0) : _FlapCurve[f * CURVE_KNOTS + k].xy;
-                float2 c1 = k + 1 >= CURVE_KNOTS ? float2(0, 0) : _FlapCurve[f * CURVE_KNOTS + k + 1].xy;
-                return lerp(c0, c1, u - k);
-            }
-
-            // Instruments over the body (LabInstruments.cs) as capsules, world space: a, radius in w; b.
             #define MAX_INSTR 8
             float _InstrCount;
             float4 _InstrA[MAX_INSTR], _InstrB[MAX_INSTR];
@@ -108,58 +84,37 @@ Shader "DicomViewer/PhotoBody"
 
             float SkinDepthAt(float3 uvw) { return SAMPLE_TEXTURE3D_LOD(_SkinDepthTex, sampler_SkinDepthTex, uvw, 0).r; }
 
-            // Where the tissue shown at uvw comes from, if a flap moved it; WARP_EMPTY_UVW where a flap left space.
-            // Each flap hinges along its cut (the free edge), W further in the fold direction, rotating about the cut's direction.
-            float3 FlapSource(float3 uvw)
+            // Skin taken over by a sheet (TissueSheets.cs: physics), which draws it instead: per sheet a grid over the
+            // body (origin, axes, node spacing in .w of the origin, thickness in .w of E1) and a map with, per node,
+            // 1 where the sheet has taken the tissue and the skin's height above the grid.
+            #define MAX_SHEETS 4
+            #define SHEET_N 64.0
+            float _SheetCount;
+            float4 _SheetOrigin[MAX_SHEETS], _SheetE1[MAX_SHEETS], _SheetE2[MAX_SHEETS], _SheetE3[MAX_SHEETS];
+            TEXTURE2D_ARRAY(_SheetMaps); SAMPLER(sampler_SheetMaps);
+
+            bool SheetHidden(float3 uvw)
             {
-                float3 sizeMm = _SizeM.xyz * 1000.0;
-                float3 x = uvw * sizeMm;
-                [loop] for (int f = 0; f < (int)_FlapCount; f++)
+                float3 x = uvw * _SizeM.xyz * 1000.0;
+                [loop] for (int s = 0; s < (int)_SheetCount; s++)
                 {
-                    float3 A = _FlapA[f].xyz, AB = _FlapB[f].xyz - A;
-                    float len2 = max(dot(AB, AB), 1e-6);
-                    float s = dot(x - A, AB) / len2;
-                    if (s < 0.0 || s > 1.0) continue;                    // beyond the cut's ends: untouched
-                    float3 T = AB * rsqrt(len2);
-                    float3 Nf = _FlapDir[f].xyz - dot(_FlapDir[f].xyz, T) * T;
-                    float nl = length(Nf);
-                    if (nl < 1e-4) continue;
-                    Nf /= nl;
-                    float3 U = cross(T, Nf);
-                    if (dot(U, _FlapOut[f].xyz) < 0.0) U = -U;
-                    float2 bow = FlapCurveAt(f, s);
-                    float3 C = A + AB * s + U * bow.x + Nf * bow.y;     // the cut itself, here
-                    float W = _FlapInfo[f].y, D = _FlapInfo[f].z;
-                    float3 rel = x - (C + Nf * W);                      // from the hinge
-                    float a = dot(rel, Nf), b = dot(rel, U);
-                    if (a < -2.0 * W - D || a > W + D || abs(b) > W + D) continue;   // far from this flap
-                    float sn, cs;
-                    sincos(_FlapInfo[f].w, sn, cs);
-                    float a2 = a * cs - b * sn, b2 = a * sn + b * cs;   // undo the outward fold
-                    float3 pu = (x + (a2 - a) * Nf + (b2 - b) * U) / sizeMm;
-                    if (a2 >= -W && a2 <= 0.0)
-                    {
-                        float dp = SkinDepthAt(pu);
-                        if (dp > 0.0 && dp <= D) return pu;              // flap tissue, folded back
-                    }
-                    if (a >= -W && a <= 0.0)
-                    {
-                        float dx = SkinDepthAt(uvw);
-                        if (dx > 0.0 && dx <= D) return WARP_EMPTY_UVW;  // where the flap was: open
-                    }
+                    float3 d = x - _SheetOrigin[s].xyz;
+                    float2 g = float2(dot(d, _SheetE1[s].xyz), dot(d, _SheetE2[s].xyz)) / _SheetOrigin[s].w;
+                    if (any(g < 0.0) || any(g > SHEET_N - 1.0)) continue;
+                    float2 m = SAMPLE_TEXTURE2D_ARRAY_LOD(_SheetMaps, sampler_SheetMaps, (g + 0.5) / SHEET_N, s, 0).rg;
+                    if (m.r < 0.5) continue;
+                    float hz = dot(d, _SheetE3[s].xyz), thick = _SheetE1[s].w;
+                    if (hz > m.g + 1.0 || hz < m.g - thick - 3.0) continue;
+                    float sd = SkinDepthAt(uvw);
+                    if (sd > 0.0 && sd <= thick) return true;
                 }
-                return uvw;
+                return false;
             }
 
-            // Where the tissue shown at uvw really is: live grabs first, then flaps, then the baked grab field.
+            // Where the tissue shown at uvw really is: live grabs first, then the baked field (incision gapes).
             float3 SourceUVW(float3 uvw)
             {
                 float3 y = uvw + GrabDisplacement(uvw);
-                if (_FlapCount > 0.5)
-                {
-                    y = FlapSource(y);
-                    if (WarpIsEmpty(y)) return y;
-                }
                 if (_WarpFieldOn > 0.5)
                 {
                     float4 fw = _WarpField.SampleLevel(sampler_WarpField, y, 0);
@@ -186,6 +141,7 @@ Shader "DicomViewer/PhotoBody"
             float TissueAt(float3 uvw, out float3 rgb)
             {
                 float4 c = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, uvw, 0);
+                if (_SheetCount > 0.5 && c.a > 0.0 && SheetHidden(uvw)) { rgb = c.rgb; return 0.0; }
                 float m = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvw, 0).r : 1.0;
                 float3 w = (uvw - 0.5) * _SizeM.xyz;
                 bool lidsMove = _HasLids > 0.5 && _Open > 0.001;
@@ -291,6 +247,8 @@ Shader "DicomViewer/PhotoBody"
                 float3 srcHit = SourceUVW(p + 0.5);
                 float m0 = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, srcHit, 0).r : 1.0;
                 float skin = smoothstep(0.8, 1.0, m0);                  // 1 on intact skin, 0 on a cut wall
+                // The bed a sheet was lifted from is cut tissue too: wet, its own colour.
+                if (_SheetCount > 0.5 && !flat && SheetHidden(SourceUVW(p + 0.5 - inwardM * 0.0012 / _SizeM.xyz))) skin = 0.0;
                 float depthM = flat ? 0.0 : lerp(0.0003, 0.0015, skin);
                 float3 pc = p + inwardM * depthM / _SizeM.xyz;
                 float3 up = float3(0, 1.0 / _Dims.y, 0);                // one photo slice

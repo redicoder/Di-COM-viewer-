@@ -53,7 +53,7 @@ namespace DicomViewer.AnatomyLab
         public Transform Volume { get; private set; }
         public Material Material { get; private set; }
         public Texture3D ColourTexture { get; private set; }
-        /// <summary>Millimetres below the outer skin (R16 float), for TissueWarp's flaps; null if the export has none.</summary>
+        /// <summary>Millimetres below the outer skin (R16 float), for TissueWarp and the skin's physics; null if the export has none.</summary>
         public Texture3D SkinDepthTexture { get; private set; }
         public Vector3 SizeM { get; private set; }
         public bool IsLoaded => Material != null;
@@ -61,6 +61,7 @@ namespace DicomViewer.AnatomyLab
         public string Error { get; private set; }
 
         private byte[] rgba;                   // CPU copy (x fastest, then y, then z) for picking and tissue colour
+        private SkinDepthGrid skinGrid;        // the skin depth for tissue physics (native, read by its job)
         private Texture3D lidTexture, occupancyTexture, noStain;
 
         public string Folder => !string.IsNullOrEmpty(folder)
@@ -127,8 +128,11 @@ namespace DicomViewer.AnatomyLab
             occupancyTexture = R8(occupancy, occDims, FilterMode.Point, "PhotoBody occupancy");
             if (SkinDepthTexture != null) Kill(SkinDepthTexture);
             SkinDepthTexture = null;
+            skinGrid?.Dispose();
+            skinGrid = null;
             if (skinDepthHalf != null && skinDepthHalf.Length == dims.x * dims.y * dims.z)
             {
+                skinGrid = new SkinDepthGrid(skinDepthHalf, dims, Space.SpacingMm);
                 SkinDepthTexture = new Texture3D(dims.x, dims.y, dims.z, GraphicsFormat.R16_SFloat, TextureCreationFlags.None)
                 {
                     wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = "PhotoBody skin depth (mm)",
@@ -238,6 +242,15 @@ namespace DicomViewer.AnatomyLab
             return Mathf.Lerp(Mathf.Lerp(c00, c10, ty), Mathf.Lerp(c01, c11, ty), tz) / 255f;
         }
 
+        /// <summary>Whether the body has a skin-depth map (needed for skin physics).</summary>
+        public bool HasSkinDepth => skinGrid != null;
+
+        /// <summary>The skin depth on its voxel grid (for the skin's physics), or null.</summary>
+        public SkinDepthGrid SkinGrid => skinGrid;
+
+        /// <summary>Depth below the outer skin at a point in millimetres (texture axes), trilinear; 0 outside the body.</summary>
+        public float SkinDepthMm(Vector3 mm) => skinGrid != null ? skinGrid.Sample(mm) : 0f;
+
         /// <summary>The photo's colour at a point in the volume cube's local space (-0.5..0.5), nearest voxel.</summary>
         public Color32 ColourAt(Vector3 cubeLocal)
         {
@@ -331,6 +344,8 @@ namespace DicomViewer.AnatomyLab
             if (noStain != null) Kill(noStain);
             if (SkinDepthTexture != null) Kill(SkinDepthTexture);
             if (Material != null) Kill(Material);
+            skinGrid?.Dispose();
+            skinGrid = null;
         }
 
         private static void Kill(UnityEngine.Object o)

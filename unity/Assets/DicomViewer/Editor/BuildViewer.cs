@@ -35,6 +35,7 @@ public static class BuildViewer
         "DicomViewer/BloodFluidBlur",
         "DicomViewer/BloodFluidComposite",
         "DicomViewer/LabInstrument",
+        "DicomViewer/TissueSheet",
     };
 
     [MenuItem("DICOM Viewer/Set Up Scene")]
