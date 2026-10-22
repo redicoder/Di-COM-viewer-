@@ -72,11 +72,14 @@ Updated whenever the structure changes. Target design: `DISSECTION_TABLE_SPEC.md
 The Visible Human male was frozen, cut into 1 mm slices and every slice photographed (2048 × 1216 RGB, 0.33 mm
 pixels, body in blue gelatin). Each photo's `SliceLocation` is the same slice number as his frozen CT. The tool
 flips the rows to the CT's layout (front to back), crops to the body, averages down (factor 2 = 0.66 mm), keeps
-tissue (redder than blue) as the largest 3D piece with holes filled, leaves gelatin-filled air spaces empty, bleeds
-tissue colour into the gelatin, and writes `photo.raw` (RGBA, x = patient left, rows front to back, slices bottom
+tissue (redder than blue) as the largest 3D piece with holes filled, leaves gelatin-filled air spaces empty, gives the
+outermost voxel of tissue the colour beneath it (it was skin averaged with the gelatin) and bleeds tissue colour into
+the gelatin, equalises each photo's exposure to its neighbours', makes the outer surface a 1.5 mm smoothing of the
+filled outline (the inside stays sharp), and writes `photo.raw` (RGBA, x = patient left, rows front to back, slices bottom
 to top) + `photo.json`; `--web` writes JPEG colour + PNG alpha atlases for the browser sample. The renderer finds
 the first tissue sample along each ray: on a cut face it shows the photo itself; on the skin it shades the
-surface and reads the colour 1.5 mm below it, blended over neighbouring slices.
+surface and reads the colour 0.7 mm below it, blended over neighbouring slices. `--every 2 --factor 6` exports the
+whole body at 2 mm (`out/photo_body`, 290 x 167 x 939 voxels); the head at 0.66 mm is `out/photo_head`.
 
 ## Anatomy Lab (`unity/Assets/DicomViewer/Scripts/AnatomyLab`)
 
@@ -86,8 +89,8 @@ scene is unchanged. `-mode lab` / `-mode viewer` on the command line skips the m
 
 | Component | Role |
 |---|---|
-| `PhotoBody` | loads `backend/out/photo_head/body.raw + body.json` (`prepare_photo_volume.py --unity`) into an sRGB RGBA 3D texture, an eyelid map and an empty-space map (one cell per 8^3 voxels); CPU picking that respects cuts. Its transform is the body's (metres, x left, y up, z back); the child cube is scaled to the body, so cube-local = VolumeSpace's convention |
-| `Shaders/AnatomyLab/PhotoBody.shader` + `LabSkin.hlsl` | first-hit ray march with empty-space skipping; cut walls show the photo itself, skin takes its colour from 0.7 mm under the surface (the epidermis, blended over neighbouring slices) and its normal over 1.2 mm (cut walls keep the fine one); eyelids fold open, the real eyeballs can be swapped for modelled ones; blood stains, soft occlusion in folds; writes SV_Depth so meshes and drops mix in. `LabSkin.hlsl` is the lighting shared with lifted skin: key light with subsurface wrap and a blood-warm terminator, fill and rim set against the camera, hemisphere ambient, GGX specular over a procedural micro-relief, wet where cut or bloody, a soft shoulder on highlights |
+| `PhotoBody` | loads `backend/out/<body>/body.raw + body.json` (`prepare_photo_volume.py --unity`; `photo_head` or `photo_body`, the toolbar's **Body** button swaps them) into an sRGB RGBA 3D texture, an eyelid map and an empty-space map (one cell per 8^3 voxels); CPU picking that respects cuts. Its transform is the body's (metres, x left, y up, z back); the child cube is scaled to the body, so cube-local = VolumeSpace's convention |
+| `Shaders/AnatomyLab/PhotoBody.shader` + `LabSkin.hlsl` | first-hit ray march with empty-space skipping; cut walls show the photo itself, skin takes its colour from 0.7 mm under the surface (the epidermis, blended over neighbouring slices) and its normal over 1.2 mm (cut walls keep the fine one); the eyes open geometrically (an almond fissure whose lids slide into the orbit, continuous with the skin round it, no mask edge), the real eyeballs can be swapped for modelled ones; blood stains, soft occlusion in folds; writes SV_Depth so meshes and drops mix in. `LabSkin.hlsl` is the lighting shared with lifted skin: key light with subsurface wrap and a blood-warm terminator, fill and rim set against the camera, hemisphere ambient, GGX specular over a procedural micro-relief, wet where cut or bloody, a soft shoulder on highlights |
 | `MaskVolume` (shared with the viewer) | the dissection mask on the photo grid: undo / redo / heal |
 | `LabScalpel` | drag to cut: a thin V incision (1.8 mm mask capsules, sinking to 5 mm over the first 3 mm) per stroke, one undo step; behind the blade the skin's tension draws the edges apart into a lens-shaped wound (`TissueWarp.Gape`, rebuilt on undo / redo / heal); tells BloodSim how red the tissue is |
 | `LabPull` | Pull tool: pinch beside a scalpel cut and the skin is taken in hand (`TissueSheets`); pinch lifted or loose tissue to take hold of it again; pinch intact skin to stretch it, and it springs back (`TissueWarp` grabs) |
@@ -98,7 +101,7 @@ scene is unchanged. `-mode lab` / `-mode viewer` on the command line skips the m
 | `LabInstruments` + `LabInstrument.shader` | the instruments, built in code at real size: a No. 3 handle with a No. 10 blade at the cursor while cutting (belly pressed into the wound, rolled to show its side) and a gloved hand pinching what Pull holds (open and hovering under a mouse); soft shadows and contact darkening on the body (capsules in `PhotoBody.shader`); the cursor hides while one stands in for it |
 | `BloodSim` + `Resources/BloodSim.compute` | GPU drops that fill the wound, spill at leak points and run along the skin by real gravity (turn the head, the blood follows), drying into a half-resolution 3D stain texture. `showBlood` off = dry dissection (hidden, paused, cuts do not bleed) |
 | `BloodFluidFeature` (URP renderer feature, by Claude Fable) | draws `BloodDrops.Buffer` as liquid: sphere-imposter depth, narrow-range smoothing, thickness, Beer-Lambert shading; `BloodDrop.shader` is the simple fallback |
-| `AnatomyLab` | the coordinator: body placement, orbit target, living eyes (`LivingEye`, by Claude Fable: sclera, refracting iris under a clear cornea, pupil and gaze; they look at the viewer when open), eyelid tool, blood on / off, heal |
+| `AnatomyLab` | the coordinator: body placement (a head stands facing the viewer on a tray with the world's gravity; a whole body lies on his back on the dissection table, head to the left, and down is towards the table however he is turned), orbit target, living eyes (`LivingEye`, by Claude Fable: sclera, refracting iris under a clear cornea, pupil and gaze; they look at the viewer when open), eyelid tool, blood on / off, heal |
 | `LabToolbar` | Turn / Scalpel / Pull / Eyelids, open / close eyes, undo / redo / heal, living or real eyes, blood on / off, front view, credit; wraps onto a second row on touch screens |
 | `Editor/LabSnapshot.cs` | renders the lab to `build/snapshots/*.png` without Play mode (batch-mode check of the shader) |
 

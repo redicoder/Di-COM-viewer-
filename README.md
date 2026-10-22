@@ -44,6 +44,11 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_head_photos --first 1001 --last 1225
   .\.venv-seg\Scripts\python.exe tools\prepare_photo_volume.py data\vhp_male_head_photos out\photo_head --first 1001 --last 1225 --unity --eye-slice 1095
   ```
+  The whole body (all 1,878 photos, ~14 GB) at 2 mm, for the lab's **Body: whole** button:
+  ```powershell
+  .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_photos --first 1001 --last 2878
+  .\.venv-seg\Scripts\python.exe tools\prepare_photo_volume.py data\vhp_male_photos out\photo_body --first 1001 --last 2878 --factor 6 --every 2 --unity
+  ```
   In the app choose **Anatomy lab** on the start screen.
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`
   (Unity menu **DICOM Viewer → Build Windows App**).
