@@ -125,8 +125,15 @@ def test_block_joints_keep_the_legs_and_lose_their_seam():
     assert kept[0].any() and kept[11].any(), "both blocks are the body"
     assert not kept[:, 1:3, 2:17].any(), "the label card is not"
     assert kept[0, 10, 10], "the tissue is"
-    repaired = ppv.repair_gaps(rgb, kept.copy())
+    repaired, joints = ppv.repair_gaps(rgb, kept.copy())
     assert all(repaired[k].sum() == 100 for k in range(4, 8)), "the joint slices are whole again"
+    assert joints[4:8].all() and not joints[0] and not joints[11]
+    # The block below the joint was photographed darker: matched to the one above.
+    rgb2 = rgb.copy()
+    rgb2[:4] = (rgb2[:4] * 0.7).astype(np.uint8)
+    matched = ppv.match_blocks(rgb2, repaired, joints)
+    below, above = matched[2][repaired[2]].mean(), matched[9][repaired[9]].mean()
+    assert abs(below - above) < 3, f"blocks matched: {below:.1f} vs {above:.1f}"
     assert rgb[7, 10, 10, 0] == 200, "with a whole neighbour's photo"
 
 

@@ -106,10 +106,31 @@ def running_median(x: np.ndarray, size: int = 9) -> np.ndarray:
     return np.array([np.median(padded[i:i + size]) for i in range(len(x))])
 
 
+def match_blocks(rgb: np.ndarray, tissue: np.ndarray, joints: np.ndarray) -> np.ndarray:
+    """The specimen's blocks were photographed separately, so across a joint (a run of slices repair_gaps found)
+    the colour steps. Each block below a joint is scaled, per channel, to match the block above it over the eight
+    whole slices on either side; the running equalisation then has only a trend left to even out."""
+    if not joints.any():
+        return rgb
+    out = rgb.astype(np.float32)
+    runs = np.flatnonzero(np.diff(np.concatenate([[False], joints, [False]]).astype(int)))
+    for lo, hi in zip(runs[::2], runs[1::2]):                      # each joint: slices lo..hi-1
+        above = [k for k in range(hi, min(hi + 20, len(joints))) if not joints[k] and tissue[k].any()][:8]
+        below = [k for k in range(lo - 1, max(lo - 21, -1), -1) if not joints[k] and tissue[k].any()][:8]
+        if len(above) < 3 or len(below) < 3:
+            continue
+        mean_above = np.mean([out[k][tissue[k]].mean(axis=0) for k in above], axis=0)
+        mean_below = np.mean([out[k][tissue[k]].mean(axis=0) for k in below], axis=0)
+        gain = np.clip(mean_above / np.maximum(mean_below, 1.0), 0.6, 1.6)
+        out[:lo] *= gain
+        out[lo:hi] = out[hi] if hi < len(joints) else out[lo - 1]  # the joint itself: the block above's photo
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 def repair_gaps(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
     """Slices at a block's end (a sliver of the body or nothing: under 80 % of the neighbours' tissue; the joint
     at the shins is six blank photos) take the photo of the nearest whole slice, so the seam between blocks is
-    not a dark ring round the body. Returns the tissue mask."""
+    not a dark ring round the body. Returns the tissue mask and which slices were joints."""
     area = tissue.sum(axis=(1, 2)).astype(float)
     median = running_median(area, 25)                               # sees across a joint of up to 12 blank photos
     gap = (area < 0.8 * median) & (median > 0)
@@ -119,7 +140,7 @@ def repair_gaps(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
             j = good[np.argmin(np.abs(good - k))]
             rgb[k] = rgb[j]
             tissue[k] = tissue[j]
-    return tissue
+    return tissue, gap
 
 
 def body_box(files: list[Path], coarse: int = 6, margin_px: int = 12) -> tuple[slice, slice]:
@@ -137,7 +158,8 @@ def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[n
     rows, cols = body_box(files)
     rgb = np.stack([block_mean(read_photo(f)[rows, cols], factor) for f in files])
     tissue = largest_piece(tissue_mask(rgb))
-    tissue = repair_gaps(rgb, tissue)
+    tissue, joints = repair_gaps(rgb, tissue)
+    rgb = match_blocks(rgb, tissue, joints)
     for k in range(tissue.shape[0]):
         tissue[k] = ndimage.binary_fill_holes(tissue[k])
     tissue &= ~gel_mask(rgb)

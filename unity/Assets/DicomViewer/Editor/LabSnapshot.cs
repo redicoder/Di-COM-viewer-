@@ -49,7 +49,7 @@ public static class LabSnapshot
             eyes[i] = LivingEye.Create(bodyGo.transform, AnatomyLab.LivingEyeCentre(e), AnatomyLab.LivingEyeRadius, Vector3.back).gameObject;
         }
 
-        float dist = body.SizeM.y * 0.5f / 0.42f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        float dist = body.SizeM.y * 0.5f / 0.80f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);   // the head at 80 % of the height
         void View(float yawDeg, float pitchDeg, float distance, Vector3 focus = default)
         {
             Quaternion q = Quaternion.Euler(pitchDeg, yawDeg, 0f);
@@ -367,7 +367,7 @@ public static class LabSnapshot
         room.PushLight();
 
         float aspect = 1600f / 900f;
-        float dist = body.SizeM.y * 0.5f / (0.45f * aspect) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);   // his length across the frame
+        float dist = body.SizeM.y * 0.5f / (0.84f * aspect) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);   // his length at 84 % of the width
         void View(float yawDeg, float pitchDeg, float distance, Vector3 focus = default)
         {
             Quaternion q = Quaternion.Euler(pitchDeg, yawDeg, 0f);

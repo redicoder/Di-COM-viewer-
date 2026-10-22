@@ -157,12 +157,12 @@ namespace DicomViewer.AnatomyLab
             if (Lying)
             {
                 transform.rotation = LyingRotation(cam.transform);
-                dist = half / (0.42f * cam.aspect) / tanHalf;                   // his length fills ~84 % of the width
+                dist = half / (0.84f * cam.aspect) / tanHalf;                   // his length fills ~84 % of the width
             }
             else
             {
                 transform.rotation = Quaternion.LookRotation(cam.transform.forward, cam.transform.up);   // face (-z) to camera
-                dist = half / 0.40f / tanHalf;                                  // fills ~80 % of the height
+                dist = half / 0.80f / tanHalf;                                  // fills ~80 % of the height
             }
             transform.position = cam.transform.position + cam.transform.forward * dist;
         }
