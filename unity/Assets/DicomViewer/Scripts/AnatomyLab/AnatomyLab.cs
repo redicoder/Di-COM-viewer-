@@ -48,6 +48,7 @@ namespace DicomViewer.AnatomyLab
             go.AddComponent<BloodSim>();
             go.AddComponent<TissueWarp>();
             go.AddComponent<TissueSheets>();
+            go.AddComponent<LabRoom>();
             go.AddComponent<AnatomyLab>();          // before the parts that require it, or they would add a second
             go.AddComponent<LabInstruments>();
             go.AddComponent<LabScalpel>();
@@ -75,9 +76,21 @@ namespace DicomViewer.AnatomyLab
             Body.Loaded += OnBodyLoaded;
         }
 
+        public static readonly Color RoomBackground = new Color(0.10f, 0.105f, 0.115f);
+        private Color savedBackground;
+        private CameraClearFlags savedClear;
+
         private void OnEnable()
         {
             ViewerUi.ActiveTool = ViewerUi.Tool.Rotate;
+            Camera cam = Camera.main;
+            if (cam != null)
+            {
+                savedBackground = cam.backgroundColor;
+                savedClear = cam.clearFlags;
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = RoomBackground;
+            }
             if (!Body.IsLoaded && !Body.IsLoading)
             {
                 Body.folder = BodyFolder(bodyName);
@@ -125,6 +138,14 @@ namespace DicomViewer.AnatomyLab
             if (sheets != null) sheets.SetTable(Lying ? Vector3.back : Vector3.up, Lying ? -(size.z + 2f) : TissueSheets.TrayTop);
             if (sheets != null) sheets.downLocalOverride = downLocal;
             if (blood != null) blood.downLocalOverride = downLocal;
+        }
+
+        private void OnDisable()
+        {
+            Camera cam = Camera.main;
+            if (cam == null) return;
+            cam.backgroundColor = savedBackground;
+            cam.clearFlags = savedClear;
         }
 
         private void PlaceInFrontOfCamera()

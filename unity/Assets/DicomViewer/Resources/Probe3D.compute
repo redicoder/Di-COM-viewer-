@@ -1,0 +1,13 @@
+// Reads a few texels of a 3D texture back to the CPU (tests: whether a large volume uploaded whole).
+#pragma kernel Probe
+
+Texture3D<float4> _Tex;
+SamplerState sampler_Tex;
+StructuredBuffer<float3> _Uvw;
+RWStructuredBuffer<float4> _Out;
+
+[numthreads(1, 1, 1)]
+void Probe(uint3 id : SV_DispatchThreadID)
+{
+    _Out[id.x] = _Tex.SampleLevel(sampler_Tex, _Uvw[id.x], 0);
+}

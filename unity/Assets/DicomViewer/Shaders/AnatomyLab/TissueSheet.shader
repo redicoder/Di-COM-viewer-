@@ -65,6 +65,7 @@ Shader "DicomViewer/TissueSheet"
                 // Where the sample point slipped out of the tissue (a fold's thin edge), fall back to fat's colour.
                 float3 albedo = lerp(float3(0.78, 0.66, 0.42), c.rgb, saturate(c.a * 2.0));
                 float cut = saturate(i.cut);
+                albedo = LabSkinGrade(albedo, 1.0 - cut);
                 float stain = SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, i.uvw, 0).r * (1.0 - cut);
                 float wet = max(smoothstep(0.04, 0.35, stain) * _ShowStain, 0.0);
                 albedo = lerp(albedo, float3(0.13, 0.0018, 0.0025), wet * 0.92);

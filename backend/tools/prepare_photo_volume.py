@@ -71,13 +71,64 @@ def read_photo(path: Path) -> np.ndarray:
     return pydicom.dcmread(path).pixel_array[::-1]
 
 
-def largest_piece(mask: np.ndarray) -> np.ndarray:
-    lab, n = ndimage.label(mask)
+def largest_piece(mask: np.ndarray, rgb: np.ndarray | None = None, keep_fraction: float = 0.02) -> np.ndarray:
+    """The body: every 3D piece of tissue at least keep_fraction of the largest. The specimen was cut into blocks
+    and the photo at a block's end shows a sliver of him or nothing, which would cut the legs off a 3D piece, so
+    connectivity is judged with slices bridged two deep. The label card photographed beside him (a marker, colour
+    swatches, print) is tissue-coloured and runs through every photo, so it is as big as a leg: it is told apart
+    because a printed card is the same from one photo to the next and tissue never is (rgb given; each pair of
+    photos is matched in brightness first, so a difference in exposure does not pass for change)."""
+    if mask.ndim == 3 and mask.shape[0] > 1:
+        bridged = ndimage.binary_dilation(mask, structure=np.ones((5, 1, 1), bool))
+    else:
+        bridged = mask
+    labels, n = ndimage.label(bridged)
     if n == 0:
-        raise ValueError("No tissue found in the photos")
-    sizes = np.bincount(lab.ravel())
-    sizes[0] = 0
-    return lab == sizes.argmax()
+        return mask
+    sizes = ndimage.sum(mask, labels, range(1, n + 1))
+    keep = sizes >= keep_fraction * sizes.max()
+    if rgb is not None and mask.ndim == 3 and mask.shape[0] > 1:
+        # Mean change of colour from each photo to the next, per piece, over voxels in both, after matching the
+        # two photos' brightness over that piece.
+        change = np.zeros(n + 1)
+        count = np.zeros(n + 1)
+        for k in range(mask.shape[0] - 1):
+            both = mask[k] & mask[k + 1] & (labels[k] == labels[k + 1])
+            if not both.any():
+                continue
+            lab = labels[k][both]
+            a = rgb[k][both].astype(np.float32)
+            b = rgb[k + 1][both].astype(np.float32)
+            sum_a = np.bincount(lab, weights=a.mean(axis=-1), minlength=n + 1)
+            sum_b = np.bincount(lab, weights=b.mean(axis=-1), minlength=n + 1)
+            gain = (sum_a / np.maximum(sum_b, 1e-6))[lab]
+            d = np.abs(b * gain[:, None] - a).mean(axis=-1)
+            change += np.bincount(lab, weights=d, minlength=n + 1)
+            count += np.bincount(lab, minlength=n + 1)
+        still = (change / np.maximum(count, 1)) < 3.0
+        keep &= ~still[1:]
+    return mask & np.isin(labels, np.flatnonzero(keep) + 1)
+
+
+def running_median(x: np.ndarray, size: int = 9) -> np.ndarray:
+    half = size // 2
+    padded = np.pad(x, half, mode="edge")
+    return np.array([np.median(padded[i:i + size]) for i in range(len(x))])
+
+
+def repair_gaps(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
+    """Slices at a block's end (a sliver of the body, under 80 % of the neighbours' tissue) take the photo of the
+    nearest whole slice, so the seam between blocks is not a dark ring round the body. Returns the tissue mask."""
+    area = tissue.sum(axis=(1, 2)).astype(float)
+    median = running_median(area)
+    gap = (area < 0.8 * median) & (median > 0)
+    good = np.flatnonzero(~gap & (area > 0))
+    if gap.any() and len(good) > 0:
+        for k in np.flatnonzero(gap):
+            j = good[np.argmin(np.abs(good - k))]
+            rgb[k] = rgb[j]
+            tissue[k] = tissue[j]
+    return tissue
 
 
 def body_box(files: list[Path], coarse: int = 6, margin_px: int = 12) -> tuple[slice, slice]:
@@ -94,10 +145,15 @@ def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[n
     """RGBA volume (slices bottom to top) from photo files ordered bottom to top, slice_mm apart."""
     rows, cols = body_box(files)
     rgb = np.stack([block_mean(read_photo(f)[rows, cols], factor) for f in files])
-    tissue = largest_piece(tissue_mask(rgb))
+    tissue = largest_piece(tissue_mask(rgb), rgb)
+    tissue = repair_gaps(rgb, tissue)
     for k in range(tissue.shape[0]):
         tissue[k] = ndimage.binary_fill_holes(tissue[k])
     tissue &= ~gel_mask(rgb)
+    # Photos beyond the body at either end (below the feet) are dropped.
+    have = np.flatnonzero(tissue.any(axis=(1, 2)))
+    lo, hi = (int(have[0]), int(have[-1]) + 1) if len(have) else (0, tissue.shape[0])
+    rgb, tissue = rgb[lo:hi], tissue[lo:hi]
     for k in range(tissue.shape[0]):
         if not tissue[k].any():
             continue
@@ -115,7 +171,8 @@ def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[n
     alpha = body_alpha(tissue, px, slice_mm)
     vol = np.concatenate([rgb, alpha[..., None]], axis=-1)
     meta = {"dims": [vol.shape[2], vol.shape[1], vol.shape[0]], "spacing_mm": [px, px, slice_mm],
-            "crop_photo_px": {"rows": [rows.start, rows.stop], "cols": [cols.start, cols.stop]}}
+            "crop_photo_px": {"rows": [rows.start, rows.stop], "cols": [cols.start, cols.stop]},
+            "kept_files": [lo, hi]}
     return vol, meta
 
 
@@ -190,8 +247,7 @@ def equalise_slices(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
     if ok.sum() < 3:
         return rgb
     filled = np.interp(np.arange(len(lum)), np.flatnonzero(ok), lum[ok])
-    padded = np.pad(filled, 4, mode="edge")                        # running median of 9 (median_filter misbehaves on short series)
-    smooth = np.array([np.median(padded[i:i + 9]) for i in range(len(filled))])
+    smooth = running_median(filled)                                 # (median_filter misbehaves on short series)
     gain = np.clip(smooth / np.maximum(filled, 1.0), 0.75, 1.33)
     out = np.empty_like(rgb)
     for k in range(rgb.shape[0]):
@@ -277,7 +333,8 @@ def main() -> None:
     if missing:
         raise SystemExit(f"{len(missing)} slices missing, e.g. {missing[:5]}")
     vol, meta = build([found[loc] for loc in locs], args.factor, SLICE_MM * args.every)
-    meta.update({"slices": [args.first, args.last], "layout": "RGBA uint8, x = patient left (fastest), "
+    lo, hi = meta.pop("kept_files")
+    meta.update({"slices": [locs[hi - 1], locs[lo]], "layout": "RGBA uint8, x = patient left (fastest), "
                  "rows = front to back, slices = bottom to top", "credit": CREDIT, "licence": LICENCE,
                  "source": "NLM Visible Human male, colour cryosection photographs (NCI Imaging Data Commons)"})
     out = Path(args.out_dir)

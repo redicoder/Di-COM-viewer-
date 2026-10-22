@@ -27,7 +27,7 @@ public static class LabSnapshot
         cam.fieldOfView = 30f;
         cam.nearClipPlane = 0.01f;
         cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = new Color(0.05f, 0.045f, 0.04f);
+        cam.backgroundColor = AnatomyLab.RoomBackground;
         var light = new GameObject("Light").AddComponent<Light>();
         light.type = LightType.Directional;
         light.intensity = 1.25f;
@@ -49,7 +49,8 @@ public static class LabSnapshot
             eyes[i] = LivingEye.Create(bodyGo.transform, AnatomyLab.LivingEyeCentre(e), AnatomyLab.LivingEyeRadius, Vector3.back).gameObject;
         }
 
-        float dist = body.SizeM.y * 0.5f / 0.42f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        float aspect = 1600f / 900f;
+        float dist = body.SizeM.y * 0.5f / (0.45f * aspect) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);   // his length across the frame
         void View(float yawDeg, float pitchDeg, float distance, Vector3 focus = default)
         {
             Quaternion q = Quaternion.Euler(pitchDeg, yawDeg, 0f);
@@ -123,6 +124,7 @@ public static class LabSnapshot
             m.SetFloat("_MaskEnabled", 1f);
             var blood = bodyGo.AddComponent<BloodSim>();
             blood.Attach(body, mask);
+            var room = bodyGo.AddComponent<LabRoom>();
             var warp = bodyGo.AddComponent<TissueWarp>();
             warp.fieldResolution = 192;
             warp.Setup(body.Space.Dims, body.Space.SpacingMm, body.SkinDepthTexture);
@@ -187,6 +189,7 @@ public static class LabSnapshot
             // it hangs; its base is cut while the hand holds it again, it comes away and falls onto the tray.
             var sheets = bodyGo.AddComponent<TissueSheets>();
             sheets.Attach(body, mask);
+            room.PushLight();
             void CutLine(Vector2 from, Vector2 to)
             {
                 mask.BeginStroke("scalpel");
@@ -305,6 +308,14 @@ public static class LabSnapshot
         return meta;
     }
 
+    /// <summary>For checking the ray-marcher: the whole body drawn without empty-space skipping.</summary>
+    public static bool DebugNoBricks;
+    public static void RunWholeBodyNoBricks()
+    {
+        DebugNoBricks = true;
+        RunWholeBody();
+    }
+
     /// <summary>The whole body on the table: lying as the lab places him, from above and from the side, with a cut.</summary>
     [MenuItem("DICOM Viewer/Anatomy Lab Snapshots (whole body)")]
     public static void RunWholeBody()
@@ -319,12 +330,12 @@ public static class LabSnapshot
         cam.fieldOfView = 30f;
         cam.nearClipPlane = 0.01f;
         cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = new Color(0.05f, 0.045f, 0.04f);
+        cam.backgroundColor = AnatomyLab.RoomBackground;
         var light = new GameObject("Light").AddComponent<Light>();
         light.type = LightType.Directional;
         light.intensity = 1.25f;
         light.color = new Color(1f, 0.96f, 0.9f);
-        light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+        light.transform.rotation = Quaternion.Euler(50f, -25f, 0f);
 
         var bodyGo = new GameObject("Body");
         var body = bodyGo.AddComponent<PhotoBody>();
@@ -332,6 +343,14 @@ public static class LabSnapshot
         LoadBody(body);
         Material m = body.Material;
         m.SetFloat("_StepScale", 0.5f);
+        Texture occupancy = m.GetTexture("_OccTex");
+        if (DebugNoBricks)
+        {
+            var full = new Texture3D(1, 1, 1, UnityEngine.Experimental.Rendering.GraphicsFormat.R8_UNorm, UnityEngine.Experimental.Rendering.TextureCreationFlags.None);
+            full.SetPixelData(new byte[] { 255 }, 0);
+            full.Apply(false, true);
+            m.SetTexture("_OccTex", full);
+        }
         // Lying before a camera at the origin looking down +z: the body at the origin, so the views orbit him.
         camGo.transform.position = new Vector3(0f, 0f, -1f);
         bodyGo.transform.rotation = AnatomyLab.LyingRotation(camGo.transform);
@@ -342,9 +361,11 @@ public static class LabSnapshot
         var blood = bodyGo.AddComponent<BloodSim>();
         blood.Attach(body, mask);
         blood.downLocalOverride = Vector3.forward;
+        var room = bodyGo.AddComponent<LabRoom>();
         var sheets = bodyGo.AddComponent<TissueSheets>();
         sheets.Attach(body, mask);
         sheets.SetTable(Vector3.back, -(body.Space.SizeMm.z + 2f));
+        room.PushLight();
 
         float dist = body.SizeM.y * 0.5f / 0.42f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
         void View(float yawDeg, float pitchDeg, float distance, Vector3 focus = default)
@@ -369,13 +390,29 @@ public static class LabSnapshot
             Object.DestroyImmediate(tex);
             Debug.Log($"LabSnapshot: wrote {name}");
         }
-        View(0f, 0f, dist * 0.62f);
+        View(0f, 0f, dist);
         Shot("body_above.png");
-        View(0f, 35f, dist * 0.62f);
+        if (DebugNoBricks)
+        {
+            Vector3 chestFocus = bodyGo.transform.TransformPoint(new Vector3(0f, 0.32f, -0.06f));
+            View(-20f, 25f, dist * 0.22f, chestFocus);
+            Shot("dbg_nobricks.png");
+            m.SetFloat("_MaskEnabled", 0f);
+            Shot("dbg_nobricks_nomask.png");
+            m.SetTexture("_OccTex", occupancy);
+            Shot("dbg_bricks_nomask.png");
+            m.SetFloat("_StepScale", 0.25f);
+            Shot("dbg_bricks_nomask_fine.png");
+            m.SetFloat("_StepScale", 0.5f);
+            m.SetFloat("_MaskEnabled", 1f);
+            Debug.Log("LabSnapshot: whole body done -> debug");
+            return;
+        }
+        View(0f, 35f, dist);
         Shot("body_oblique.png");
         // The chest from closer; the body's +y (head) runs to the viewer's left.
         Vector3 chest = bodyGo.transform.TransformPoint(new Vector3(0f, 0.32f, -0.06f));
-        View(-20f, 25f, dist * 0.22f, chest);
+        View(-20f, 25f, dist * 0.3f, chest);
         Shot("body_chest.png");
 
         // A scalpel stroke down the chest, as the tool makes it, then bleeding.

@@ -39,6 +39,17 @@ float3 LabSkinMicroNormal(float3 N, float3 posM, float amount)
     return normalize(N + g * amount);
 }
 
+// The photographs are of frozen tissue in a blue bath under flash, which leaves the skin yellow-olive. Graded
+// towards the tone skin has in a room's light: the blue cast lifted, the yellow eased, a touch less saturated.
+// Set by eye against the head, and kept mild: the colour is still his.
+float3 LabSkinGrade(float3 albedo, float skin)
+{
+    float3 g = albedo * float3(1.08, 1.0, 1.16);
+    float l = dot(g, float3(0.3, 0.59, 0.11));
+    g = lerp(l.xxx, g, 0.92);
+    return lerp(albedo, g, skin);
+}
+
 float LabGGX(float ndh, float rough)
 {
     float a2 = rough * rough;

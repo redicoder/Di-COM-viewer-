@@ -275,8 +275,7 @@ Shader "DicomViewer/PhotoBody"
                 Tissue(pc, c1);
                 Tissue(pc + up, c2);
                 float3 albedo = 0.18 * c0 + 0.64 * c1 + 0.18 * c2;    // softens the 1 mm steps between photos
-                // The photos were taken of frozen tissue in a blue bath whose light tints the skin: a touch warmer.
-                albedo *= lerp(float3(1, 1, 1), float3(1.04, 0.985, 0.95), skin);
+                albedo = LabSkinGrade(albedo, skin);
 
                 float stain = max(SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, srcHit, 0).r,
                                   SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, SourceUVW(p + 0.5 + inwardM * 0.0006 / _SizeM.xyz), 0).r);

@@ -46,6 +46,8 @@ def phantom(folder: Path, n: int = 12, h: int = 96, w: int = 120) -> list[Path]:
         img[:] = GEL
         body = ((yy - h / 2) / 34) ** 2 + ((xx - w / 2) / 44) ** 2 <= 1
         img[body] = SKIN
+        grain = np.random.default_rng(k).integers(-10, 11, (h, w, 1))   # tissue: a different photo every slice
+        img[body] = np.clip(img[body].astype(int) + grain[body], 0, 255).astype(np.uint8)
         img[((yy - h / 2) / 8) ** 2 + ((xx - w / 2) / 8) ** 2 <= 1] = GEL       # sinus-like cavity
         img[(yy > h / 2 + 22) & (yy < h / 2 + 30) & (xx > w / 2 + 20) & (xx < w / 2 + 30)] = MARK
         img[:4] = 0                                                              # black frame edge
@@ -102,7 +104,31 @@ def test_outer_pixel_of_skin_takes_the_colour_beneath(tmp_path):
     d, h, w, _ = vol.shape
     row = vol[d // 2, :, w // 2]
     first = int(np.argmax(row[:, 3] > 127))
-    assert tuple(row[first, :3]) == SKIN, "the first tissue voxel has the skin's colour, not the rim's"
+    assert np.abs(row[first, :3].astype(int) - SKIN).max() <= 14, "the first tissue voxel has the skin's colour, not the rim's"
+
+
+def test_block_joints_keep_the_legs_and_lose_their_seam():
+    # A column of tissue in 12 slices, cut by an empty slice (the joint between two blocks) with a sliver next to it.
+    tissue = np.zeros((12, 20, 20), bool)
+    tissue[:, 5:15, 5:15] = True
+    tissue[6] = False
+    tissue[7] = False
+    tissue[7, 5:8, 5:15] = True
+    rgb = np.zeros((12, 20, 20, 3), np.uint8)
+    rgb[..., 0] = 200
+    for k in range(12):
+        rgb[k, ..., 1] = np.random.default_rng(k).integers(40, 120, (20, 20))   # tissue: a different photo every slice
+    rgb[7, ..., 0] = 90
+    # A printed label card beside him in every photo: tissue-coloured, big as a leg, identical slice to slice.
+    tissue[:, 1:3, 2:17] = True
+    rgb[:, 1:3, 2:17] = (180, 120, 90)
+    kept = ppv.largest_piece(tissue, rgb)
+    assert kept[0].any() and kept[11].any(), "both blocks are the body"
+    assert not kept[:, 1:3, 2:17].any(), "the label card is not"
+    assert kept[0, 10, 10], "the tissue is"
+    repaired = ppv.repair_gaps(rgb, kept.copy())
+    assert repaired[6].sum() == 100 and repaired[7].sum() == 100, "the joint slices are whole again"
+    assert rgb[7, 10, 10, 0] == 200, "with a whole neighbour's photo"
 
 
 def test_slices_exposed_differently_are_equalised():
