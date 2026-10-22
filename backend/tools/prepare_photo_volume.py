@@ -71,13 +71,12 @@ def read_photo(path: Path) -> np.ndarray:
     return pydicom.dcmread(path).pixel_array[::-1]
 
 
-def largest_piece(mask: np.ndarray, rgb: np.ndarray | None = None, keep_fraction: float = 0.02) -> np.ndarray:
-    """The body: every 3D piece of tissue at least keep_fraction of the largest. The specimen was cut into blocks
-    and the photo at a block's end shows a sliver of him or nothing, which would cut the legs off a 3D piece, so
-    connectivity is judged with slices bridged two deep. The label card photographed beside him (a marker, colour
-    swatches, print) is tissue-coloured and runs through every photo, so it is as big as a leg: it is told apart
-    because a printed card is the same from one photo to the next and tissue never is (rgb given; each pair of
-    photos is matched in brightness first, so a difference in exposure does not pass for change)."""
+def largest_piece(mask: np.ndarray, keep_fraction: float = 0.02) -> np.ndarray:
+    """The body: the largest 3D piece of tissue and every piece that continues it along the stack. The specimen
+    was cut into blocks and the photo at a block's end shows a sliver of him or nothing, which cuts the legs off
+    the torso as a 3D piece (connectivity is judged with slices bridged two deep; a joint can be wider). The label
+    card photographed beside him is tissue-coloured and runs through every photo, as big as a leg: it is told apart
+    because it lies BESIDE the body over the same slices, while a leg lies BEYOND it."""
     if mask.ndim == 3 and mask.shape[0] > 1:
         bridged = ndimage.binary_dilation(mask, structure=np.ones((5, 1, 1), bool))
     else:
@@ -86,28 +85,19 @@ def largest_piece(mask: np.ndarray, rgb: np.ndarray | None = None, keep_fraction
     if n == 0:
         return mask
     sizes = ndimage.sum(mask, labels, range(1, n + 1))
-    keep = sizes >= keep_fraction * sizes.max()
-    if rgb is not None and mask.ndim == 3 and mask.shape[0] > 1:
-        # Mean change of colour from each photo to the next, per piece, over voxels in both, after matching the
-        # two photos' brightness over that piece.
-        change = np.zeros(n + 1)
-        count = np.zeros(n + 1)
-        for k in range(mask.shape[0] - 1):
-            both = mask[k] & mask[k + 1] & (labels[k] == labels[k + 1])
-            if not both.any():
+    main = int(np.argmax(sizes)) + 1
+    keep = [main]
+    if mask.ndim == 3:
+        present = [np.flatnonzero((labels == i).any(axis=(1, 2))) for i in range(1, n + 1)]
+        lo, hi = present[main - 1][0], present[main - 1][-1]
+        for i in range(1, n + 1):
+            if i == main or sizes[i - 1] < keep_fraction * sizes[main - 1] or len(present[i - 1]) == 0:
                 continue
-            lab = labels[k][both]
-            a = rgb[k][both].astype(np.float32)
-            b = rgb[k + 1][both].astype(np.float32)
-            sum_a = np.bincount(lab, weights=a.mean(axis=-1), minlength=n + 1)
-            sum_b = np.bincount(lab, weights=b.mean(axis=-1), minlength=n + 1)
-            gain = (sum_a / np.maximum(sum_b, 1e-6))[lab]
-            d = np.abs(b * gain[:, None] - a).mean(axis=-1)
-            change += np.bincount(lab, weights=d, minlength=n + 1)
-            count += np.bincount(lab, minlength=n + 1)
-        still = (change / np.maximum(count, 1)) < 3.0
-        keep &= ~still[1:]
-    return mask & np.isin(labels, np.flatnonzero(keep) + 1)
+            a0, a1 = present[i - 1][0], present[i - 1][-1]
+            overlap = max(0, min(hi, a1) - max(lo, a0) + 1)
+            if overlap <= 0.2 * (a1 - a0 + 1):
+                keep.append(i)
+    return mask & np.isin(labels, keep)
 
 
 def running_median(x: np.ndarray, size: int = 9) -> np.ndarray:
@@ -145,7 +135,7 @@ def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[n
     """RGBA volume (slices bottom to top) from photo files ordered bottom to top, slice_mm apart."""
     rows, cols = body_box(files)
     rgb = np.stack([block_mean(read_photo(f)[rows, cols], factor) for f in files])
-    tissue = largest_piece(tissue_mask(rgb), rgb)
+    tissue = largest_piece(tissue_mask(rgb))
     tissue = repair_gaps(rgb, tissue)
     for k in range(tissue.shape[0]):
         tissue[k] = ndimage.binary_fill_holes(tissue[k])
@@ -167,6 +157,7 @@ def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[n
             _, (iy, ix) = ndimage.distance_transform_edt(~tissue[k], return_indices=True)
             rgb[k] = rgb[k][iy, ix]
     px = PIXEL_MM * factor
+    rgb = clean_skin_traces(rgb, tissue, px)
     rgb = equalise_slices(rgb, tissue)
     alpha = body_alpha(tissue, px, slice_mm)
     vol = np.concatenate([rgb, alpha[..., None]], axis=-1)
@@ -236,6 +227,31 @@ def find_eyes(vol: np.ndarray, eye_k: int, px: float) -> tuple[list[dict], np.nd
 
 
 SKIN_DEPTH_UNIT_MM = 0.25
+
+
+def clean_skin_traces(rgb: np.ndarray, tissue: np.ndarray, px: float) -> np.ndarray:
+    """Gelatin that clung to the skin passes the tissue test here and there (grey-green streaks on the scalp):
+    within 2 mm of the body's surface, light pixels greener than red and blue take the colour of the nearest pixel
+    that is not. Deeper in, greenish tissue (bile, gut) is his own and stays; the eyes' dark grey, just behind the
+    lids, is too dark to count."""
+    r, g, b = (rgb[..., i].astype(np.int16) for i in range(3))
+    lum = (r + g + b) // 3
+    trace = tissue & (g > r + 3) & (g >= b) & (lum > 100)             # light and green: not the eye's dark grey
+    shell_px = max(1, int(round(2.0 / px)))
+    out = rgb.copy()
+    for k in range(rgb.shape[0]):
+        if not trace[k].any():
+            continue
+        shell = tissue[k] & ~ndimage.binary_erosion(tissue[k], iterations=shell_px)
+        fix = trace[k] & shell
+        if not fix.any():
+            continue
+        sound = tissue[k] & ~trace[k]
+        if not sound.any():
+            continue
+        _, (iy, ix) = ndimage.distance_transform_edt(~sound, return_indices=True)
+        out[k][fix] = rgb[k][iy[fix], ix[fix]]
+    return out
 
 
 def equalise_slices(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:

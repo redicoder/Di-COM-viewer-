@@ -122,13 +122,27 @@ def test_block_joints_keep_the_legs_and_lose_their_seam():
     # A printed label card beside him in every photo: tissue-coloured, big as a leg, identical slice to slice.
     tissue[:, 1:3, 2:17] = True
     rgb[:, 1:3, 2:17] = (180, 120, 90)
-    kept = ppv.largest_piece(tissue, rgb)
+    kept = ppv.largest_piece(tissue)
     assert kept[0].any() and kept[11].any(), "both blocks are the body"
     assert not kept[:, 1:3, 2:17].any(), "the label card is not"
     assert kept[0, 10, 10], "the tissue is"
     repaired = ppv.repair_gaps(rgb, kept.copy())
     assert repaired[6].sum() == 100 and repaired[7].sum() == 100, "the joint slices are whole again"
     assert rgb[7, 10, 10, 0] == 200, "with a whole neighbour's photo"
+
+
+def test_gel_traces_on_the_skin_are_cleaned_but_green_organs_stay():
+    tissue = np.zeros((1, 30, 30), bool)
+    tissue[0, 5:25, 5:25] = True
+    rgb = np.zeros((1, 30, 30, 3), np.uint8)
+    rgb[0, ..., :] = (190, 150, 110)
+    rgb[0, 5:7, 10:20] = (140, 150, 130)                           # a greenish streak on the skin
+    rgb[0, 14:16, 14:16] = (90, 120, 60)                             # bile, deep inside
+    rgb[0, 6, 5] = (80, 86, 96)                                       # an eye's grey, just under the lid
+    out = ppv.clean_skin_traces(rgb, tissue, 1.0)
+    assert tuple(out[0, 5, 15]) == (190, 150, 110), "the streak took the skin's colour"
+    assert tuple(out[0, 14, 14]) == (90, 120, 60), "the organ kept its own"
+    assert tuple(out[0, 6, 5]) == (80, 86, 96), "the eye kept its own"
 
 
 def test_slices_exposed_differently_are_equalised():
