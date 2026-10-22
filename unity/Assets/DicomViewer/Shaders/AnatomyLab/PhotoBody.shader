@@ -147,32 +147,39 @@ Shader "DicomViewer/PhotoBody"
                 float3 w = (uvw - 0.5) * _SizeM.xyz;
                 bool lidsMove = _HasLids > 0.5 && _Open > 0.001;
                 float keep = 1.0;
-                if (lidsMove && SAMPLE_TEXTURE3D_LOD(_LidTex, sampler_LidTex, uvw, 0).r > 0.12) keep = 0.0;
                 if (_ModelEyes > 0.5 && (distance(w, _EyeBall0.xyz) < _EyeBall0.w || distance(w, _EyeBall1.xyz) < _EyeBall1.w))
                     keep = 0.0;
                 float d = c.a * m * keep;
                 rgb = c.rgb;
                 if (lidsMove)
                 {
-                    // Each lid folds towards its attachment: the upper lid is squeezed upwards, the lower downwards,
-                    // so the gap between them opens over the eyeball.
+                    // The eyes open as eyes do: an almond-shaped fissure, widest at the middle and closed at the corners,
+                    // whose lids slide away from it into the orbit, the upper further than the lower. The tissue above
+                    // the opening is the lid and brow skin drawn up, continuous with the untouched skin at the
+                    // fissure's ends and at the brow (the mapping is the identity there), so there is no edge to see.
                     [unroll] for (int e = 0; e < 2; e++)
                     {
                         float4 E = e == 0 ? _Eye0 : _Eye1;
-                        float R = E.w, dx = w.x - E.x;
-                        if (abs(dx) >= R || w.z > E.z) continue;       // only in front of the eyeball (the face looks to -z)
-                        float s = 1.0 - (dx / R) * (dx / R);
-                        float dy = w.y - E.y, ys;
-                        bool upper = dy >= 0.0;
-                        if (upper) { float hu = _Open * 0.85 * R * s; if (dy > R || dy < hu) continue; ys = (dy - hu) * R / (R - hu); }
-                        else       { float hl = _Open * 0.45 * R * s; if (dy < -R || dy > -hl) continue; ys = (dy + hl) * R / (R - hl); }
+                        float4 ball = e == 0 ? _EyeBall0 : _EyeBall1;
+                        float R = E.w, dx = w.x - E.x, dy = w.y - E.y, dz = w.z - E.z;   // the face looks to -z
+                        float Lu = 1.5 * R, Ll = 1.2 * R;
+                        if (abs(dx) > 1.3 * R || dz > 0.35 * R || dy > Lu || dy < -Ll) continue;
+                        float t = dx / (1.15 * R);
+                        float s = saturate(1.0 - t * t);
+                        float hu = _Open * 0.72 * R * s, hl = _Open * 0.33 * R * s;
+                        if (dy < hu && dy > -hl)
+                        {
+                            // In the opening: the lid is gone from in front of the eyeball; the eyeball stays.
+                            if (dz < -0.15 * R && distance(w, ball.xyz) > ball.w) d = 0.0;
+                            continue;
+                        }
+                        float ys = dy >= 0.0 ? (dy - hu) * Lu / (Lu - hu) : (dy + hl) * Ll / (Ll - hl);
                         float3 uvs = float3(w.x, E.y + ys, w.z) / _SizeM.xyz + 0.5;
-                        float lid = SAMPLE_TEXTURE3D_LOD(_LidTex, sampler_LidTex, uvs, 0).r;
-                        if (upper ? lid < 0.37 : (lid < 0.12 || lid > 0.37)) continue;
                         float4 c2 = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, uvs, 0);
                         float m2 = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvs, 0).r : 1.0;
-                        float d2 = c2.a * m2;
-                        if (d2 > d) { d = d2; rgb = c2.rgb; }
+                        float keep2 = _ModelEyes > 0.5 && distance(float3(w.x, E.y + ys, w.z), ball.xyz) < ball.w ? 0.0 : 1.0;
+                        d = c2.a * m2 * keep2;
+                        rgb = c2.rgb;
                     }
                 }
                 return d;

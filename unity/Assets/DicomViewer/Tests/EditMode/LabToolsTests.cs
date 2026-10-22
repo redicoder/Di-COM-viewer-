@@ -73,7 +73,7 @@ namespace DicomViewer.Tests
         private static TissueSheet FrontSheetUnowned()
         {
             var sheet = TissueSheet.Create(ball, OnFront(0f, 0f), Vector3.back, 1.5f, 5f);
-            sheet.TrayY = Ball.Centre.y - Ball.R - 1.5f;
+            sheet.Table = new Vector4(0f, 1f, 0f, Ball.Centre.y - Ball.R - 1.5f);
             return sheet;
         }
 
@@ -123,8 +123,8 @@ namespace DicomViewer.Tests
                 low = Mathf.Min(low, sheet.X[2 * n].y, sheet.X[2 * n + 1].y);
                 high = Mathf.Max(high, sheet.X[2 * n].y, sheet.X[2 * n + 1].y);
             }
-            Assert.That(low, Is.GreaterThan(sheet.TrayY - 0.5f), "nothing sinks into the tray");
-            Assert.That(high, Is.LessThan(sheet.TrayY + 12f), $"the piece lies on the tray (top at {high}, tray at {sheet.TrayY})");
+            Assert.That(low, Is.GreaterThan(sheet.Table.w - 0.5f), "nothing sinks into the tray");
+            Assert.That(high, Is.LessThan(sheet.Table.w + 12f), $"the piece lies on the tray (top at {high}, tray at {sheet.Table.w})");
         }
 
         [Test]

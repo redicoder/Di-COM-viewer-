@@ -36,15 +36,7 @@ public static class LabSnapshot
 
         var bodyGo = new GameObject("Body");
         var body = bodyGo.AddComponent<PhotoBody>();
-        string dir = body.Folder;
-        var meta = JsonUtility.FromJson<BodyMeta>(File.ReadAllText(Path.Combine(dir, "body.json")));
-        byte[] data = File.ReadAllBytes(Path.Combine(dir, "body.raw"));
-        string lidPath = meta.lids != null ? Path.Combine(dir, meta.lids) : null;
-        byte[] lids = lidPath != null && File.Exists(lidPath) ? File.ReadAllBytes(lidPath) : null;
-        string depthPath = meta.skin_depth != null ? Path.Combine(dir, meta.skin_depth) : null;
-        ushort[] depth = depthPath != null && File.Exists(depthPath)
-            ? PhotoBody.SkinDepthHalf(File.ReadAllBytes(depthPath), meta.skin_depth_unit_mm) : null;
-        body.Build(meta, data, lids, null, default, depth);
+        BodyMeta meta = LoadBody(body);
         Material m = body.Material;
 
         // Living eyes and lids, as AnatomyLab sets them up.
@@ -58,12 +50,15 @@ public static class LabSnapshot
         }
 
         float dist = body.SizeM.y * 0.5f / 0.42f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
-        void View(float yawDeg, float pitchDeg, float distance)
+        void View(float yawDeg, float pitchDeg, float distance, Vector3 focus = default)
         {
             Quaternion q = Quaternion.Euler(pitchDeg, yawDeg, 0f);
-            camGo.transform.position = q * new Vector3(0, 0, -distance);
+            camGo.transform.position = focus + q * new Vector3(0, 0, -distance);
             camGo.transform.rotation = q;
         }
+        Vector3 eyeFocus = meta.eyes != null && meta.eyes.Length > 0
+            ? new Vector3(meta.eyes[0].centre_m[0], meta.eyes[0].centre_m[1], meta.eyes[0].skin_front_z_m) : new Vector3(-0.033f, 0.008f, -0.084f);
+        Vector3 noseFocus = new Vector3(0f, -0.02f, -0.085f), mouthFocus = new Vector3(0f, -0.05f, -0.07f);
         void Shot(string name)
         {
             var rt = new RenderTexture(1200, 1200, 24, RenderTextureFormat.ARGB32);
@@ -99,7 +94,25 @@ public static class LabSnapshot
         m.SetFloat("_ModelEyes", 0f);
         foreach (var e in eyes) if (e != null) e.SetActive(false);
         Shot("lab_eyes_real.png");
+        // Close-ups of the features (eyelids half open and open with the modelled eyes, nose from below, mouth).
+        m.SetFloat("_ModelEyes", 1f);
+        foreach (var e in eyes) if (e != null) e.SetActive(true);
+        m.SetFloat("_Open", 0.5f);
+        View(-15f, 0f, dist * 0.12f, eyeFocus);
+        Shot("lab_lids_half.png");
+        m.SetFloat("_Open", 1f);
+        Shot("lab_lids_open.png");
+        View(25f, -10f, dist * 0.12f, eyeFocus);
+        Shot("lab_lids_open_side.png");
         m.SetFloat("_Open", 0f);
+        m.SetFloat("_ModelEyes", 0f);
+        foreach (var e in eyes) if (e != null) e.SetActive(false);
+        View(0f, -35f, dist * 0.16f, noseFocus);
+        Shot("lab_nose.png");
+        View(0f, 5f, dist * 0.16f, mouthFocus);
+        Shot("lab_mouth.png");
+        View(50f, 0f, dist * 0.16f, mouthFocus);
+        Shot("lab_mouth_side.png");
 
         // A scalpel stroke across the forehead, the way LabScalpel builds it, then 6 s of bleeding.
         var mask = bodyGo.AddComponent<MaskVolume>();
@@ -275,6 +288,112 @@ public static class LabSnapshot
         View(90f, 5f, dist);
         Shot("lab_side.png");
         Debug.Log($"LabSnapshot: done -> {outDir}");
+    }
+
+    /// <summary>Loads the body in body.Folder outside Play mode, the way PhotoBody.LoadAsync does.</summary>
+    private static BodyMeta LoadBody(PhotoBody body)
+    {
+        string dir = body.Folder;
+        var meta = JsonUtility.FromJson<BodyMeta>(File.ReadAllText(Path.Combine(dir, "body.json")));
+        byte[] data = File.ReadAllBytes(Path.Combine(dir, "body.raw"));
+        string lidPath = meta.lids != null ? Path.Combine(dir, meta.lids) : null;
+        byte[] lids = lidPath != null && File.Exists(lidPath) ? File.ReadAllBytes(lidPath) : null;
+        string depthPath = meta.skin_depth != null ? Path.Combine(dir, meta.skin_depth) : null;
+        ushort[] depth = depthPath != null && File.Exists(depthPath)
+            ? PhotoBody.SkinDepthHalf(File.ReadAllBytes(depthPath), meta.skin_depth_unit_mm) : null;
+        body.Build(meta, data, lids, null, default, depth);
+        return meta;
+    }
+
+    /// <summary>The whole body on the table: lying as the lab places him, from above and from the side, with a cut.</summary>
+    [MenuItem("DICOM Viewer/Anatomy Lab Snapshots (whole body)")]
+    public static void RunWholeBody()
+    {
+        DicomViewer.AnatomyLab.EditorTools.BloodFluidDemo.Install();
+        string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
+        Directory.CreateDirectory(outDir);
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        var camGo = new GameObject("Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.fieldOfView = 30f;
+        cam.nearClipPlane = 0.01f;
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.05f, 0.045f, 0.04f);
+        var light = new GameObject("Light").AddComponent<Light>();
+        light.type = LightType.Directional;
+        light.intensity = 1.25f;
+        light.color = new Color(1f, 0.96f, 0.9f);
+        light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+
+        var bodyGo = new GameObject("Body");
+        var body = bodyGo.AddComponent<PhotoBody>();
+        body.folder = AnatomyLab.BodyFolder(AnatomyLab.WholeBody);
+        LoadBody(body);
+        Material m = body.Material;
+        m.SetFloat("_StepScale", 0.5f);
+        // Lying before a camera at the origin looking down +z: the body at the origin, so the views orbit him.
+        camGo.transform.position = new Vector3(0f, 0f, -1f);
+        bodyGo.transform.rotation = AnatomyLab.LyingRotation(camGo.transform);
+        var mask = bodyGo.AddComponent<MaskVolume>();
+        mask.Attach(body.Space, () => body.Material);
+        m.SetTexture("_MaskTex", mask.MaskTexture);
+        m.SetFloat("_MaskEnabled", 1f);
+        var blood = bodyGo.AddComponent<BloodSim>();
+        blood.Attach(body, mask);
+        blood.downLocalOverride = Vector3.forward;
+        var sheets = bodyGo.AddComponent<TissueSheets>();
+        sheets.Attach(body, mask);
+        sheets.SetTable(Vector3.back, -(body.Space.SizeMm.z + 2f));
+
+        float dist = body.SizeM.y * 0.5f / 0.42f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        void View(float yawDeg, float pitchDeg, float distance, Vector3 focus = default)
+        {
+            Quaternion q = Quaternion.Euler(pitchDeg, yawDeg, 0f);
+            camGo.transform.position = focus + q * new Vector3(0, 0, -distance);
+            camGo.transform.rotation = q;
+        }
+        void Shot(string name)
+        {
+            var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(outDir, name), tex.EncodeToPNG());
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            Object.DestroyImmediate(rt);
+            Object.DestroyImmediate(tex);
+            Debug.Log($"LabSnapshot: wrote {name}");
+        }
+        View(0f, 0f, dist * 0.62f);
+        Shot("body_above.png");
+        View(0f, 35f, dist * 0.62f);
+        Shot("body_oblique.png");
+        // The chest from closer; the body's +y (head) runs to the viewer's left.
+        Vector3 chest = bodyGo.transform.TransformPoint(new Vector3(0f, 0.32f, -0.06f));
+        View(-20f, 25f, dist * 0.22f, chest);
+        Shot("body_chest.png");
+
+        // A scalpel stroke down the chest, as the tool makes it, then bleeding.
+        mask.BeginStroke("scalpel");
+        bool have = false;
+        Vector3 pw = default, pn = default;
+        for (float y = 0.40f; y >= 0.20f; y -= 0.004f)
+        {
+            Vector3 start = bodyGo.transform.TransformPoint(new Vector3(0.01f, y, -0.30f));
+            Vector3 dir = bodyGo.transform.TransformDirection(Vector3.forward);
+            if (!body.Raycast(new Ray(start, dir), mask.IsRemovedLocal, out Vector3 hit, out Vector3 n)) continue;
+            if (have) LabScalpel.Incise(body, mask, blood, pw, hit, (n + pn).normalized, 1.8f, 5f, sheets);
+            pw = hit; pn = n; have = true;
+        }
+        mask.EndStroke();
+        blood.Advance(5f);
+        Shot("body_chest_cut.png");
+        Debug.Log($"LabSnapshot: whole body done -> {outDir}");
     }
 
     private static void Pieces(TissueSheet sheet, string when)

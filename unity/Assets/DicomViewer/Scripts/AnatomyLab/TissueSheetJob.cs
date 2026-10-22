@@ -36,8 +36,7 @@ namespace DicomViewer.AnatomyLab
         public float3 Origin, E1, E2, E3;
         public int GridN;
         public float H, T;
-        public float TrayY;
-        public float2 TrayMin, TrayMax;
+        public float4 Table;          // the table's plane: unit normal, offset; w = -infinity for none
         public float3 Gravity;
         public float Dt;
         public int Substeps, Iterations;
@@ -193,11 +192,15 @@ namespace DicomViewer.AnatomyLab
                         push = math.min(depth, 1f);                          // deep in: climb out over a few substeps
                         x += normal * push;
                     }
-                    if (x.y < TrayY && x.y > TrayY - 40f && x.x > TrayMin.x && x.x < TrayMax.x && x.z > TrayMin.y && x.z < TrayMax.y)
+                    if (Table.w > -1e30f)
                     {
-                        push = TrayY - x.y;
-                        x.y = TrayY;
-                        normal = new float3(0f, 1f, 0f);
+                        float h = math.dot(x, Table.xyz) - Table.w;
+                        if (h < 0f && h > -40f)
+                        {
+                            push = -h;
+                            x -= Table.xyz * h;
+                            normal = Table.xyz;
+                        }
                     }
                     if (push > 0f)
                     {

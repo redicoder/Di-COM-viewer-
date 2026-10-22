@@ -56,6 +56,8 @@ namespace DicomViewer.AnatomyLab
             if (Button(lab.livingEyes ? "Eyes: living" : "Eyes: his real", 150)) lab.livingEyes = !lab.livingEyes;
             if (Button(lab.ShowBlood ? "Blood: on" : "Blood: off", 120)) lab.ShowBlood = !lab.ShowBlood;
             if (Button("Front view", 120)) lab.ResetView();
+            if (Button(lab.IsWholeBody ? "Body: whole" : "Body: head", 130))
+                lab.UseBody(lab.IsWholeBody ? AnatomyLab.HeadBody : AnatomyLab.WholeBody);
 
             string credit = string.IsNullOrEmpty(body.Meta.credit) ? "" : body.Meta.credit + ". ";
             var noteRect = new Rect(pad, y + h + pad, Screen.width - 2 * pad, 30 * k);

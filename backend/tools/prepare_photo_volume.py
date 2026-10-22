@@ -90,8 +90,8 @@ def body_box(files: list[Path], coarse: int = 6, margin_px: int = 12) -> tuple[s
             slice(max(0, int(xs[0]) * coarse - margin_px), (int(xs[-1]) + 1) * coarse + margin_px))
 
 
-def build(files: list[Path], factor: int) -> tuple[np.ndarray, dict]:
-    """RGBA volume (slices bottom to top) from photo files ordered bottom to top."""
+def build(files: list[Path], factor: int, slice_mm: float = SLICE_MM) -> tuple[np.ndarray, dict]:
+    """RGBA volume (slices bottom to top) from photo files ordered bottom to top, slice_mm apart."""
     rows, cols = body_box(files)
     rgb = np.stack([block_mean(read_photo(f)[rows, cols], factor) for f in files])
     tissue = largest_piece(tissue_mask(rgb))
@@ -112,9 +112,9 @@ def build(files: list[Path], factor: int) -> tuple[np.ndarray, dict]:
             rgb[k] = rgb[k][iy, ix]
     px = PIXEL_MM * factor
     rgb = equalise_slices(rgb, tissue)
-    alpha = body_alpha(tissue, px)
+    alpha = body_alpha(tissue, px, slice_mm)
     vol = np.concatenate([rgb, alpha[..., None]], axis=-1)
-    meta = {"dims": [vol.shape[2], vol.shape[1], vol.shape[0]], "spacing_mm": [px, px, SLICE_MM],
+    meta = {"dims": [vol.shape[2], vol.shape[1], vol.shape[0]], "spacing_mm": [px, px, slice_mm],
             "crop_photo_px": {"rows": [rows.start, rows.stop], "cols": [cols.start, cols.stop]}}
     return vol, meta
 
@@ -199,30 +199,30 @@ def equalise_slices(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
     return out
 
 
-def body_alpha(tissue: np.ndarray, px: float) -> np.ndarray:
+def body_alpha(tissue: np.ndarray, px: float, slice_mm: float = SLICE_MM) -> np.ndarray:
     """Tissue 0..255. The outline of each photo sits a fraction of a millimetre off its neighbours', which the
     renderer's normals turn into steps across the skin, so the body's OUTER surface is a 1.5 mm smoothing of the
     filled outline; inside it, the sharp mask (lightly softened) keeps sinuses, mouth and the cut edge of the
     neck exactly where the photos have them."""
-    sharp_sigma = (0.8, 0.6 * SLICE_MM / px, 0.6 * SLICE_MM / px)      # 0.8 mm up-down (the 1 mm steps), 0.6 across
+    sharp_sigma = (0.8 / slice_mm, 0.6 / px, 0.6 / px)                  # 0.8 mm up-down (the steps between photos), 0.6 across
     sharp = np.clip(ndimage.gaussian_filter(tissue.astype(np.float32), sharp_sigma), 0, 1)
     filled = tissue.copy()
     for k in range(filled.shape[0]):
         filled[k] = ndimage.binary_fill_holes(filled[k])
-    outer_sigma = (1.5 / SLICE_MM, 1.5 / px, 1.5 / px)
+    outer_sigma = (1.5 / slice_mm, 1.5 / px, 1.5 / px)
     outer = np.clip(ndimage.gaussian_filter(filled.astype(np.float32), outer_sigma), 0, 1)
     alpha = np.where(filled, np.minimum(outer, sharp), outer)
     return (alpha * 255).astype(np.uint8)
 
 
-def skin_depth(alpha: np.ndarray, px: float) -> np.ndarray:
+def skin_depth(alpha: np.ndarray, px: float, slice_mm: float = SLICE_MM) -> np.ndarray:
     """Millimetres below the body's outer surface (slices, rows, x), in units of SKIN_DEPTH_UNIT_MM, 0 outside.
     The outer surface ignores the air spaces inside (sinuses, mouth): holes are filled slice by slice first, so a
     flap of skin and fat is measured from the skin, not from the inside of the nose. Capped at 63.75 mm."""
     outer = alpha > 127
     for k in range(outer.shape[0]):
         outer[k] = ndimage.binary_fill_holes(outer[k])
-    depth = ndimage.distance_transform_edt(outer, sampling=(SLICE_MM, px, px))
+    depth = ndimage.distance_transform_edt(outer, sampling=(slice_mm, px, px))
     return np.clip(np.rint(depth / SKIN_DEPTH_UNIT_MM), 0, 255).astype(np.uint8)
 
 
@@ -235,7 +235,7 @@ def export_unity(vol: np.ndarray, meta: dict, out: Path, eyes: list[dict] | None
     D, H, W, _ = vol.shape
     px, sz = meta["spacing_mm"][0], meta["spacing_mm"][2]
     np.ascontiguousarray(np.transpose(vol, (1, 0, 2, 3))).tofile(out / "body.raw")
-    np.ascontiguousarray(np.transpose(skin_depth(vol[..., 3], px), (1, 0, 2))).tofile(out / "depth.raw")
+    np.ascontiguousarray(np.transpose(skin_depth(vol[..., 3], px, sz), (1, 0, 2))).tofile(out / "depth.raw")
     size = np.array([W * px, D * sz, H * px]) / 1000.0                      # metres: x left, y up, z back
 
     def local(x, row, k):
@@ -265,17 +265,18 @@ def main() -> None:
     ap.add_argument("--first", type=int, required=True, help="top slice number (Visible Human numbering)")
     ap.add_argument("--last", type=int, required=True, help="bottom slice number")
     ap.add_argument("--factor", type=int, default=2, help="average N x N photo pixels (2 -> 0.66 mm)")
+    ap.add_argument("--every", type=int, default=1, help="use every Nth photo (2 -> 2 mm slices; the whole body)")
     ap.add_argument("--web", help="also write browser atlases into this folder")
     ap.add_argument("--unity", action="store_true", help="also write body.raw/json in the Unity viewer's layout")
     ap.add_argument("--eye-slice", type=int, help="slice number at eye level: find the eyes and eyelids (male: 1095)")
     args = ap.parse_args()
 
     found = index_slices(Path(args.photos))
-    locs = list(range(args.last, args.first - 1, -1))               # bottom to top
+    locs = list(range(args.last, args.first - 1, -1))[::args.every]  # bottom to top
     missing = [loc for loc in locs if loc not in found]
     if missing:
         raise SystemExit(f"{len(missing)} slices missing, e.g. {missing[:5]}")
-    vol, meta = build([found[loc] for loc in locs], args.factor)
+    vol, meta = build([found[loc] for loc in locs], args.factor, SLICE_MM * args.every)
     meta.update({"slices": [args.first, args.last], "layout": "RGBA uint8, x = patient left (fastest), "
                  "rows = front to back, slices = bottom to top", "credit": CREDIT, "licence": LICENCE,
                  "source": "NLM Visible Human male, colour cryosection photographs (NCI Imaging Data Commons)"})

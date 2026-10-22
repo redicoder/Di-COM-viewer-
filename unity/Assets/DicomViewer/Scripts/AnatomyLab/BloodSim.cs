@@ -81,6 +81,12 @@ namespace DicomViewer.AnatomyLab
 
         public bool Ready => drops != null;
 
+        /// <summary>Which way is down, in the body's local axes (zero: the world's down, so turning the body turns it).</summary>
+        public Vector3 downLocalOverride;
+
+        private Vector3 LocalDown(Transform t) =>
+            downLocalOverride.sqrMagnitude > 1e-6f ? downLocalOverride.normalized : t.InverseTransformDirection(Vector3.down);
+
         public void Attach(PhotoBody photoBody, MaskVolume dissectionMask)
         {
             Release();
@@ -151,7 +157,7 @@ namespace DicomViewer.AnatomyLab
             float lengthCm = Vector3.Distance(w.a, w.b) * 100f;
             w.rate = lengthCm * bleedRate * (1f + 7f * redness);
             // Where it spills once the wound is full: the skin just below the wound's lower edge.
-            Vector3 down = t.InverseTransformDirection(Vector3.down);
+            Vector3 down = LocalDown(t);
             Vector3 along = down - w.n * Vector3.Dot(down, w.n);
             w.lip = (w.a + w.b) * 0.5f + (along.sqrMagnitude > 0.05f ? along.normalized * 0.003f : Vector3.zero);
             wounds.Add(w);
@@ -269,7 +275,7 @@ namespace DicomViewer.AnatomyLab
             cs.SetInts("_StainDims", stainDims.x, stainDims.y, stainDims.z);
             cs.SetVector("_SizeM", size);
             cs.SetVector("_VoxelM", new Vector3(size.x / d.x, size.y / d.y, size.z / d.z));
-            cs.SetVector("_Gravity", body.transform.InverseTransformDirection(Vector3.down) * gravity);
+            cs.SetVector("_Gravity", LocalDown(body.transform) * gravity);
             cs.SetFloat("_Dt", dt);
             Texture m = mask != null ? mask.MaskTexture : null;
             cs.SetFloat("_MaskOn", m != null ? 1f : 0f);

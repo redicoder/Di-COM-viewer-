@@ -86,12 +86,25 @@ namespace DicomViewer.AnatomyLab
 
         public bool Ready => body != null && body.IsLoaded && body.HasSkinDepth && field != null && sheetMaterial != null;
 
-        // A stainless tray under the neck: what comes off lands here.
+        /// <summary>
+        /// The table plane in body mm (unit normal out of the table, offset): a tray under a head's neck, the
+        /// dissection table under a whole body's back. Rebuilds the drawn tray.
+        /// </summary>
+        public void SetTable(Vector3 normal, float offset)
+        {
+            tablePlane = new Vector4(normal.normalized.x, normal.normalized.y, normal.normalized.z, offset);
+            foreach (TissueSheet sh in sheets) ApplyTray(sh);
+            if (body != null && body.IsLoaded) MakeTray(body.Space.SizeMm);
+        }
+
+        public Vector4 TablePlane => tablePlane;
+
+        // A stainless table: a slab just under the table plane with a rim round it; what comes off lands on it.
         private void MakeTray(Vector3 size)
         {
             if (tray != null) Kill(tray);
             Shader s = Shader.Find("DicomViewer/LabInstrument");
-            if (s == null) return;
+            if (s == null || root == null) return;
             if (trayMaterial == null)
             {
                 trayMaterial = new Material(s) { name = "Steel tray" };
@@ -99,21 +112,26 @@ namespace DicomViewer.AnatomyLab
                 trayMaterial.SetFloat("_Metallic", 1f);
                 trayMaterial.SetFloat("_Smoothness", 0.55f);
             }
-            Vector3 min = new Vector3(-70f, TrayTop - 3f, -230f), max = new Vector3(size.x + 70f, TrayTop, size.z + 50f);
+            // The plane's normal is along one body axis (up for a head on a tray, forward for a body on its back).
+            Vector3 n = tablePlane;
+            int k = Mathf.Abs(n.x) >= Mathf.Abs(n.y) && Mathf.Abs(n.x) >= Mathf.Abs(n.z) ? 0 : Mathf.Abs(n.y) >= Mathf.Abs(n.z) ? 1 : 2;
+            float sign = Mathf.Sign(n[k]);
+            float top = tablePlane.w / sign;                                 // the surface's coordinate along axis k
+            const float margin = 100f, thick = 3f, rim = 14f, wall = 2f;
             var v = new List<Vector3>();
             var t = new List<int>();
-            void Box(Vector3 a, Vector3 b)
+            void Box(Vector3 lo, Vector3 hi)
             {
                 int o = v.Count;
-                for (int k = 0; k < 8; k++) v.Add(new Vector3((k & 1) == 0 ? a.x : b.x, (k & 2) == 0 ? a.y : b.y, (k & 4) == 0 ? a.z : b.z));
+                Vector3 a = Vector3.Min(lo, hi), b = Vector3.Max(lo, hi);
+                for (int i = 0; i < 8; i++) v.Add(new Vector3((i & 1) == 0 ? a.x : b.x, (i & 2) == 0 ? a.y : b.y, (i & 4) == 0 ? a.z : b.z));
                 int[] q = { 0, 2, 3, 1, 4, 5, 7, 6, 0, 1, 5, 4, 2, 6, 7, 3, 0, 4, 6, 2, 1, 3, 7, 5 };
                 Vector3 centre = (a + b) * 0.5f;
-                void Tri(int i, int j, int k)
+                void Tri(int i, int j, int l)
                 {
-                    // Unity draws clockwise faces: the cross product points at the viewer, so out of the box.
-                    Vector3 n = Vector3.Cross(v[j] - v[i], v[k] - v[i]);
-                    if (Vector3.Dot(n, (v[i] + v[j] + v[k]) / 3f - centre) >= 0f) { t.Add(i); t.Add(j); t.Add(k); }
-                    else { t.Add(i); t.Add(k); t.Add(j); }
+                    Vector3 nn = Vector3.Cross(v[j] - v[i], v[l] - v[i]);
+                    if (Vector3.Dot(nn, (v[i] + v[j] + v[l]) / 3f - centre) >= 0f) { t.Add(i); t.Add(j); t.Add(l); }
+                    else { t.Add(i); t.Add(l); t.Add(j); }
                 }
                 for (int f = 0; f < 6; f++)
                 {
@@ -121,15 +139,18 @@ namespace DicomViewer.AnatomyLab
                     Tri(o + q[4 * f], o + q[4 * f + 2], o + q[4 * f + 3]);
                 }
             }
-            Box(min, max);
-            const float rim = 14f, wall = 2f;
-            Box(new Vector3(min.x, max.y, min.z), new Vector3(max.x, max.y + rim, min.z + wall));
-            Box(new Vector3(min.x, max.y, max.z - wall), new Vector3(max.x, max.y + rim, max.z));
-            Box(new Vector3(min.x, max.y, min.z), new Vector3(min.x + wall, max.y + rim, max.z));
-            Box(new Vector3(max.x - wall, max.y, min.z), new Vector3(max.x, max.y + rim, max.z));
-            var mesh = new Mesh { name = "Tray", hideFlags = HideFlags.DontSave };
-            mesh.SetVertices(v);
-            mesh.SetTriangles(t, 0);
+            Vector3 lo = -Vector3.one * margin, hi = size + Vector3.one * margin;
+            lo[k] = top - thick * sign;
+            hi[k] = top;
+            Box(lo, hi);
+            int a1 = (k + 1) % 3, a2 = (k + 2) % 3;
+            Vector3 rlo = lo, rhi = hi;
+            rlo[k] = top;
+            rhi[k] = top + rim * sign;
+            Vector3 w0 = rlo, w1 = rhi; w1[a1] = lo[a1] + wall; Box(w0, w1);
+            w0 = rlo; w1 = rhi; w0[a1] = hi[a1] - wall; Box(w0, w1);
+            w0 = rlo; w1 = rhi; w1[a2] = lo[a2] + wall; Box(w0, w1);
+            w0 = rlo; w1 = rhi; w0[a2] = hi[a2] - wall; Box(w0, w1);
             // Flat faces: split so each face has its own normals.
             var flat = new Mesh { name = "Tray", hideFlags = HideFlags.DontSave };
             var fv = new List<Vector3>();
@@ -139,19 +160,19 @@ namespace DicomViewer.AnatomyLab
             flat.SetTriangles(ft, 0);
             flat.RecalculateNormals();
             flat.RecalculateBounds();
-            Kill(mesh);
             tray = new GameObject("Steel tray") { hideFlags = HideFlags.DontSave };
             tray.transform.SetParent(root, false);
             tray.AddComponent<MeshFilter>().sharedMesh = flat;
             var r = tray.AddComponent<MeshRenderer>();
             r.sharedMaterial = trayMaterial;
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            trayMin = new Vector2(min.x + wall, min.z + wall);
-            trayMax = new Vector2(max.x - wall, max.z - wall);
         }
 
-        public const float TrayTop = -1.5f;          // body mm: just under the neck's cut
-        private Vector2 trayMin, trayMax;
+        public const float TrayTop = -1.5f;          // body mm: a head's tray, just under the neck's cut
+        private Vector4 tablePlane = new Vector4(0f, 1f, 0f, TrayTop);
+
+        /// <summary>Which way is down, in body local axes (zero: the world's down, so turning the body turns it).</summary>
+        public Vector3 downLocalOverride;
 
         // ------------------------------------------------------------------------------------------- tools
 
@@ -298,7 +319,7 @@ namespace DicomViewer.AnatomyLab
         public void Simulate(float dt)
         {
             if (!Ready || sheets.Count == 0) return;
-            Vector3 g = body.Space.WorldDirToMm(body.Volume, Vector3.down).normalized * 9810f;
+            Vector3 g = (downLocalOverride.sqrMagnitude > 1e-6f ? downLocalOverride : body.Space.WorldDirToMm(body.Volume, Vector3.down)).normalized * 9810f;
             bool mapsChanged = false;
             for (int s = 0; s < sheets.Count; s++)
             {
@@ -327,12 +348,7 @@ namespace DicomViewer.AnatomyLab
             PushToBody();
         }
 
-        private void ApplyTray(TissueSheet s)
-        {
-            s.TrayY = TrayTop;
-            s.TrayMinXZ = trayMin;
-            s.TrayMaxXZ = trayMax;
-        }
+        private void ApplyTray(TissueSheet s) => s.Table = tablePlane;
 
         // The hidden maps and sheet frames to the body's shader; the photo and blood textures to the sheets'.
         private void PushToBody()

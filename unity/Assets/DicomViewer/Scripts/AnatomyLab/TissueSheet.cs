@@ -141,10 +141,11 @@ namespace DicomViewer.AnatomyLab
         public int HeldNode => heldCentre;
         public bool Holding => held.Count > 0;
 
-        /// <summary>The tray under the body (body mm): its top's height along +y and its extent in x and z.</summary>
-        public float TrayY = float.NegativeInfinity;
-        public Vector2 TrayMinXZ = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
-        public Vector2 TrayMaxXZ = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        /// <summary>
+        /// The table or tray the body lies on, a plane in body mm: xyz its unit normal (out of the table, towards the
+        /// body), w its offset (dot(x, xyz) = w on its surface). w = -infinity: no table.
+        /// </summary>
+        public Vector4 Table = new Vector4(0f, 1f, 0f, float.NegativeInfinity);
 
         /// <summary>Whether the body's own tissue at a point has been taken over by a sheet (this or another).</summary>
         public Func<Vector3, bool> HiddenAt;
@@ -616,7 +617,7 @@ namespace DicomViewer.AnatomyLab
                 Hidden = nHidden, RestHeight = nRestHeight,
                 Depth = grid.Data, Dims = new int3(grid.Dims.x, grid.Dims.y, grid.Dims.z), Spacing = grid.SpacingMm,
                 Origin = Origin, E1 = E1, E2 = E2, E3 = E3, GridN = N, H = H, T = T,
-                TrayY = TrayY, TrayMin = TrayMinXZ, TrayMax = TrayMaxXZ,
+                Table = Table,
                 Gravity = gravity, Dt = dt, Substeps = substeps, Iterations = iterations,
                 Damping = damping, Retraction = retraction, ShapeStiffness = shapeStiffness,
                 AdhesionNormalCompliance = 1f / (adhesionNormalModulus * H * H / 2f),
@@ -701,8 +702,8 @@ namespace DicomViewer.AnatomyLab
 
             // Loose pieces that fell past the tray are gone.
             Vector3 down = gravity.sqrMagnitude > 1e-6f ? gravity.normalized : Vector3.down;
-            float floor = Vector3.Dot(new Vector3(0f, TrayY, 0f), down) + 400f;
-            if (!float.IsInfinity(TrayY))
+            float floor = Vector3.Dot(new Vector3(Table.x, Table.y, Table.z) * Table.w, down) + 400f;
+            if (Table.w > -1e30f)
             {
                 var fallen = new Dictionary<int, (float sum, int count, bool anchored)>();
                 foreach (int n in moving)

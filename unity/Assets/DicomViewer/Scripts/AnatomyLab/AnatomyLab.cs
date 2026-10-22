@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 namespace DicomViewer.AnatomyLab
@@ -12,6 +13,9 @@ namespace DicomViewer.AnatomyLab
     [RequireComponent(typeof(PhotoBody), typeof(MaskVolume), typeof(VolumeOrbitController))]
     public class AnatomyLab : MonoBehaviour
     {
+        public const string HeadBody = "photo_head", WholeBody = "photo_body";
+        [Tooltip("Which export the lab shows, a folder under backend/out: photo_head (the head at 0.66 mm) or photo_body (the whole body at 2 mm).")]
+        public string bodyName = HeadBody;
         [Tooltip("Modelled living eyes behind the eyelids. Off: his real eyes (a dead man's, dull and sunken).")]
         public bool livingEyes = true;
         [Range(0f, 1f)] public float eyesOpenTarget;
@@ -21,6 +25,8 @@ namespace DicomViewer.AnatomyLab
         public PhotoBody Body { get; private set; }
         public MaskVolume Mask { get; private set; }
         public float EyesOpen { get; private set; }
+        /// <summary>A whole body lies on his back on the table; a head stands on a tray.</summary>
+        public bool Lying { get; private set; }
 
         private VolumeOrbitController orbit;
         private BloodSim blood;
@@ -72,11 +78,33 @@ namespace DicomViewer.AnatomyLab
         private void OnEnable()
         {
             ViewerUi.ActiveTool = ViewerUi.Tool.Rotate;
-            if (!Body.IsLoaded && !Body.IsLoading) _ = Body.LoadAsync();
+            if (!Body.IsLoaded && !Body.IsLoading)
+            {
+                Body.folder = BodyFolder(bodyName);
+                _ = Body.LoadAsync();
+            }
         }
+
+        public static string BodyFolder(string name) =>
+            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "backend", "out", name));
+
+        /// <summary>Loads another export (HeadBody or WholeBody); everything done to the current one is gone.</summary>
+        public void UseBody(string name)
+        {
+            if (Body.IsLoading || (name == bodyName && Body.IsLoaded)) return;
+            bodyName = name;
+            Body.folder = BodyFolder(name);
+            _ = Body.LoadAsync();
+        }
+
+        public bool IsWholeBody => bodyName == WholeBody;
+
+        /// <summary>How a body lies on the table before this camera: on his back, head to the viewer's left, face up to the viewer.</summary>
+        public static Quaternion LyingRotation(Transform cam) => Quaternion.LookRotation(cam.forward, -cam.right);
 
         private void OnBodyLoaded()
         {
+            Lying = Body.SizeM.y > 0.5f;                                   // longer than any head: a body
             PlaceInFrontOfCamera();
             orbit.SetTarget(transform);
             Mask.Attach(Body.Space, () => Body.Material);
@@ -89,6 +117,14 @@ namespace DicomViewer.AnatomyLab
                 warp.Bind(Body.Material);
             }
             if (sheets != null) sheets.Attach(Body, Mask);
+            if (scalpel != null) scalpel.ForgetCut();
+            // On the table, down is towards the table however the body is turned to look at it; a head on a tray
+            // keeps the world's gravity (turn it and the blood runs the other way).
+            Vector3 size = Body.Space.SizeMm;
+            Vector3 downLocal = Lying ? Vector3.forward : Vector3.zero;
+            if (sheets != null) sheets.SetTable(Lying ? Vector3.back : Vector3.up, Lying ? -(size.z + 2f) : TissueSheets.TrayTop);
+            if (sheets != null) sheets.downLocalOverride = downLocal;
+            if (blood != null) blood.downLocalOverride = downLocal;
         }
 
         private void PlaceInFrontOfCamera()
@@ -96,9 +132,17 @@ namespace DicomViewer.AnatomyLab
             Camera cam = Camera.main;
             if (cam == null) return;
             transform.localScale = Vector3.one;
-            transform.rotation = Quaternion.LookRotation(cam.transform.forward, cam.transform.up);   // face (-z) to camera
-            float half = Body.SizeM.y * 0.5f;
-            float dist = half / 0.40f / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);       // fills ~80 % of the height
+            float tanHalf = Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad), half = Body.SizeM.y * 0.5f, dist;
+            if (Lying)
+            {
+                transform.rotation = LyingRotation(cam.transform);
+                dist = half / (0.42f * cam.aspect) / tanHalf;                   // his length fills ~84 % of the width
+            }
+            else
+            {
+                transform.rotation = Quaternion.LookRotation(cam.transform.forward, cam.transform.up);   // face (-z) to camera
+                dist = half / 0.40f / tanHalf;                                  // fills ~80 % of the height
+            }
             transform.position = cam.transform.position + cam.transform.forward * dist;
         }
 

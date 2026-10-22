@@ -115,6 +115,13 @@ namespace DicomViewer.AnatomyLab
             Space = new VolumeSpace(dims, new Vector3(meta.spacing_mm[0], meta.spacing_mm[1], meta.spacing_mm[2]));
             SizeM = new Vector3(meta.size_m[0], meta.size_m[1], meta.size_m[2]);
 
+            // Loading another body: the old one's textures and material go first.
+            if (ColourTexture != null) Kill(ColourTexture);
+            if (lidTexture != null) Kill(lidTexture);
+            if (occupancyTexture != null) Kill(occupancyTexture);
+            if (Material != null) Kill(Material);
+            Material = null;
+
             // Colour is sRGB (photographs); alpha (tissue) stays linear.
             ColourTexture = new Texture3D(dims.x, dims.y, dims.z, GraphicsFormat.R8G8B8A8_SRGB, TextureCreationFlags.None)
             {
