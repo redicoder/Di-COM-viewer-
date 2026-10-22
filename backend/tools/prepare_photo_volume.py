@@ -108,7 +108,8 @@ def running_median(x: np.ndarray, size: int = 9) -> np.ndarray:
 
 def match_blocks(rgb: np.ndarray, tissue: np.ndarray, joints: np.ndarray, px: float = 1.0) -> np.ndarray:
     """The specimen's blocks were photographed separately, so across a joint (a run of slices repair_gaps found)
-    the colour steps. Everything below a joint is scaled, per channel, so the skin just below it meets the skin
+    the colour steps (the joint's own slices are copies of the photo above it). Everything below a joint is
+    scaled, per channel, so the skin just below it meets the skin
     just above it: the median colour of the outermost voxels over 12 cm on either side (wide enough that the
     groin under the hip joint does not decide, local enough that the belly's own paleness is not spread to the
     chest). Skin, because it is the one tissue every block has. A block's exposure is never off by more than a
@@ -145,7 +146,6 @@ def match_blocks(rgb: np.ndarray, tissue: np.ndarray, joints: np.ndarray, px: fl
             for k in range(max(lo - 16, 0), lo):
                 t = (k - (lo - 16)) / 16.0
                 out[k] *= 1.0 + (residual - 1.0) * t
-        out[lo:hi] = out[hi] if hi < len(joints) else out[lo - 1]  # the joint itself: the photo above
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
@@ -165,7 +165,8 @@ def repair_gaps(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
     good = np.flatnonzero(~gap & (area > 0))
     if gap.any() and len(good) > 0:
         for k in np.flatnonzero(gap):
-            j = good[np.argmin(np.abs(good - k))]
+            after = good[good > k]                                   # the first whole photo above the joint: photo
+            j = after[0] if len(after) else good[-1]                 # and mask from the same slice, always
             rgb[k] = rgb[j]
             tissue[k] = tissue[j]
     return tissue, gap
