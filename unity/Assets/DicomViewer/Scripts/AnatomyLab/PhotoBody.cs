@@ -7,6 +7,16 @@ using UnityEngine.Rendering;
 
 namespace DicomViewer.AnatomyLab
 {
+    /// <summary>A finer export inside this one (tools/transfer_eyes.py): its box in this body's local metres.</summary>
+    [Serializable]
+    public class BodyRegion
+    {
+        public string name;
+        public string folder;
+        public float[] centre_m;
+        public float[] size_m;
+    }
+
     /// <summary>Mirror of body.json (backend/tools/prepare_photo_volume.py --unity). Positions in metres.</summary>
     [Serializable]
     public class BodyEye
@@ -30,6 +40,7 @@ namespace DicomViewer.AnatomyLab
         public string skin_depth;            // R8, units of skin_depth_unit_mm below the outer skin
         public float skin_depth_unit_mm;
         public string skin_mesh;             // skin.mesh (tools/extract_skin_mesh.py), the skin as a mesh over the volume
+        public BodyRegion[] regions;         // finer exports drawn inside this one (LabRegion)
     }
 
     /// <summary>

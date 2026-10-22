@@ -372,6 +372,9 @@ public static class LabSnapshot
         room.PushLight();
         var skin = bodyGo.AddComponent<SkinMesh>();
         Debug.Log($"LabSnapshot: skin mesh {(skin.Attach(body) ? "on" : "absent")}");
+        var regions = bodyGo.AddComponent<LabRegion>();
+        regions.Attach(body, LoadBody);
+        Debug.Log($"LabSnapshot: {regions.Count} region(s) at full detail");
 
         float aspect = 1600f / 900f;
         float dist = body.SizeM.y * 0.5f / (0.84f * aspect) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);   // his length at 84 % of the width
@@ -384,6 +387,7 @@ public static class LabSnapshot
         void Shot(string name)
         {
             skin.Sync();
+            regions.Sync();
             var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
             cam.Render();

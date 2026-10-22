@@ -37,6 +37,9 @@ Shader "DicomViewer/LabSkinMesh"
                 float _MaskEnabled, _ShowStain, _Living;
                 float _HasLids, _Open;
                 float4 _Eye0, _Eye1;
+                float _RegionOn;                 // 1: a finer export's mesh covers the box below; this one stays out
+                float4 _RegionMin, _RegionMax;   // body mm
+                float _ClipBelowMm;              // a region's mesh: nothing below this height (the export's cut end)
             CBUFFER_END
 
             #include "LabBody.hlsl"
@@ -67,10 +70,10 @@ Shader "DicomViewer/LabSkinMesh"
             // gone, a little more saturation. Set by eye; _Living blends from the photographs (0) to this (1).
             float3 Living(float3 albedo)
             {
-                float3 g = albedo * float3(1.14, 1.00, 1.16);
+                float3 g = albedo * float3(1.08, 1.00, 1.16);
                 float l = dot(g, float3(0.3, 0.59, 0.11));
-                g = lerp(l.xxx, g, 1.06);
-                g += float3(0.03, 0.0, 0.015) * saturate(1.0 - l);          // warmth in the shadows
+                g = lerp(l.xxx, g, 0.98);
+                g += float3(0.02, 0.0, 0.015) * saturate(1.0 - l);          // a little warmth in the shadows
                 return lerp(LabSkinGrade(albedo, 1.0), saturate(g), _Living);
             }
 
@@ -80,7 +83,10 @@ Shader "DicomViewer/LabSkinMesh"
                 float3 N = normalize(i.normalWS);
                 float3 nMm = normalize(i.normalMm);
 
-                // Cut away: the scalpel's track, skin lifted by a sheet, and the lids' zone while the eyes open.
+                // Cut away: the scalpel's track, skin lifted by a sheet, the lids' zone while the eyes open, a
+                // region drawn at finer detail, and a region's own cut end.
+                if (_RegionOn > 0.5 && all(i.positionMm >= _RegionMin.xyz) && all(i.positionMm <= _RegionMax.xyz)) discard;
+                if (i.positionMm.y < _ClipBelowMm) discard;
                 float m = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvw, 0).r : 1.0;
                 if (m < 0.5) discard;
                 if (_SheetCount > 0.5 && SheetHidden(uvw, _SizeMm.xyz)) discard;
@@ -90,13 +96,19 @@ Shader "DicomViewer/LabSkinMesh"
                     if (InLidZone(w, _Eye0) || InLidZone(w, _Eye1)) discard;
                 }
 
-                // Colour from just under the skin, blended over neighbouring photos.
+                // Colour from just under the skin, averaged over 2 mm of surface (the frozen photographs are
+                // blotchy with pooled blood; living skin has an even base, its detail is in the relief).
                 float3 inside = (i.positionMm - nMm * 0.7) / _SizeMm.xyz;
-                float3 up = float3(0, 1.0 / _SizeMm.y, 0);
-                float3 c0 = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, inside - up, 0).rgb;
-                float3 c1 = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, inside, 0).rgb;
-                float3 c2 = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, inside + up, 0).rgb;
-                float3 albedo = Living(0.18 * c0 + 0.64 * c1 + 0.18 * c2);
+                float3 T = normalize(cross(nMm, abs(nMm.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0)));
+                float3 B = cross(nMm, T);
+                float3 sum = 0.0;
+                [unroll] for (int k = 0; k < 7; k++)
+                {
+                    float ang = k * 0.8976;                                    // 2 pi / 7
+                    float3 off = k == 0 ? 0.0 : (T * cos(ang) + B * sin(ang)) * 1.8;   // mm
+                    sum += SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, inside + off / _SizeMm.xyz, 0).rgb;
+                }
+                float3 albedo = Living(sum / 7.0);
                 float skin = smoothstep(0.5, 1.0, m);
                 float stain = SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, uvw, 0).r;
                 float wet = smoothstep(0.04, 0.35, stain) * _ShowStain;

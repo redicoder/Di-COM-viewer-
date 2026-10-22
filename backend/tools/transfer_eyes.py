@@ -1,6 +1,8 @@
 """Carries the eyes found in one photographed-body export (the head at 0.66 mm, where the finder works) into
 another export of the same photographs (the whole body at 1.3 x 2 mm, where it does not), through the
-coordinates the two share: the photo's column and row, and the slice number.
+coordinates the two share: the photo's column and row, and the slice number. Also records the source as a
+REGION of the target (its box in the target's local metres), so the lab can draw the finer export in place of
+the coarser one there: the face at full detail on the whole body.
 
 Both exports come from prepare_photo_volume.py, which writes photo.json (crop_photo_px, slices, spacing_mm) and
 body.json (dims, size_m, eyes in body-local metres with the origin at the centre). Writes the eyes into the
@@ -56,6 +58,18 @@ def transfer(src_photo: dict, src_body: dict, dst_photo: dict, dst_body: dict) -
     return eyes
 
 
+def region_box(src_photo: dict, src_body: dict, dst_photo: dict, dst_body: dict) -> dict:
+    """The source export's box inside the target's local metres: its centre and size."""
+    a, b = Frame(src_photo, src_body), Frame(dst_photo, dst_body)
+    half = [s / 2 for s in src_body["size_m"]]
+    corners = [b.photo_to_local(*a.local_to_photo([sx * half[0], sy * half[1], sz * half[2]]))
+               for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    lo = [min(c[i] for c in corners) for i in range(3)]
+    hi = [max(c[i] for c in corners) for i in range(3)]
+    return {"name": src_body.get("region_name", "head"), "folder": None,
+            "centre_m": [(lo[i] + hi[i]) / 2 for i in range(3)], "size_m": [hi[i] - lo[i] for i in range(3)]}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("source", help="export whose body.json has the eyes (the head)")
@@ -69,6 +83,10 @@ def main() -> None:
     body = load(dst / "body.json")
     body["eyes"] = eyes
     body["eyes_from"] = src.name
+    region = region_box(load(src / "photo.json"), load(src / "body.json"), load(dst / "photo.json"), body)
+    region["folder"] = src.name
+    body["regions"] = [r for r in body.get("regions", []) if r.get("folder") != src.name] + [region]
+    print("region", region["name"], "centre", [round(c, 4) for c in region["centre_m"]], "size", [round(c, 4) for c in region["size_m"]])
     (dst / "body.json").write_text(json.dumps(body, indent=2))
     for e in eyes:
         print("eye at", [round(c, 4) for c in e["centre_m"]], "m, radius", round(e["radius_m"] * 1000, 1), "mm")

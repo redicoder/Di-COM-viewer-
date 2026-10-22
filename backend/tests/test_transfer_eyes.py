@@ -41,3 +41,11 @@ def test_transfer_keeps_radius_and_moves_lid_and_front():
     assert e["skin_front_z_m"] < e["centre_m"][2], "the skin's front stays in front of the centre"
     expected_dy = (0.009 - 0.01)                                     # 1 mm below, in metres
     assert abs((e["lid_line_y_m"] - e["centre_m"][1]) - expected_dy) < 1e-6
+
+
+def test_region_box_is_the_source_export_in_the_target_frame():
+    head = export(600, 300, 1001, 1225, 1, 2, [282, 225, 366])
+    body = export(200, 250, 1002, 2878, 2, 4, [436, 939, 250])
+    r = te.region_box(head[0], head[1], body[0], body[1])
+    assert abs(r["size_m"][0] - head[1]["size_m"][0]) < 1e-6 and abs(r["size_m"][1] - head[1]["size_m"][1]) < 1e-6
+    assert r["centre_m"][1] > 0.7, "the head sits at the top of the body"

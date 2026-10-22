@@ -205,7 +205,7 @@ namespace DicomViewer.AnatomyLab
         private bool Pick(Camera cam, out Vector3 point, out Vector3 normal, out int sheet, out Vector2 grid)
         {
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
-            bool body = lab.Body.Raycast(ray, lab.IsGoneLocal, out point, out normal);
+            bool body = lab.Body.Raycast(ray, lab.IsGoneLocal, out point, out normal) && !lab.InRegion(point);
             sheet = -1;
             grid = default;
             if (sheets != null && sheets.Raycast(ray, out TissueSheets.SheetHit hit) &&

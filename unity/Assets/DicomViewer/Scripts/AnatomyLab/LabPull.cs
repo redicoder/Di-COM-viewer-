@@ -51,7 +51,7 @@ namespace DicomViewer.AnatomyLab
             if (cam == null) return;
 
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
-            bool picked = body.Raycast(ray, lab.IsGoneLocal, out Vector3 hit, out Vector3 normal);
+            bool picked = body.Raycast(ray, lab.IsGoneLocal, out Vector3 hit, out Vector3 normal) && !lab.InRegion(hit);
             bool onSheet = sheets.Raycast(ray, out TissueSheets.SheetHit sheetHit) &&
                            (!picked || sheetHit.distance < Vector3.Distance(ray.origin, hit));
             if (Input.GetMouseButtonDown(0) && !ViewerUi.PointerOverUi && !VolumeOrbitController.GestureRecent && (picked || onSheet))

@@ -49,6 +49,8 @@ Shader "DicomViewer/PhotoBody"
                 float _StepScale;          // ray step in voxels: 0.5 at rest, 1 while the body moves
                 float _ShowStain;          // 0: blood hidden (dry dissection)
                 float _SkinByMesh;         // 1: the intact outer skin is drawn by the skin mesh (SkinMesh.cs), not here
+                float _RegionOn;           // 1: a finer export is drawn inside the box below (LabRegion.cs); nothing here
+                float4 _RegionMin, _RegionMax;   // that box, body mm
                 float4 _Eye0, _Eye1;       // per eye: x, lid line y, eyeball centre z, radius (metres)
                 float4 _EyeBall0, _EyeBall1;   // the real eyeballs (centre xyz, radius), hidden when _ModelEyes
             CBUFFER_END
@@ -65,8 +67,7 @@ Shader "DicomViewer/PhotoBody"
                 if (_WarpFieldOn > 0.5)
                 {
                     float4 fw = _WarpField.SampleLevel(sampler_WarpField, y, 0);
-                    if (fw.w > 0.5) return WARP_EMPTY_UVW;
-                    y += fw.xyz;
+                    y = fw.w > 0.5 ? WARP_EMPTY_UVW : y + fw.xyz;     // one return: fxc loses track of early ones
                 }
                 return y;
             }
@@ -88,6 +89,12 @@ Shader "DicomViewer/PhotoBody"
             float TissueAt(float3 uvw, out float3 rgb)
             {
                 float4 c = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, uvw, 0);
+                rgb = c.rgb;
+                if (_RegionOn > 0.5)
+                {
+                    float3 x = uvw * _SizeM.xyz * 1000.0;
+                    if (all(x >= _RegionMin.xyz) && all(x <= _RegionMax.xyz)) return 0.0;
+                }
                 if (_SheetCount > 0.5 && c.a > 0.0 && SheetHidden(uvw, _SizeM.xyz * 1000.0)) { rgb = c.rgb; return 0.0; }
                 float m = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvw, 0).r : 1.0;
                 float3 w = (uvw - 0.5) * _SizeM.xyz;

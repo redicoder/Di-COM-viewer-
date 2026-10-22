@@ -26,8 +26,8 @@ namespace DicomViewer.AnatomyLab
         private Mesh mesh;
         private GameObject part;
 
-        private static readonly string[] Floats = { "_MaskEnabled", "_ShowStain", "_HasLids", "_Open", "_SheetCount", "_InstrCount" };
-        private static readonly string[] Vectors = { "_Eye0", "_Eye1", "_SizeM" };
+        private static readonly string[] Floats = { "_MaskEnabled", "_ShowStain", "_HasLids", "_Open", "_SheetCount", "_InstrCount", "_RegionOn" };
+        private static readonly string[] Vectors = { "_Eye0", "_Eye1", "_SizeM", "_RegionMin", "_RegionMax" };
         private static readonly string[] Textures = { "_MaskTex", "_StainTex", "_SheetMaps" };
         private static readonly string[] VectorArrays = { "_SheetOrigin", "_SheetE1", "_SheetE2", "_SheetE3", "_InstrA", "_InstrB" };
 

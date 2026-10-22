@@ -35,6 +35,7 @@ namespace DicomViewer.AnatomyLab
         private TissueWarp warp;
         private TissueSheets sheets;
         private SkinMesh skinMesh;
+        private LabRegion region;
         private LabScalpel scalpel;
         private readonly List<LivingEye> eyeObjects = new List<LivingEye>();
         private bool lidDrag;
@@ -53,6 +54,7 @@ namespace DicomViewer.AnatomyLab
             go.AddComponent<TissueSheets>();
             go.AddComponent<LabRoom>();
             go.AddComponent<SkinMesh>();
+            go.AddComponent<LabRegion>();
             go.AddComponent<AnatomyLab>();          // before the parts that require it, or they would add a second
             go.AddComponent<LabInstruments>();
             go.AddComponent<LabScalpel>();
@@ -77,6 +79,7 @@ namespace DicomViewer.AnatomyLab
             warp = GetComponent<TissueWarp>();
             sheets = GetComponent<TissueSheets>();
             skinMesh = GetComponent<SkinMesh>();
+            region = GetComponent<LabRegion>();
             scalpel = GetComponent<LabScalpel>();
             Body.Loaded += OnBodyLoaded;
         }
@@ -150,6 +153,9 @@ namespace DicomViewer.AnatomyLab
 
         public bool IsWholeBody => bodyName == WholeBody;
 
+        /// <summary>Inside a region drawn at finer detail (the face on the whole body): the tools look away.</summary>
+        public bool InRegion(Vector3 world) => region != null && region.Contains(world);
+
         /// <summary>The skin is drawn as a mesh over the volume (the export has one): it does not stretch.</summary>
         public bool SkinMeshOn => skinMesh != null && skinMesh.IsLoaded;
 
@@ -172,6 +178,7 @@ namespace DicomViewer.AnatomyLab
             }
             if (sheets != null) sheets.Attach(Body, Mask);
             if (skinMesh != null) skinMesh.Attach(Body);
+            if (region != null) region.Attach(Body);
             if (scalpel != null) scalpel.ForgetCut();
             // On the table, down is towards the table however the body is turned to look at it; a head on a tray
             // keeps the world's gravity (turn it and the blood runs the other way).
