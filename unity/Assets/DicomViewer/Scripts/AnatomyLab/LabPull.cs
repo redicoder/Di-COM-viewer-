@@ -84,7 +84,7 @@ namespace DicomViewer.AnatomyLab
                 mode = Mode.Sheet;
                 return;
             }
-            if (!picked || onSheet) return;
+            if (!picked || onSheet || lab.SkinMeshOn) return;              // a mesh skin does not stretch
             grabId = warp.BeginGrab(Uvw(lab.Body, hit), grabRadiusMm);
             if (grabId >= 0) mode = Mode.Stretch;
         }

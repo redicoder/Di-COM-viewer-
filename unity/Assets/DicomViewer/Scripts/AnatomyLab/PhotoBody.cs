@@ -29,6 +29,7 @@ namespace DicomViewer.AnatomyLab
         public string lids;
         public string skin_depth;            // R8, units of skin_depth_unit_mm below the outer skin
         public float skin_depth_unit_mm;
+        public string skin_mesh;             // skin.mesh (tools/extract_skin_mesh.py), the skin as a mesh over the volume
     }
 
     /// <summary>

@@ -35,9 +35,6 @@ Shader "DicomViewer/PhotoBody"
 
             #define BRICK 8.0
 
-            TEXTURE3D(_ColorTex);  SAMPLER(sampler_ColorTex);
-            TEXTURE3D(_MaskTex);   SAMPLER(sampler_MaskTex);
-            TEXTURE3D(_StainTex);  SAMPLER(sampler_StainTex);
             TEXTURE3D(_LidTex);    SAMPLER(sampler_LidTex);
             TEXTURE3D(_OccTex);    SAMPLER(sampler_point_clamp);
 
@@ -50,6 +47,7 @@ Shader "DicomViewer/PhotoBody"
                 float _ModelEyes;          // 1: the real eyeballs are hidden, modelled eyes sit in their place
                 float _StepScale;          // ray step in voxels: 0.5 at rest, 1 while the body moves
                 float _ShowStain;          // 0: blood hidden (dry dissection)
+                float _SkinByMesh;         // 1: the intact outer skin is drawn by the skin mesh (SkinMesh.cs), not here
                 float4 _Eye0, _Eye1;       // per eye: x, lid line y, eyeball centre z, radius (metres)
                 float4 _EyeBall0, _EyeBall1;   // the real eyeballs (centre xyz, radius), hidden when _ModelEyes
             CBUFFER_END
@@ -57,60 +55,7 @@ Shader "DicomViewer/PhotoBody"
             #include "TissueWarp.hlsl"         // live grabs (GrabDisplacement) and the baked grab field
             #include "LabSkin.hlsl"            // the skin's lighting
 
-            TEXTURE3D(_SkinDepthTex);  SAMPLER(sampler_SkinDepthTex);   // mm below the outer skin
-            #define MAX_INSTR 8
-            float _InstrCount;
-            float4 _InstrA[MAX_INSTR], _InstrB[MAX_INSTR];
-
-            // Soft shadow of the instruments towards the light at world point p (1 = lit), and their contact darkening.
-            float InstrumentShade(float3 p, float3 L, out float ao)
-            {
-                float lit = 1.0;
-                ao = 1.0;
-                [loop] for (int i = 0; i < (int)_InstrCount; i++)
-                {
-                    float3 a = _InstrA[i].xyz, d2 = _InstrB[i].xyz - a, r0 = p - a;
-                    float r = _InstrA[i].w;
-                    float a12 = dot(L, d2), a22 = max(dot(d2, d2), 1e-10), b1 = dot(L, r0), b2 = dot(d2, r0);
-                    float u = saturate((b2 - a12 * b1) / max(a22 - a12 * a12, 1e-10));
-                    float t = max(a12 * u - b1, 0.0);
-                    u = saturate(dot(d2, r0 + L * t) / a22);
-                    float dist = length(r0 + L * t - d2 * u);
-                    lit *= smoothstep(r * 0.4, r + t * 0.12 + r * 0.3, dist);
-                    float dc = length(r0 - d2 * saturate(b2 / a22)) - r;   // gap between the skin and the capsule
-                    ao *= 1.0 - 0.55 * saturate(1.0 - dc / (r * 1.2 + 1e-5));
-                }
-                return lit;
-            }
-
-            float SkinDepthAt(float3 uvw) { return SAMPLE_TEXTURE3D_LOD(_SkinDepthTex, sampler_SkinDepthTex, uvw, 0).r; }
-
-            // Skin taken over by a sheet (TissueSheets.cs: physics), which draws it instead: per sheet a grid over the
-            // body (origin, axes, node spacing in .w of the origin, thickness in .w of E1) and a map with, per node,
-            // 1 where the sheet has taken the tissue and the skin's height above the grid.
-            #define MAX_SHEETS 4
-            #define SHEET_N 64.0
-            float _SheetCount;
-            float4 _SheetOrigin[MAX_SHEETS], _SheetE1[MAX_SHEETS], _SheetE2[MAX_SHEETS], _SheetE3[MAX_SHEETS];
-            TEXTURE2D_ARRAY(_SheetMaps); SAMPLER(sampler_SheetMaps);
-
-            bool SheetHidden(float3 uvw)
-            {
-                float3 x = uvw * _SizeM.xyz * 1000.0;
-                [loop] for (int s = 0; s < (int)_SheetCount; s++)
-                {
-                    float3 d = x - _SheetOrigin[s].xyz;
-                    float2 g = float2(dot(d, _SheetE1[s].xyz), dot(d, _SheetE2[s].xyz)) / _SheetOrigin[s].w;
-                    if (any(g < 0.0) || any(g > SHEET_N - 1.0)) continue;
-                    float2 m = SAMPLE_TEXTURE2D_ARRAY_LOD(_SheetMaps, sampler_SheetMaps, (g + 0.5) / SHEET_N, s, 0).rg;
-                    if (m.r < 0.5) continue;
-                    float hz = dot(d, _SheetE3[s].xyz), thick = _SheetE1[s].w;
-                    if (hz > m.g + 1.0 || hz < m.g - thick - 3.0) continue;
-                    float sd = SkinDepthAt(uvw);
-                    if (sd > 0.0 && sd <= thick) return true;
-                }
-                return false;
-            }
+            #include "LabBody.hlsl"            // the body's textures, sheets, lids, instruments (shared with the skin mesh)
 
             // Where the tissue shown at uvw really is: live grabs first, then the baked field (incision gapes).
             float3 SourceUVW(float3 uvw)
@@ -142,10 +87,18 @@ Shader "DicomViewer/PhotoBody"
             float TissueAt(float3 uvw, out float3 rgb)
             {
                 float4 c = SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, uvw, 0);
-                if (_SheetCount > 0.5 && c.a > 0.0 && SheetHidden(uvw)) { rgb = c.rgb; return 0.0; }
+                if (_SheetCount > 0.5 && c.a > 0.0 && SheetHidden(uvw, _SizeM.xyz * 1000.0)) { rgb = c.rgb; return 0.0; }
                 float m = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvw, 0).r : 1.0;
                 float3 w = (uvw - 0.5) * _SizeM.xyz;
                 bool lidsMove = _HasLids > 0.5 && _Open > 0.001;
+                // The skin mesh draws the intact outer skin; the volume draws what the scalpel opened, what a lifted
+                // sheet uncovered, the eyes' zone while they open, and everything deeper.
+                if (_SkinByMesh > 0.5 && m > 0.5 && c.a > 0.0 && SkinDepthAt(uvw) <= 0.7 &&
+                    !(lidsMove && (InLidZone(w, _Eye0) || InLidZone(w, _Eye1))))
+                {
+                    rgb = c.rgb;
+                    return 0.0;
+                }
                 float keep = 1.0;
                 if (_ModelEyes > 0.5 && (distance(w, _EyeBall0.xyz) < _EyeBall0.w || distance(w, _EyeBall1.xyz) < _EyeBall1.w))
                     keep = 0.0;
@@ -265,7 +218,7 @@ Shader "DicomViewer/PhotoBody"
                 float3 inwardM = flat ? float3(0, 0, 1) : normalize(gm);
                 float3 N = flat ? -normalize(TransformObjectToWorldDir(d)) : normalize(TransformObjectToWorldNormal(-g));
                 // The bed a sheet was lifted from is cut tissue too: wet, its own colour.
-                if (_SheetCount > 0.5 && !flat && SheetHidden(SourceUVW(p + 0.5 - inwardM * 0.0012 / _SizeM.xyz))) skin = 0.0;
+                if (_SheetCount > 0.5 && !flat && SheetHidden(SourceUVW(p + 0.5 - inwardM * 0.0012 / _SizeM.xyz), _SizeM.xyz * 1000.0)) skin = 0.0;
                 // Skin takes its colour from just under the surface: the epidermis itself, not the fat below it.
                 float depthM = flat ? 0.0 : lerp(0.0003, 0.0007, skin);
                 float3 pc = p + inwardM * depthM / _SizeM.xyz;

@@ -37,6 +37,7 @@ public static class BuildViewer
         "DicomViewer/LabInstrument",
         "DicomViewer/TissueSheet",
         "DicomViewer/LabTable",
+        "DicomViewer/LabSkinMesh",
     };
 
     [MenuItem("DICOM Viewer/Set Up Scene")]

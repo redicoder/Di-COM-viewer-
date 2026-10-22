@@ -49,6 +49,11 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_photos --first 1001 --last 2878
   .\.venv-seg\Scripts\python.exe tools\prepare_photo_volume.py data\vhp_male_photos out\photo_body --first 1001 --last 2878 --factor 4 --every 2 --unity
   ```
+  The skin as a mesh over each export (the lab draws it when present):
+  ```powershell
+  .\.venv-seg\Scripts\python.exe tools\extract_skin_mesh.py out\photo_head --triangles 200000
+  .\.venv-seg\Scripts\python.exe tools\extract_skin_mesh.py out\photo_body --triangles 400000 --smooth 1.5
+  ```
   In the app choose **Anatomy lab** on the start screen.
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`
   (Unity menu **DICOM Viewer → Build Windows App**).

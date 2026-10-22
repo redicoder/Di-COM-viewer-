@@ -18,6 +18,8 @@ the row says "confirmed".
 | fastapi / uvicorn / httpx | backend (optional HTTP service, tests) | MIT / BSD-3 / BSD-3 | confirmed |
 | pylibjpeg, pylibjpeg-openjpeg | backend (compressed DICOM) | MIT | verify |
 | **pylibjpeg-libjpeg** | backend (JPEG lossless DICOM) | **GPL-3.0** (to verify) | **do not ship** in a commercial build until resolved (replace or confirm) |
+| scikit-image | backend/.venv-seg (skin mesh extraction, `tools/extract_skin_mesh.py`) | BSD-3-Clause | confirmed |
+| fast-simplification | backend/.venv-seg (mesh decimation) | MIT | confirmed |
 | PyTorch | backend/.venv-seg | BSD-3-Clause | verify |
 | nnU-Net v2 | backend/.venv-seg (used by TotalSegmentator) | Apache-2.0 | verify |
 | nibabel, SimpleITK, dipy | backend/.venv-seg | MIT / Apache-2.0 / BSD-3 | verify |

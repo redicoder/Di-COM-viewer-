@@ -61,6 +61,7 @@ public static class LabSnapshot
         Vector3 noseFocus = new Vector3(0f, -0.02f, -0.085f), mouthFocus = new Vector3(0f, -0.05f, -0.07f);
         void Shot(string name)
         {
+            foreach (var sm in bodyGo.GetComponents<SkinMesh>()) sm.Sync();
             var rt = new RenderTexture(1200, 1200, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
             cam.Render();
@@ -163,14 +164,14 @@ public static class LabSnapshot
             tools.Apply();
             View(15f, 12f, dist * 0.6f);
             Shot("lab_scalpel.png");
-            View(0f, 4f, dist * 0.32f);
+            View(0f, 4f, dist * 0.2f, new Vector3(0f, 0.04f, -0.08f));
             Shot("lab_scalpel_close.png");
             tools.Apply();                                             // nothing asked for: the scalpel goes
             warp.RestoreState();
             warp.Gape(cutUvw, LabScalpel.GapeFor(cutMm), 8f, 5f);
             View(15f, 12f, dist * 0.6f);
             Shot("lab_cut.png");
-            View(0f, 4f, dist * 0.32f);
+            View(0f, 4f, dist * 0.2f, new Vector3(0f, 0.04f, -0.08f));
             Shot("lab_cut_close.png");
             blood.Advance(6f);
             View(15f, 12f, dist * 0.6f);
@@ -189,6 +190,8 @@ public static class LabSnapshot
             var sheets = bodyGo.AddComponent<TissueSheets>();
             sheets.Attach(body, mask);
             room.PushLight();
+            var skin = bodyGo.AddComponent<SkinMesh>();
+            Debug.Log($"LabSnapshot: skin mesh {(skin.Attach(body) ? "on" : "absent")}");
             void CutLine(Vector2 from, Vector2 to)
             {
                 mask.BeginStroke("scalpel");
@@ -365,6 +368,8 @@ public static class LabSnapshot
         sheets.Attach(body, mask);
         sheets.SetTable(Vector3.back, -(body.Space.SizeMm.z + 2f));
         room.PushLight();
+        var skin = bodyGo.AddComponent<SkinMesh>();
+        Debug.Log($"LabSnapshot: skin mesh {(skin.Attach(body) ? "on" : "absent")}");
 
         float aspect = 1600f / 900f;
         float dist = body.SizeM.y * 0.5f / (0.84f * aspect) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);   // his length at 84 % of the width
@@ -376,6 +381,7 @@ public static class LabSnapshot
         }
         void Shot(string name)
         {
+            skin.Sync();
             var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
             cam.Render();
