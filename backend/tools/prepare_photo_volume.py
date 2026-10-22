@@ -155,12 +155,13 @@ def repair_gaps(rgb: np.ndarray, tissue: np.ndarray) -> np.ndarray:
     not a dark ring round the body. Returns the tissue mask and which slices were joints."""
     area = tissue.sum(axis=(1, 2)).astype(float)
     median = running_median(area, 25)                               # sees across a joint of up to 12 blank photos
-    # A sliver photo at a block's end lacks a rim of the body and is lit differently from its neighbours; a slice
-    # where the body merely narrows (the shoulders) lacks neither.
-    lum = np.array([rgb[k][tissue[k]].mean() if tissue[k].any() else np.nan for k in range(rgb.shape[0])])
-    lum = np.where(np.isnan(lum), np.nanmedian(lum) if np.isfinite(np.nanmedian(lum)) else 0.0, lum)
-    odd = np.abs(lum - running_median(lum, 9)) > 5.0
-    gap = ((area < 0.8 * median) | ((area < 0.96 * median) & odd)) & (median > 0)
+    # A sliver photo at a block's end lacks a rim of the body that both its neighbours have; a slice where the
+    # body merely narrows (the shoulders) lacks nothing its two neighbours share.
+    missing = np.zeros(len(area))
+    for k in range(1, len(area) - 1):
+        if area[k] > 0:
+            missing[k] = (tissue[k - 1] & tissue[k + 1] & ~tissue[k]).sum() / area[k]
+    gap = ((area < 0.8 * median) | (missing > 0.04)) & (median > 0)
     good = np.flatnonzero(~gap & (area > 0))
     if gap.any() and len(good) > 0:
         for k in np.flatnonzero(gap):
@@ -305,25 +306,17 @@ def clean_skin_traces(rgb: np.ndarray, tissue: np.ndarray, px: float) -> np.ndar
 
 
 def equalise_slices(rgb: np.ndarray, tissue: np.ndarray, px: float = 1.0) -> np.ndarray:
-    """Each photo was exposed on its own, so neighbouring slices differ a little in brightness and a block can
-    fade along its length; on the rendered skin that shows as rings and bands round the body. Every slice's SKIN
-    (the outer shell, whose colour hardly changes along a body) is brought to the running median of its
-    neighbours' (window 25; gain within 0.75..1.33). Judged on the skin and not on all the tissue, because the
-    tissue inside changes with the anatomy: a belly is brighter than a thigh without any change of exposure."""
-    shell_px = max(1, int(round(1.5 / px)))
-    lum = np.full(rgb.shape[0], np.nan)
-    for k in range(rgb.shape[0]):
-        if not tissue[k].any():
-            continue
-        shell = tissue[k] & ~ndimage.binary_erosion(tissue[k], iterations=shell_px)
-        if shell.sum() < 20:
-            shell = tissue[k]
-        lum[k] = np.median(rgb[k][shell].mean(axis=-1))
+    """Each photo was exposed on its own, so neighbouring slices differ a little in brightness; on the rendered
+    skin that shows as rings round the body. Every slice's tissue brightness is brought to the running median of
+    its neighbours (window 9; gain within 0.75..1.33, so a slice that really is darker, through bone, keeps its
+    look). The mean of all the tissue, not of the skin alone: where the outline threads through armpits the
+    outermost voxels are not skin, and a gain taken from them makes rings of its own."""
+    lum = np.array([rgb[k][tissue[k]].mean() if tissue[k].any() else np.nan for k in range(rgb.shape[0])])
     ok = ~np.isnan(lum)
     if ok.sum() < 3:
         return rgb
     filled = np.interp(np.arange(len(lum)), np.flatnonzero(ok), lum[ok])
-    smooth = running_median(filled, 25)
+    smooth = running_median(filled)                                 # (median_filter misbehaves on short series)
     gain = np.clip(smooth / np.maximum(filled, 1.0), 0.75, 1.33)
     out = np.empty_like(rgb)
     for k in range(rgb.shape[0]):
