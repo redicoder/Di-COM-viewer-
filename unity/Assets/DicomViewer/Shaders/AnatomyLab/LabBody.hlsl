@@ -11,6 +11,23 @@ TEXTURE3D(_SkinDepthTex);  SAMPLER(sampler_SkinDepthTex);   // mm below the oute
 
 float SkinDepthAt(float3 uvw) { return SAMPLE_TEXTURE3D_LOD(_SkinDepthTex, sampler_SkinDepthTex, uvw, 0).r; }
 
+// Names for his voxels (BodyLabels.cs): an object index per voxel. The object under the cursor is lifted
+// (_HighlightIndex); layers the student has taken away (_LabelHideTex: 1 per hidden object index, when
+// _LayersOn) are not drawn, by the volume or by the skin mesh, so what lies beneath shows in place.
+TEXTURE3D(_LabelTex);  SAMPLER(sampler_LabelTex);
+TEXTURE2D(_LabelHideTex);  SAMPLER(sampler_LabelHideTex);
+float _HighlightIndex, _LayersOn;
+
+float LabelIndexAt(float3 uvw) { return round(SAMPLE_TEXTURE3D_LOD(_LabelTex, sampler_LabelTex, uvw, 0).r * 255.0); }
+
+bool LayerHidden(float3 uvw)
+{
+    if (_LayersOn < 0.5) return false;
+    float li = LabelIndexAt(uvw);
+    if (li < 0.5) return false;
+    return SAMPLE_TEXTURE2D_LOD(_LabelHideTex, sampler_LabelHideTex, float2((li + 0.5) / 256.0, 0.5), 0).r > 0.5;
+}
+
 // Skin taken over by a sheet (TissueSheets.cs: physics), which draws it instead: per sheet a grid over the body
 // (origin, axes, node spacing in .w of the origin, thickness in .w of E1) and a map with, per node, 1 where the
 // sheet has taken the tissue and the skin's height above the grid.

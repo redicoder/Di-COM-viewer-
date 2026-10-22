@@ -54,3 +54,23 @@ def test_compress_maps_every_label_of_an_object_to_one_index():
     assert out.dtype == np.uint8
     assert out.tolist() == [[[0, 1, 1, 2, 0]]]
     assert table[0]["name"] == "liver" and table[0]["voxels"] == 2 and table[1]["voxels"] == 1
+
+
+def test_layers_follow_the_names():
+    assert sio.layer_of("unclassified skin") == "skin" and sio.layer_of("skin of the left arm") == "skin"
+    assert sio.layer_of("unclassified tissue") == "fat" and sio.layer_of("visceral fat") == "fat"
+    assert sio.layer_of("left rectus abdominis") == "muscle" and sio.layer_of("unclassified muscles") == "muscle"
+    assert sio.layer_of("left rib 7") == "bone" and sio.layer_of("lumbar vertebra L3") == "bone"
+    assert sio.layer_of("right costal cartilage 6-9") == "bone"
+    assert sio.layer_of("liver") == "organ" and sio.layer_of("descending aorta") == "organ"
+
+
+def test_unlabelled_tissue_takes_the_nearest_label_on_covered_slices_only():
+    labels = np.zeros((6, 2, 6), np.uint16)
+    tissue = np.zeros((6, 2, 6), bool)
+    tissue[1:5, :, 1:5] = True
+    labels[1:5, 0, 1:3] = 7                                          # slice 0: labelled on the left, a gap on the right
+    out = sio.fill_unlabelled(labels, tissue)
+    assert np.all(out[1:5, 0, 1:5] == 7), "the gap takes its neighbour's label"
+    assert not out[:, 1, :].any(), "a slice the SIO does not cover stays unlabelled"
+    assert not out[0, 0, :].any() and not out[:, 0, 5].any(), "nothing outside the tissue"

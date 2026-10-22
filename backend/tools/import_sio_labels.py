@@ -117,6 +117,44 @@ def resample(sio_labels: dict[int, np.ndarray], frame: Frame, offsets: dict[int,
     return out
 
 
+LAYER_WORDS = {
+    "skin": ("skin",),
+    "fat": ("unclassified tissue", "visceral fat"),
+    "muscle": ("muscle", "rectus", "oblique", "transversus", "psoas", "iliacus", "diaphragm", "obturator",
+               "ischiocavernosus", "rectus sheath"),
+    "bone": ("vertebra", "rib ", "rib 1", "bone", "sternum", "clavicle", "scapula", "humerus", "radius", "ulna",
+             "femur", "sacrum", "coccyx", "cartilage", "intervertebral disc"),
+}
+
+
+def layer_of(name: str) -> str:
+    """The layer a student takes away to reach what is beneath: skin, fat, muscle, bone, else organ (which
+    includes the vessels, the markers and the brain's matter)."""
+    n = name.lower()
+    for layer in ("skin", "fat", "muscle", "bone"):
+        if any(w in n for w in LAYER_WORDS[layer]):
+            return layer
+    return "organ"
+
+
+def fill_unlabelled(labels: np.ndarray, tissue: np.ndarray) -> np.ndarray:
+    """Tissue voxels the SIO left unlabelled, on slices it covers (a few per cent: specks in the skin and fat,
+    the outline's disagreements), take the nearest label on their slice, so a layer taken away leaves no specks.
+    Slices without any label (the head, the legs) stay 0. labels and tissue: (z, y, x), labels edited in place."""
+    from scipy import ndimage
+    for k in range(labels.shape[1]):
+        lab = labels[:, k, :]
+        have = lab > 0
+        if not have.any():
+            continue
+        need = tissue[:, k, :] & ~have
+        if not need.any():
+            continue
+        _, (iy, ix) = ndimage.distance_transform_edt(~have, return_indices=True)
+        lab[need] = lab[iy[need], ix[need]]
+    return labels
+
+
 def compress(labels16: np.ndarray, objects: list[dict]) -> tuple[np.ndarray, list[dict]]:
     """SIO label numbers (uint16, several per object) to one byte per object (index into the table, 0 = none)."""
     lut = np.zeros(65536, np.uint8)
@@ -124,7 +162,7 @@ def compress(labels16: np.ndarray, objects: list[dict]) -> tuple[np.ndarray, lis
     for o in objects:
         if len(table) >= 255:
             raise ValueError("more than 255 objects")
-        table.append({"index": len(table) + 1, "name": o["name"], "sio_labels": o["labels"]})
+        table.append({"index": len(table) + 1, "name": o["name"], "sio_labels": o["labels"], "layer": layer_of(o["name"])})
         for n in o["labels"]:
             lut[n] = len(table)
     out = lut[labels16]
@@ -172,6 +210,9 @@ def main() -> None:
     frame = Frame(json.loads((export / "photo.json").read_text()), json.loads((export / "body.json").read_text()))
     labels = {n: tifffile.imread(f) for n, f in label_files.items()}
     vol16 = resample(labels, frame, offsets)
+    w, d, h = frame.dims
+    alpha = np.memmap(export / "body.raw", np.uint8, "r", shape=(h, d, w, 4))[..., 3]
+    vol16 = fill_unlabelled(vol16, np.asarray(alpha) > 0)
     vol, table = compress(vol16, objects)
     (export / "labels.raw").write_bytes(vol.tobytes())
     meta = {

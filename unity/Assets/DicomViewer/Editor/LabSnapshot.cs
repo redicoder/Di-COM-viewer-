@@ -491,6 +491,19 @@ public static class LabSnapshot
                 Shot("body_chest_label.png");
                 m.SetFloat("_HighlightIndex", 0f);
             }
+            // The layers taken away over the torso: skin and fat (the muscles), then the muscles (the organs).
+            Vector3 torso = bodyGo.transform.TransformPoint(new Vector3(0f, 0.25f, -0.06f));
+            View(-20f, 35f, dist * 0.45f, torso);
+            body.Labels.ShowLayer("skin", false);
+            body.Labels.ShowLayer("fat", false);
+            m.SetFloat("_LayersOn", 1f);
+            Shot("body_layers_muscle.png");
+            body.Labels.ShowLayer("muscle", false);
+            Shot("body_layers_organs.png");
+            body.Labels.ShowLayer("bone", false);
+            Shot("body_layers_organs_nobone.png");
+            foreach (string layer in BodyLabels.LayerNames) body.Labels.ShowLayer(layer, true);
+            m.SetFloat("_LayersOn", 0f);
         }
         Debug.Log($"LabSnapshot: whole body done -> {outDir}");
     }

@@ -11,6 +11,8 @@ Shader "DicomViewer/LabSkinMesh"
         _ColorTex ("Photo colour (RGB) + tissue (A)", 3D) = "" {}
         _MaskTex ("Dissection mask", 3D) = "white" {}
         _StainTex ("Blood stain", 3D) = "black" {}
+        _LabelTex ("Object labels (BodyLabels)", 3D) = "black" {}
+        _LabelHideTex ("Hidden labels, 256 x 1", 2D) = "black" {}
         _SkinDepthTex ("Skin depth (mm)", 3D) = "black" {}
         _SheetMaps ("Sheet maps (TissueSheets)", 2DArray) = "" {}
         _SkinLut ("Skin scattering LUT (SkinBake)", 2D) = "white" {}
@@ -47,6 +49,7 @@ Shader "DicomViewer/LabSkinMesh"
             away = true;
             if (_RegionOn > 0.5 && all(positionMm >= _RegionMin.xyz) && all(positionMm <= _RegionMax.xyz)) return 0.0;
             if (positionMm.y < _ClipBelowMm) return 0.0;
+            if (LayerHidden(uvw)) return 0.0;
             float m = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvw, 0).r : 1.0;
             if (m < 0.5) return m;
             if (_SheetCount > 0.5 && SheetHidden(uvw, _SizeMm.xyz)) return m;

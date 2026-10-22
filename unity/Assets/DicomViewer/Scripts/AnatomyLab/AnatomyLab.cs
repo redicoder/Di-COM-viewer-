@@ -324,7 +324,18 @@ namespace DicomViewer.AnatomyLab
         /// Picking: is the body's tissue at a volume-cube-local point gone, cut away (the mask) or taken over by a
         /// lifted sheet of skin (which is picked separately)?
         /// </summary>
-        public bool IsGoneLocal(Vector3 local) => Mask.IsRemovedLocal(local) || (sheets != null && sheets.IsHiddenLocal(local));
+        public bool IsGoneLocal(Vector3 local) => Mask.IsRemovedLocal(local) || (sheets != null && sheets.IsHiddenLocal(local))
+            || (Body.Labels != null && Body.Labels.HiddenAt(VolumeSpace.LocalToUvw(local)));
+
+        /// <summary>Layers (skin, fat, muscle, bone, organ) the student can take away where the body has labels.</summary>
+        public bool LayerShown(string layer) => Body.Labels == null || Body.Labels.LayerShown(layer);
+
+        public void ShowLayer(string layer, bool shown)
+        {
+            if (Body.Labels == null) return;
+            Body.Labels.ShowLayer(layer, shown);
+            Body.Material.SetFloat("_LayersOn", Body.Labels.AnyHidden ? 1f : 0f);
+        }
 
         public void OpenEyes(bool open) => eyesOpenTarget = open ? 1f : 0f;
 

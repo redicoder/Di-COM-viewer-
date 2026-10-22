@@ -12,6 +12,7 @@ namespace DicomViewer.AnatomyLab
         public string name;
         public int[] sio_labels;
         public int voxels;
+        public string layer;                 // skin, fat, muscle, bone, organ (tools/import_sio_labels.py)
     }
 
     /// <summary>Mirror of labels.json (backend/tools/import_sio_labels.py).</summary>
@@ -38,7 +39,16 @@ namespace DicomViewer.AnatomyLab
         public readonly Vector3Int Dims;
         public readonly LabelTable Table;
         public Texture3D Texture { get; private set; }
+        /// <summary>256 x 1, 1 where an object's index is hidden (a layer taken away).</summary>
+        public Texture2D HideTexture { get; private set; }
         private readonly string[] names;
+        private readonly string[] layers;
+        private readonly byte[] hidden = new byte[256];
+        private readonly System.Collections.Generic.HashSet<string> hiddenLayers = new System.Collections.Generic.HashSet<string>();
+
+        public static readonly string[] LayerNames = { "skin", "fat", "muscle", "bone", "organ" };
+        public bool AnyHidden => hiddenLayers.Count > 0;
+        public bool LayerShown(string layer) => !hiddenLayers.Contains(layer);
 
         public int Count => Table.objects?.Length ?? 0;
         public string Credit => Table.credit;
@@ -72,8 +82,15 @@ namespace DicomViewer.AnatomyLab
             Index = index;
             Table = table;
             names = new string[256];
+            layers = new string[256];
             foreach (LabelObject o in table.objects)
-                if (o.index > 0 && o.index < 256) names[o.index] = o.name;
+                if (o.index > 0 && o.index < 256) { names[o.index] = o.name; layers[o.index] = o.layer ?? "organ"; }
+            HideTexture = new Texture2D(256, 1, TextureFormat.R8, false, true)
+            {
+                wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Point, name = "PhotoBody hidden labels",
+            };
+            HideTexture.SetPixelData(hidden, 0);
+            HideTexture.Apply(false, false);
             Texture = new Texture3D(dims.x, dims.y, dims.z, GraphicsFormat.R8_UNorm, TextureCreationFlags.None)
             {
                 wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Point, name = "PhotoBody labels",
@@ -95,12 +112,33 @@ namespace DicomViewer.AnatomyLab
 
         public string Name(int index) => index > 0 && index < 256 ? names[index] : null;
 
+        public string Layer(int index) => index > 0 && index < 256 ? layers[index] : null;
+
+        /// <summary>Is the voxel at a texture coordinate in a layer the student has taken away?</summary>
+        public bool HiddenAt(Vector3 uvw) => hiddenLayers.Count > 0 && hidden[IndexAt(uvw)] != 0;
+
+        /// <summary>Shows or hides a whole layer (skin, fat, muscle, bone, organ); the texture follows.</summary>
+        public void ShowLayer(string layer, bool shown)
+        {
+            if (shown) hiddenLayers.Remove(layer); else hiddenLayers.Add(layer);
+            for (int i = 1; i < 256; i++) hidden[i] = (byte)(layers[i] != null && hiddenLayers.Contains(layers[i]) ? 255 : 0);
+            HideTexture.SetPixelData(hidden, 0);
+            HideTexture.Apply(false, false);
+        }
+
         public void Dispose()
         {
-            if (Texture == null) return;
-            if (Application.isPlaying) UnityEngine.Object.Destroy(Texture);
-            else UnityEngine.Object.DestroyImmediate(Texture);
+            Kill(Texture);
+            Kill(HideTexture);
             Texture = null;
+            HideTexture = null;
+        }
+
+        private static void Kill(UnityEngine.Object o)
+        {
+            if (o == null) return;
+            if (Application.isPlaying) UnityEngine.Object.Destroy(o);
+            else UnityEngine.Object.DestroyImmediate(o);
         }
     }
 }

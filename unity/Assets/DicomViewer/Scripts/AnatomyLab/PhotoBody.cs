@@ -201,8 +201,13 @@ namespace DicomViewer.AnatomyLab
             Labels?.Dispose();
             Labels = labels;
             if (Material == null) return;
-            if (labels != null) Material.SetTexture("_LabelTex", labels.Texture);
+            if (labels != null)
+            {
+                Material.SetTexture("_LabelTex", labels.Texture);
+                Material.SetTexture("_LabelHideTex", labels.HideTexture);
+            }
             Material.SetFloat("_HighlightIndex", 0f);
+            Material.SetFloat("_LayersOn", 0f);
             if (labels != null) Debug.Log($"PhotoBody: {labels.Count} labelled objects ({labels.Credit})");
         }
 

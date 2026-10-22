@@ -58,6 +58,19 @@ namespace DicomViewer.AnatomyLab
             if (Button("Front view", 120)) lab.ResetView();
             if (Button(lab.IsWholeBody ? "Body: whole" : "Body: head", 130))
                 lab.UseBody(lab.IsWholeBody ? AnatomyLab.HeadBody : AnatomyLab.WholeBody);
+            if (body.Labels != null)
+            {
+                x += pad * 2;
+                foreach (string layer in BodyLabels.LayerNames)
+                {
+                    bool shown = lab.LayerShown(layer);
+                    Wrap(100 * k);
+                    var r = new Rect(x, y, 100 * k, h);
+                    ViewerUi.Block(r);
+                    if (GUI.Button(r, char.ToUpper(layer[0]) + layer.Substring(1), shown ? barOn : bar)) lab.ShowLayer(layer, !shown);
+                    x += r.width + pad;
+                }
+            }
 
             string credit = string.IsNullOrEmpty(body.Meta.credit) ? "" : body.Meta.credit + ". ";
             var noteRect = new Rect(pad, y + h + pad, Screen.width - 2 * pad, 30 * k);

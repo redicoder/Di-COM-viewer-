@@ -10,6 +10,8 @@ Shader "DicomViewer/PhotoBody"
         _ColorTex ("Photo colour (RGB) + tissue (A)", 3D) = "" {}
         _MaskTex ("Dissection mask", 3D) = "white" {}
         _StainTex ("Blood stain", 3D) = "black" {}
+        _LabelTex ("Object labels (BodyLabels)", 3D) = "black" {}
+        _LabelHideTex ("Hidden labels, 256 x 1", 2D) = "black" {}
         _LidTex ("Eyelids (0.25 lower, 0.5 upper)", 3D) = "black" {}
         _OccTex ("Occupancy (tissue somewhere in this brick)", 3D) = "white" {}
         _ShowStain ("Show blood stains", Float) = 1
@@ -59,10 +61,7 @@ Shader "DicomViewer/PhotoBody"
 
             #include "TissueWarp.hlsl"         // live grabs (GrabDisplacement) and the baked grab field
             #include "LabSkin.hlsl"            // the skin's lighting
-
-            // Names for his voxels (BodyLabels.cs): an object index per voxel; the one under the cursor is lifted.
-            TEXTURE3D(_LabelTex);  SAMPLER(sampler_LabelTex);
-            float _HighlightIndex;
+            float _ClipBelowMm;                // a region's volume: nothing below this height (the export's cut end)
 
             #include "LabBody.hlsl"            // the body's textures, sheets, lids, instruments (shared with the skin mesh)
 
@@ -101,6 +100,8 @@ Shader "DicomViewer/PhotoBody"
                     float3 x = uvw * _SizeM.xyz * 1000.0;
                     if (all(x >= _RegionMin.xyz) && all(x <= _RegionMax.xyz)) return 0.0;
                 }
+                if (_ClipBelowMm > 0.0 && uvw.y * _SizeM.y * 1000.0 < _ClipBelowMm) return 0.0;
+                if (c.a > 0.0 && LayerHidden(uvw)) return 0.0;
                 if (_SheetCount > 0.5 && c.a > 0.0 && SheetHidden(uvw, _SizeM.xyz * 1000.0)) { rgb = c.rgb; return 0.0; }
                 float m = _MaskEnabled > 0.5 ? SAMPLE_TEXTURE3D_LOD(_MaskTex, sampler_MaskTex, uvw, 0).r : 1.0;
                 float3 w = (uvw - 0.5) * _SizeM.xyz;
@@ -243,11 +244,8 @@ Shader "DicomViewer/PhotoBody"
                 Tissue(pc + up, c2);
                 float3 albedo = 0.18 * c0 + 0.64 * c1 + 0.18 * c2;    // softens the 1 mm steps between photos
                 albedo = LabSkinGrade(albedo, skin);
-                [branch] if (_HighlightIndex > 0.5)
-                {
-                    float li = round(SAMPLE_TEXTURE3D_LOD(_LabelTex, sampler_LabelTex, srcHit, 0).r * 255.0);
-                    if (abs(li - _HighlightIndex) < 0.5) albedo = lerp(albedo, albedo * float3(1.35, 1.3, 0.55) + 0.10, 0.6);
-                }
+                [branch] if (_HighlightIndex > 0.5 && abs(LabelIndexAt(srcHit) - _HighlightIndex) < 0.5)
+                    albedo = lerp(albedo, albedo * float3(1.35, 1.3, 0.55) + 0.10, 0.6);
 
                 float stain = max(SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, srcHit, 0).r,
                                   SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, SourceUVW(p + 0.5 + inwardM * 0.0006 / _SizeM.xyz), 0).r);
