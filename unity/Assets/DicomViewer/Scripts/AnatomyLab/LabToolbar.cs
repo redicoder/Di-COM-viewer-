@@ -42,6 +42,7 @@ namespace DicomViewer.AnatomyLab
             Tool("Scalpel", ViewerUi.Tool.Scalpel);
             Tool("Pull", ViewerUi.Tool.Pull);
             Tool("Eyelids", ViewerUi.Tool.Eyelids);
+            if (body.Labels != null) Tool("Take out", ViewerUi.Tool.TakeOut);
             x += pad * 2;
             if (Button("Open eyes", 120)) lab.OpenEyes(true);
             if (Button("Close eyes", 120)) lab.OpenEyes(false);
@@ -71,6 +72,9 @@ namespace DicomViewer.AnatomyLab
                     if (GUI.Button(r, char.ToUpper(layer[0]) + layer.Substring(1), shown ? barOn : bar)) lab.ShowLayer(layer, !shown);
                     x += r.width + pad;
                 }
+                GUI.enabled = lab.TakenOut > 0;
+                if (Button(lab.TakenOut > 0 ? $"Put back ({lab.TakenOut})" : "Put back", 130)) lab.PutBackAll();
+                GUI.enabled = true;
             }
 
             string credit = string.IsNullOrEmpty(body.Meta.credit) ? "" : body.Meta.credit + ". ";

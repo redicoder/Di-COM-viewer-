@@ -10,6 +10,8 @@ Shader "DicomViewer/LabTable"
         _Metallic ("Metallic", Range(0, 1)) = 1
         _Smoothness ("Smoothness", Range(0, 1)) = 0.5
         _BodyTex ("Body (alpha = tissue)", 3D) = "black" {}
+        _LabelTex ("Object labels (BodyLabels)", 3D) = "black" {}
+        _LabelHideTex ("Hidden labels, 256 x 1", 2D) = "black" {}
         _SizeMm ("Body size, mm", Vector) = (1, 1, 1, 0)
         _LightDirBody ("Towards the light, body mm axes", Vector) = (0, 0, -1, 0)
         _NormalBody ("Table normal, body mm axes", Vector) = (0, 1, 0, 0)
@@ -33,6 +35,10 @@ Shader "DicomViewer/LabTable"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
             TEXTURE3D(_BodyTex); SAMPLER(sampler_BodyTex);
+            TEXTURE3D(_LabelTex); SAMPLER(sampler_LabelTex);       // what the student took away casts no shadow
+            TEXTURE2D(_LabelHideTex); SAMPLER(sampler_LabelHideTex);
+            SamplerState lab_point_clamp_sampler;
+            float _LayersOn;
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _Color;
@@ -64,7 +70,14 @@ Shader "DicomViewer/LabTable"
             {
                 float3 uvw = mm / _SizeMm.xyz;
                 if (any(uvw < 0.0) || any(uvw > 1.0)) return 0.0;
-                return SAMPLE_TEXTURE3D_LOD(_BodyTex, sampler_BodyTex, uvw, 0).a;
+                float a = SAMPLE_TEXTURE3D_LOD(_BodyTex, sampler_BodyTex, uvw, 0).a;
+                if (a > 0.0 && _LayersOn > 0.5)
+                {
+                    float li = round(SAMPLE_TEXTURE3D_LOD(_LabelTex, sampler_LabelTex, uvw, 0).r * 255.0);
+                    if (li < 0.5) return SAMPLE_TEXTURE3D_LOD(_BodyTex, lab_point_clamp_sampler, uvw, 0).a <= 0.0 ? 0.0 : a;
+                    if (SAMPLE_TEXTURE2D_LOD(_LabelHideTex, sampler_LabelHideTex, float2((li + 0.5) / 256.0, 0.5), 0).r > 0.5) return 0.0;
+                }
+                return a;
             }
 
             // How much of the light the body blocks on its way to this point: a soft shadow, sharp near a contact

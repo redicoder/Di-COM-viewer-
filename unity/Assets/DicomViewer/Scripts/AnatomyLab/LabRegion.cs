@@ -134,22 +134,40 @@ namespace DicomViewer.AnatomyLab
         /// What a ray meets in a region, named from the region's labels and lifted in its volume; null when nothing.
         /// With look = false the regions' highlights are cleared.
         /// </summary>
-        public string Hover(Ray ray, bool look = true)
+        public string Hover(Ray ray, out PhotoBody hitBody, out int hitIndex, bool look = true)
         {
             string name = null;
+            hitBody = null;
+            hitIndex = 0;
             foreach (PhotoBody r in regions)
             {
                 if (r == null || r.Material == null) continue;
                 int index = 0;
-                if (look && name == null && r.Labels != null && r.Raycast(ray, _ => false, out Vector3 hit, out _))
+                if (look && name == null && r.Labels != null && r.Raycast(ray, local => r.Labels.HiddenAt(VolumeSpace.LocalToUvw(local)), out Vector3 hit, out _))
                 {
                     Vector3 uvw = VolumeSpace.LocalToUvw(r.Volume.InverseTransformPoint(hit));
                     index = r.Labels.IndexAt(uvw);
                     name = r.Labels.Name(index);
+                    if (name != null) { hitBody = r; hitIndex = index; }
                 }
                 r.Material.SetFloat("_HighlightIndex", index);
             }
             return name;
+        }
+
+        public int TakenOut
+        {
+            get { int n = 0; foreach (PhotoBody r in regions) if (r != null && r.Labels != null) n += r.Labels.TakenOut; return n; }
+        }
+
+        public void PutBackAll()
+        {
+            foreach (PhotoBody r in regions)
+            {
+                if (r == null || r.Labels == null || r.Material == null) continue;
+                r.Labels.PutBackObjects();
+                r.Material.SetFloat("_LayersOn", r.Labels.AnyHidden ? 1f : 0f);
+            }
         }
 
         /// <summary>Is a world point inside a region's box (where the body is not cut)?</summary>

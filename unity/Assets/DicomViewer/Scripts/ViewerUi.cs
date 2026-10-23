@@ -46,7 +46,7 @@ namespace DicomViewer
         /// With a cutting tool armed, one finger (left mouse) cuts; two fingers (right mouse) still navigate.
         /// Eyelids and Pull belong to the Anatomy Lab: one finger opens and closes the eyes / pulls tissue.
         /// </summary>
-        public enum Tool { Rotate, Scalpel, Dig, Knife, Eyelids, Pull }
+        public enum Tool { Rotate, Scalpel, Dig, Knife, Eyelids, Pull, TakeOut }
 
         public static Tool ActiveTool { get; set; } = Tool.Rotate;
         public static bool CuttingToolArmed => ActiveTool != Tool.Rotate;

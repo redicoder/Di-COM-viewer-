@@ -137,11 +137,19 @@ namespace DicomViewer.AnatomyLab
             Vector3 local = Body.Volume.InverseTransformDirection(toLight);
             Vector3 size = Body.Space.SizeMm;
             Vector3 mm = new Vector3(local.x * size.x, local.y * size.y, local.z * size.z).normalized;   // in millimetre axes
+            Material src = Body.Material;
             foreach (Material m in new[] { tableMaterial, floorMaterial })
             {
                 if (m == null) continue;
                 m.SetVector("_LightDirBody", mm);
                 m.SetVector("_NormalBody", normalBody);
+                if (src == null) continue;
+                m.SetFloat("_LayersOn", src.HasFloat("_LayersOn") ? src.GetFloat("_LayersOn") : 0f);
+                foreach (string n in new[] { "_LabelTex", "_LabelHideTex" })
+                {
+                    Texture t = src.HasTexture(n) ? src.GetTexture(n) : null;
+                    if (t != null) m.SetTexture(n, t);
+                }
             }
         }
 

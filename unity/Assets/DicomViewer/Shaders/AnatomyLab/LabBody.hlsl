@@ -20,11 +20,15 @@ float _HighlightIndex, _LayersOn;
 
 float LabelIndexAt(float3 uvw) { return round(SAMPLE_TEXTURE3D_LOD(_LabelTex, sampler_LabelTex, uvw, 0).r * 255.0); }
 
+SamplerState lab_point_clamp_sampler;
+
 bool LayerHidden(float3 uvw)
 {
     if (_LayersOn < 0.5) return false;
     float li = LabelIndexAt(uvw);
-    if (li < 0.5) return false;
+    // The colour's alpha reaches half a voxel past the tissue into empty voxels, which have no label: while
+    // layers are taken away, a sample whose own voxel is empty is nothing (else a ghost shell of the body stays).
+    if (li < 0.5) return SAMPLE_TEXTURE3D_LOD(_ColorTex, lab_point_clamp_sampler, uvw, 0).a <= 0.0;
     return SAMPLE_TEXTURE2D_LOD(_LabelHideTex, sampler_LabelHideTex, float2((li + 0.5) / 256.0, 0.5), 0).r > 0.5;
 }
 

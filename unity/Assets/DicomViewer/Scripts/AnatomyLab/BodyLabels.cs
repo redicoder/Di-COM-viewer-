@@ -46,8 +46,11 @@ namespace DicomViewer.AnatomyLab
         private readonly byte[] hidden = new byte[256];
         private readonly System.Collections.Generic.HashSet<string> hiddenLayers = new System.Collections.Generic.HashSet<string>();
 
+        private readonly System.Collections.Generic.HashSet<int> hiddenObjects = new System.Collections.Generic.HashSet<int>();
+
         public static readonly string[] LayerNames = { "skin", "fat", "muscle", "bone", "organ" };
-        public bool AnyHidden => hiddenLayers.Count > 0;
+        public bool AnyHidden => hiddenLayers.Count > 0 || hiddenObjects.Count > 0;
+        public int TakenOut => hiddenObjects.Count;
         public bool LayerShown(string layer) => !hiddenLayers.Contains(layer);
 
         public int Count => Table.objects?.Length ?? 0;
@@ -144,7 +147,30 @@ namespace DicomViewer.AnatomyLab
         public void ShowLayer(string layer, bool shown)
         {
             if (shown) hiddenLayers.Remove(layer); else hiddenLayers.Add(layer);
-            for (int i = 1; i < 256; i++) hidden[i] = (byte)(layers[i] != null && hiddenLayers.Contains(layers[i]) ? 255 : 0);
+            Refresh();
+        }
+
+        /// <summary>One structure taken out of the body (or put back), by its index.</summary>
+        public void HideObject(int index, bool hide)
+        {
+            if (index <= 0 || index >= 256 || names[index] == null) return;
+            if (hide) hiddenObjects.Add(index); else hiddenObjects.Remove(index);
+            Refresh();
+        }
+
+        public bool ObjectHidden(int index) => hiddenObjects.Contains(index);
+
+        /// <summary>Every structure taken out goes back (the layers stay as they are).</summary>
+        public void PutBackObjects()
+        {
+            hiddenObjects.Clear();
+            Refresh();
+        }
+
+        private void Refresh()
+        {
+            for (int i = 1; i < 256; i++)
+                hidden[i] = (byte)((layers[i] != null && hiddenLayers.Contains(layers[i])) || hiddenObjects.Contains(i) ? 255 : 0);
             HideTexture.SetPixelData(hidden, 0);
             HideTexture.Apply(false, false);
         }

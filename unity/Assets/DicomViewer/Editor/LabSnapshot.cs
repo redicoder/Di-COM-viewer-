@@ -512,6 +512,17 @@ public static class LabSnapshot
             Shot("body_layers_organs.png");
             body.Labels.ShowLayer("bone", false);
             Shot("body_layers_organs_nobone.png");
+            body.Labels.ShowLayer("organ", false);
+            regions.ShowLayer("muscle", false); regions.ShowLayer("bone", false); regions.ShowLayer("organ", false);
+            room.PushLight();
+            Shot("body_layers_none.png");
+            body.Labels.ShowLayer("organ", true);
+            int liver = 0;
+            foreach (LabelObject o in body.Labels.Table.objects) if (o.name == "liver") liver = o.index;
+            AnatomyLab.TakeOut(body, liver);
+            Debug.Log($"LabSnapshot: liver index {liver}, taken out: {body.Labels.TakenOut}");
+            Shot("body_takeout_liver.png");
+            body.Labels.PutBackObjects();
             foreach (string layer in BodyLabels.LayerNames) { body.Labels.ShowLayer(layer, true); regions.ShowLayer(layer, true); }
             m.SetFloat("_LayersOn", 0f);
         }

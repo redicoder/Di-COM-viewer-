@@ -288,7 +288,7 @@ namespace DicomViewer.AnatomyLab
             if (!Body.IsLoaded) return;
             EyelidInput();
             EyesOpen = Mathf.MoveTowards(EyesOpen, eyesOpenTarget, eyelidSpeed * Time.deltaTime);
-            bool modelled = livingEyes && eyeObjects.Count == 2;
+            bool modelled = livingEyes && eyeObjects.Count == 2 && LayerShown("organ");
             Camera cam = Camera.main;
             foreach (LivingEye e in eyeObjects)
             {
@@ -309,23 +309,58 @@ namespace DicomViewer.AnatomyLab
         public string UnderCursor { get; private set; }
 
         // Whatever tool is in hand, the structure under the pointer is named and, where a cut shows it, lifted.
+        private PhotoBody hoverBody;
+        private int hoverIndex;
+
         private int Hover(Camera cam)
         {
             UnderCursor = null;
+            hoverBody = null;
+            hoverIndex = 0;
             if (cam == null || ViewerUi.ModalOpen || ViewerUi.PointerOverUi) return 0;
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
             bool hitBody = Body.Raycast(ray, IsGoneLocal, out Vector3 hit, out _);
             if (region != null && (!hitBody || InRegion(hit)))
             {
-                UnderCursor = region.Hover(ray);                           // the face at full detail names itself
+                UnderCursor = region.Hover(ray, out hoverBody, out hoverIndex);   // the face at full detail names itself
+                TakeOutInput();
                 return 0;
             }
-            if (region != null) region.Hover(default, false);
+            if (region != null) region.Hover(default, out _, out _, false);
             if (!hitBody || Body.Labels == null) return 0;
             Vector3 uvw = VolumeSpace.LocalToUvw(Body.Volume.InverseTransformPoint(hit));
-            int index = Body.Labels.IndexAt(uvw);
-            UnderCursor = Body.Labels.Name(index);
-            return index;
+            hoverIndex = Body.Labels.IndexAt(uvw);
+            hoverBody = Body;
+            UnderCursor = Body.Labels.Name(hoverIndex);
+            TakeOutInput();
+            return hoverIndex;
+        }
+
+        // Take out tool: a tap (or click) on a named structure takes it out of the body; Put back returns them all.
+        private void TakeOutInput()
+        {
+            if (ViewerUi.ActiveTool != ViewerUi.Tool.TakeOut || !Input.GetMouseButtonDown(0) || Input.touchCount >= 2) return;
+            TakeOut(hoverBody, hoverIndex);
+        }
+
+        public static void TakeOut(PhotoBody body, int index)
+        {
+            if (body == null || body.Labels == null || index <= 0) return;
+            body.Labels.HideObject(index, true);
+            body.Material.SetFloat("_LayersOn", 1f);
+        }
+
+        /// <summary>How many structures have been taken out, over the body and its regions.</summary>
+        public int TakenOut => (Body.Labels?.TakenOut ?? 0) + (region != null ? region.TakenOut : 0);
+
+        public void PutBackAll()
+        {
+            if (Body.Labels != null)
+            {
+                Body.Labels.PutBackObjects();
+                Body.Material.SetFloat("_LayersOn", Body.Labels.AnyHidden ? 1f : 0f);
+            }
+            if (region != null) region.PutBackAll();
         }
 
         // Eyelids tool: one finger (or the mouse) up opens the eyes, down closes them.
