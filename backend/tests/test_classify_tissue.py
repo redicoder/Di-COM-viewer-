@@ -45,10 +45,5 @@ def test_outside_the_tissue_is_never_classed():
     assert (pred[:, :3, :] == 0).all() and (pred[:, 3:, :] > 0).all()
 
 
-def test_specks_of_bone_become_muscle_but_a_bone_stays():
-    bone, muscle = ct.CLASSES.index("bone") + 1, ct.CLASSES.index("muscle") + 1
-    pred = np.full((1, 40, 40), muscle, np.uint8)
-    pred[0, 5, 5] = bone                                                 # a speck
-    pred[0, 15:30, 15:30] = bone                                         # a bone
-    out = ct.unspeckle(pred, bone, muscle)
-    assert out[0, 5, 5] == muscle and out[0, 20, 20] == bone
+def test_only_skin_fat_and_muscle_are_written():
+    assert ct.WRITTEN == ["skin", "fat", "muscle"] and all(c in ct.CLASSES for c in ct.WRITTEN)

@@ -7,10 +7,11 @@ are both known. That is a training set. A voxel's class is read from a table ind
 class was seen there in the labelled torso, smoothed across neighbouring colours so that colours never seen
 borrow from their neighbours. Every fourth labelled slice is held out to report how often the table is right.
 
-The classes go into labels.raw as five more objects ("skin (by colour)" ... "organ (by colour)", with their
-layer), only where the export had no label; organs cannot be told from muscle by colour, so "organ (by
-colour)" is rare and the brain, eyes and the like wait for names from the CT. The predicted classes are
-cleaned with a small 3D vote so single voxels do not speckle.
+The classes go into labels.raw as three more objects ("skin (by colour)", "fat (by colour)", "muscle (by
+colour)", with their layer), only where the export had no label. Bone and organs cannot be told by colour at
+this size (a bone is its marrow, an organ looks like muscle): what the table calls bone or organ is written
+as muscle, bone comes from the CT (import_ct_bone.py) and the brain, eyes and the like wait for names from
+it. The predicted classes are cleaned with a small 3D vote so single voxels do not speckle.
 
 Usage:
   python tools/classify_tissue.py out/photo_body                 # learn from its torso, class the rest of it
@@ -25,7 +26,8 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage
 
-CLASSES = ["skin", "fat", "muscle", "bone", "organ"]
+CLASSES = ["skin", "fat", "muscle", "bone", "organ"]       # learnt and scored
+WRITTEN = ["skin", "fat", "muscle"]                          # written into the export (bone from the CT, organs named later)
 BITS = 6                                 # colour quantisation per channel
 DEPTH_EDGES = (2.0, 8.0)                 # mm under the skin: skin band, near, deep
 STD_EDGES = (9.0, 20.0)                  # local colour unevenness (std of grey over 3 x 3 x 3)
@@ -192,10 +194,10 @@ def apply(folder: Path, probs: np.ndarray, report: dict, learnt_from: str) -> No
     old = [o["index"] for o in table["objects"] if o["name"].endswith("(by colour)")]   # an earlier run is redone
     table["objects"] = [o for o in table["objects"] if not o["name"].endswith("(by colour)")]
     base = max([o["index"] for o in table["objects"]], default=0)
-    if base + len(CLASSES) > 255:
+    if base + len(WRITTEN) > 255:
         raise SystemExit("no room for five more objects")
-    idx = {c: base + 1 + i for i, c in enumerate(CLASSES)}
-    counts = {c: 0 for c in CLASSES}
+    idx = {c: base + 1 + i for i, c in enumerate(WRITTEN)}
+    counts = {c: 0 for c in WRITTEN}
     for k0 in range(0, D, CHUNK):
         ks = list(range(k0, min(D, k0 + CHUNK)))
         rgba = np.stack([np.asarray(vol[:, k]) for k in ks])
@@ -205,13 +207,13 @@ def apply(folder: Path, probs: np.ndarray, report: dict, learnt_from: str) -> No
             lab[np.isin(lab, old)] = 0
         pred = predict(features(rgba, dep, px), probs)
         free = (lab == 0) & (pred > 0)
-        # Bone and organs by colour come in specks where marrow or a dark vessel fooled the table: a speck
-        # smaller than SPECK_VOXELS on its slice is muscle (or fat, whichever it mostly touches: here, muscle).
-        for i, c in enumerate(CLASSES):
-            if c in ("bone", "organ"):
-                pred = unspeckle(pred, i + 1, CLASSES.index("muscle") + 1)
-        for i, c in enumerate(CLASSES):
-            sel = free & (pred == i + 1)
+        # Bone and organs by colour are marrow and dark vessels that fooled the table: they are muscle here;
+        # bone comes from the CT.
+        muscle = CLASSES.index("muscle") + 1
+        for c in ("bone", "organ"):
+            pred[pred == CLASSES.index(c) + 1] = muscle
+        for i, c in enumerate(WRITTEN):
+            sel = free & (pred == CLASSES.index(c) + 1)
             lab[sel] = idx[c]
             counts[c] += int(sel.sum())
         for j, k in enumerate(ks):
@@ -219,14 +221,14 @@ def apply(folder: Path, probs: np.ndarray, report: dict, learnt_from: str) -> No
         if (k0 // CHUNK) % 8 == 0:
             print(f"  slices {k0}-{ks[-1]} of {D}")
     labels.flush()
-    for c in CLASSES:
+    for c in WRITTEN:
         table["objects"].append({"index": idx[c], "name": f"{c} (by colour)", "sio_labels": [], "layer": c, "voxels": counts[c]})
-    table["by_colour"] = {"learnt_from": learnt_from, "held_out_score": report, "classes": CLASSES}
+    table["by_colour"] = {"learnt_from": learnt_from, "held_out_score": report, "classes": CLASSES, "written": WRITTEN}
     (folder / "labels.json").write_text(json.dumps(table, indent=2))
     body["labels"] = "labels.raw"
     body["label_table"] = "labels.json"
     (folder / "body.json").write_text(json.dumps(body, indent=2))
-    print("classed by colour:", {c: counts[c] for c in CLASSES}, f"-> {folder / 'labels.raw'}")
+    print("classed by colour:", {c: counts[c] for c in WRITTEN}, f"-> {folder / 'labels.raw'}")
 
 
 def main() -> None:
