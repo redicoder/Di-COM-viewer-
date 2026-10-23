@@ -151,12 +151,12 @@ float3 LabShadeSkinBaked(float3 albedo, float3 N, float3 V, float3 L, float3 key
     float3 camR = normalize(cross(up, V) + float3(1e-4, 0, 0));
     float3 fillDir = normalize(-camR * 0.75 + up * 0.35 + V * 0.55);
     float fill = saturate((dot(N, fillDir) + 0.4) / 1.4);
-    diffuse += keyColor * float3(0.85, 0.9, 1.0) * fill * 0.32 * sky;
+    diffuse += keyColor * float3(0.92, 0.95, 1.0) * fill * 0.42 * sky;
     float3 rimDir = normalize(-V * 0.7 + up * 0.5 + camR * 0.45);
     float rim = pow(1.0 - ndv, 2.5) * saturate(dot(N, rimDir)) * 0.45;
     diffuse += float3(0.75, 0.85, 1.0) * rim * sky;
 
-    float3 ambient = lerp(float3(0.085, 0.075, 0.07), float3(0.30, 0.31, 0.34), dot(N, up) * 0.5 + 0.5);
+    float3 ambient = lerp(float3(0.11, 0.105, 0.10), float3(0.36, 0.365, 0.38), dot(N, up) * 0.5 + 0.5);
     float3 color = albedo * (diffuse + ambient * lerp(0.2, 1.0, sky)) * ao;
 
     // Light through thin skin (the ears, the nose's wings, the webs of the fingers): what reaches the far side

@@ -62,11 +62,11 @@ namespace DicomViewer.AnatomyLab
             go.AddComponent<LabToolbar>();
             var light = new GameObject("Lab light").AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1.9f;                  // tone-mapped (ACES) rendering wants more light
-            light.color = new Color(1f, 0.96f, 0.9f);
+            light.intensity = 2.0f;                  // tone-mapped (ACES) rendering wants more light
+            light.color = new Color(1f, 0.985f, 0.96f);   // a white room light, barely warm
             LabShadows(light);
             light.transform.SetParent(null);
-            light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+            light.transform.rotation = Quaternion.Euler(52f, -30f, 0f);   // high, as a lamp over a table
             light.gameObject.AddComponent<FollowActive>().owner = go;
             return go;
         }
@@ -106,10 +106,10 @@ namespace DicomViewer.AnatomyLab
             bloom.scatter.Override(0.6f);
             var colour = profile.Add<ColorAdjustments>(true);
             colour.postExposure.Override(0.3f);
-            colour.contrast.Override(10f);
-            colour.saturation.Override(6f);
+            colour.contrast.Override(5f);
+            colour.saturation.Override(2f);
             var vignette = profile.Add<Vignette>(true);
-            vignette.intensity.Override(0.26f);
+            vignette.intensity.Override(0.16f);
             vignette.smoothness.Override(0.5f);
             var go = new GameObject("Lab post-processing") { hideFlags = HideFlags.DontSave };
             go.transform.SetParent(parent, false);
@@ -312,9 +312,16 @@ namespace DicomViewer.AnatomyLab
         private int Hover(Camera cam)
         {
             UnderCursor = null;
-            if (Body.Labels == null || cam == null || ViewerUi.ModalOpen || ViewerUi.PointerOverUi) return 0;
+            if (cam == null || ViewerUi.ModalOpen || ViewerUi.PointerOverUi) return 0;
             Ray ray = cam.ScreenPointToRay(Input.mousePosition);
-            if (!Body.Raycast(ray, IsGoneLocal, out Vector3 hit, out _) || InRegion(hit)) return 0;
+            bool hitBody = Body.Raycast(ray, IsGoneLocal, out Vector3 hit, out _);
+            if (region != null && (!hitBody || InRegion(hit)))
+            {
+                UnderCursor = region.Hover(ray);                           // the face at full detail names itself
+                return 0;
+            }
+            if (region != null) region.Hover(default, false);
+            if (!hitBody || Body.Labels == null) return 0;
             Vector3 uvw = VolumeSpace.LocalToUvw(Body.Volume.InverseTransformPoint(hit));
             int index = Body.Labels.IndexAt(uvw);
             UnderCursor = Body.Labels.Name(index);
@@ -358,6 +365,7 @@ namespace DicomViewer.AnatomyLab
             if (Body.Labels == null) return;
             Body.Labels.ShowLayer(layer, shown);
             Body.Material.SetFloat("_LayersOn", Body.Labels.AnyHidden ? 1f : 0f);
+            if (region != null) region.ShowLayer(layer, shown);
         }
 
         public void OpenEyes(bool open) => eyesOpenTarget = open ? 1f : 0f;

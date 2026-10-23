@@ -56,6 +56,12 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   # Organ labels for the whole body: the SIO (CC BY 4.0) from https://zenodo.org/records/15882019, unpacked
   # into data\sio\ (the zip's folder plus 'SIO Object Labels.xlsx' beside it); registered slice by slice
   .\.venv\Scripts\python.exe tools\import_sio_labels.py data\sio\VOXEL-MAN_segmented-internal-organs data\vhp_male_photos out\photo_body
+  # Tissue classes (skin, fat, muscle, bone) for the rest of him and for the head export, learnt from the labelled torso's colours
+  .\.venv\Scripts\python.exe tools\classify_tissue.py out\photo_body
+  .\.venv\Scripts\python.exe tools\classify_tissue.py out\photo_head --from out\photo_body
+  # Bone from his frozen CT (data\vhp_male_frozen, same slice numbers), registered slice by slice: the skull, the arm and leg bones
+  .\.venv\Scripts\python.exe tools\import_ct_bone.py data\vhp_male_frozen out\photo_body
+  .\.venv\Scripts\python.exe tools\import_ct_bone.py data\vhp_male_frozen out\photo_head
   ```
   In the app choose **Anatomy lab** on the start screen.
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`

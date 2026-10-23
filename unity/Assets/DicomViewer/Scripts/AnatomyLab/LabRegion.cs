@@ -68,6 +68,9 @@ namespace DicomViewer.AnatomyLab
         {
             Material m = region.Material;
             if (m == null) return;
+            if (region.Labels != null && body != null && body.Labels != null)           // the layers already taken away
+                foreach (string layer in BodyLabels.LayerNames) region.Labels.ShowLayer(layer, body.Labels.LayerShown(layer));
+            if (region.Labels != null) m.SetFloat("_LayersOn", region.Labels.AnyHidden ? 1f : 0f);
             m.SetFloat("_MaskEnabled", 0f);
             m.SetFloat("_StepScale", 0.5f);
             m.SetFloat("_ClipBelowMm", CutEndMm);
@@ -114,6 +117,39 @@ namespace DicomViewer.AnatomyLab
                 if (src.HasFloat("_SkinMode")) r.Material.SetFloat("_SkinMode", src.GetFloat("_SkinMode"));
                 foreach (var sm in r.GetComponents<SkinMesh>()) sm.Sync();
             }
+        }
+
+        /// <summary>A layer taken away (or given back) on the regions' own labels.</summary>
+        public void ShowLayer(string layer, bool shown)
+        {
+            foreach (PhotoBody r in regions)
+            {
+                if (r == null || r.Labels == null || r.Material == null) continue;
+                r.Labels.ShowLayer(layer, shown);
+                r.Material.SetFloat("_LayersOn", r.Labels.AnyHidden ? 1f : 0f);
+            }
+        }
+
+        /// <summary>
+        /// What a ray meets in a region, named from the region's labels and lifted in its volume; null when nothing.
+        /// With look = false the regions' highlights are cleared.
+        /// </summary>
+        public string Hover(Ray ray, bool look = true)
+        {
+            string name = null;
+            foreach (PhotoBody r in regions)
+            {
+                if (r == null || r.Material == null) continue;
+                int index = 0;
+                if (look && name == null && r.Labels != null && r.Raycast(ray, _ => false, out Vector3 hit, out _))
+                {
+                    Vector3 uvw = VolumeSpace.LocalToUvw(r.Volume.InverseTransformPoint(hit));
+                    index = r.Labels.IndexAt(uvw);
+                    name = r.Labels.Name(index);
+                }
+                r.Material.SetFloat("_HighlightIndex", index);
+            }
+            return name;
         }
 
         /// <summary>Is a world point inside a region's box (where the body is not cut)?</summary>

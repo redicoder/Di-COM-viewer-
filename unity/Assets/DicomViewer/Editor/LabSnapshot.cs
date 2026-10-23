@@ -30,9 +30,9 @@ public static class LabSnapshot
         cam.backgroundColor = AnatomyLab.RoomBackground;
         var light = new GameObject("Light").AddComponent<Light>();
         light.type = LightType.Directional;
-        light.intensity = 1.9f;
-        light.color = new Color(1f, 0.96f, 0.9f);
-        light.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
+        light.intensity = 2.0f;
+        light.color = new Color(1f, 0.985f, 0.96f);
+        light.transform.rotation = Quaternion.Euler(52f, -30f, 0f);
         AnatomyLab.LabShadows(light);
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
@@ -339,9 +339,9 @@ public static class LabSnapshot
         cam.backgroundColor = AnatomyLab.RoomBackground;
         var light = new GameObject("Light").AddComponent<Light>();
         light.type = LightType.Directional;
-        light.intensity = 1.9f;
-        light.color = new Color(1f, 0.96f, 0.9f);
-        light.transform.rotation = Quaternion.Euler(50f, -25f, 0f);
+        light.intensity = 2.0f;
+        light.color = new Color(1f, 0.985f, 0.96f);
+        light.transform.rotation = Quaternion.Euler(52f, -25f, 0f);
         AnatomyLab.LabShadows(light);
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
@@ -500,13 +500,19 @@ public static class LabSnapshot
             View(-20f, 35f, dist * 0.45f, torso);
             body.Labels.ShowLayer("skin", false);
             body.Labels.ShowLayer("fat", false);
+            regions.ShowLayer("skin", false);
+            regions.ShowLayer("fat", false);
             m.SetFloat("_LayersOn", 1f);
             Shot("body_layers_muscle.png");
+            Vector3 face2 = bodyGo.transform.TransformPoint(new Vector3(0f, body.SizeM.y * 0.5f - 0.10f, -0.08f));
+            View(-25f, 20f, dist * 0.12f, face2);
+            Shot("body_layers_face.png");
+            View(-20f, 35f, dist * 0.45f, torso);
             body.Labels.ShowLayer("muscle", false);
             Shot("body_layers_organs.png");
             body.Labels.ShowLayer("bone", false);
             Shot("body_layers_organs_nobone.png");
-            foreach (string layer in BodyLabels.LayerNames) body.Labels.ShowLayer(layer, true);
+            foreach (string layer in BodyLabels.LayerNames) { body.Labels.ShowLayer(layer, true); regions.ShowLayer(layer, true); }
             m.SetFloat("_LayersOn", 0f);
         }
         Debug.Log($"LabSnapshot: whole body done -> {outDir}");
