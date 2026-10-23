@@ -21,6 +21,7 @@ public static class LabSnapshot
         Directory.CreateDirectory(outDir);
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
+        ShaderUtil.allowAsyncCompilation = false;          // a new shader's first use must not draw nothing
         var camGo = new GameObject("Camera");
         camGo.tag = "MainCamera";                                      // the instruments face Camera.main
         var cam = camGo.AddComponent<Camera>();
@@ -66,7 +67,8 @@ public static class LabSnapshot
             foreach (var sm in bodyGo.GetComponents<SkinMesh>()) sm.Sync();
             var rt = new RenderTexture(1200, 1200, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
-            cam.Render();
+            cam.Render();                                             // twice: outside Play mode the first render after a
+            cam.Render();                                             // move culls the moved object with stale bounds
             RenderTexture.active = rt;
             var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
             tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
@@ -330,6 +332,7 @@ public static class LabSnapshot
         string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
         Directory.CreateDirectory(outDir);
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        ShaderUtil.allowAsyncCompilation = false;          // a new shader's first use must not draw nothing
         var camGo = new GameObject("Camera");
         camGo.tag = "MainCamera";
         var cam = camGo.AddComponent<Camera>();
@@ -395,7 +398,8 @@ public static class LabSnapshot
             regions.Sync();
             var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
-            cam.Render();
+            cam.Render();                                             // twice: outside Play mode the first render after a
+            cam.Render();                                             // move culls the moved object with stale bounds
             RenderTexture.active = rt;
             var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
             tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
@@ -522,6 +526,21 @@ public static class LabSnapshot
             AnatomyLab.TakeOut(body, liver);
             Debug.Log($"LabSnapshot: liver index {liver}, taken out: {body.Labels.TakenOut}");
             Shot("body_takeout_liver.png");
+            // The liver as a piece: in the hand over the chest, then on the table beside him.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            OrganPiece piece = OrganPiece.Create(body, liver);
+            Debug.Log($"LabSnapshot: liver piece {(piece != null ? piece.GetComponent<MeshFilter>().sharedMesh.triangles.Length / 3 : 0)} triangles in {clock.ElapsedMilliseconds} ms");
+            if (piece != null)
+            {
+                Vector3 up = -AnatomyLab.DownWorld(body, true);
+                piece.transform.position += up * 0.14f;
+                Shot("body_takeout_liver_held.png");
+                Vector3 spot = AnatomyLab.TraySpot(body, true, 0);
+                piece.Drop(spot, -up, 0f);
+                View(-20f, 40f, dist * 0.35f, Vector3.Lerp(torso, spot, 0.6f));
+                Shot("body_takeout_liver_tray.png");
+                Object.DestroyImmediate(piece.gameObject);
+            }
             body.Labels.PutBackObjects();
             foreach (string layer in BodyLabels.LayerNames) { body.Labels.ShowLayer(layer, true); regions.ShowLayer(layer, true); }
             m.SetFloat("_LayersOn", 0f);

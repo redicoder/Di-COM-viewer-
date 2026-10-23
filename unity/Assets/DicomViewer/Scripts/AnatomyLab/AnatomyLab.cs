@@ -148,6 +148,7 @@ namespace DicomViewer.AnatomyLab
         {
             if (Body.IsLoading || (name == bodyName && Body.IsLoaded)) return;
             bodyName = name;
+            ClearPieces();
             Body.folder = BodyFolder(name);
             _ = Body.LoadAsync();
         }
@@ -302,7 +303,8 @@ namespace DicomViewer.AnatomyLab
             m.SetFloat("_Open", EyesOpen);
             m.SetFloat("_ModelEyes", modelled ? 1f : 0f);
             m.SetFloat("_StepScale", moving ? 1f : 0.5f);
-            m.SetFloat("_HighlightIndex", Hover(cam));
+            HeldUpdate(cam);
+            m.SetFloat("_HighlightIndex", held == null ? Hover(cam) : 0f);
         }
 
         /// <summary>The name of the structure under the cursor (the SIO labels), or null: for the toolbar.</summary>
@@ -311,6 +313,74 @@ namespace DicomViewer.AnatomyLab
         // Whatever tool is in hand, the structure under the pointer is named and, where a cut shows it, lifted.
         private PhotoBody hoverBody;
         private int hoverIndex;
+        private readonly System.Collections.Generic.List<OrganPiece> pieces = new System.Collections.Generic.List<OrganPiece>();
+        private OrganPiece held;
+        private Vector3 holdPlanePoint, holdOffset;
+
+        /// <summary>The pieces taken out so far (on the tray or in the hand).</summary>
+        public System.Collections.Generic.IReadOnlyList<OrganPiece> Pieces => pieces;
+
+        // A piece in hand follows the pointer on a plane facing the camera, lifted clear of the body; let go, it
+        // glides to the next free spot on the table beside him (or the tray beside a head).
+        private void HeldUpdate(Camera cam)
+        {
+            if (held == null) return;
+            if (!Input.GetMouseButton(0) || ViewerUi.ActiveTool != ViewerUi.Tool.TakeOut || Input.touchCount >= 2) { ReleaseHeld(); return; }
+            if (cam == null) return;
+            Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+            var plane = new Plane(-cam.transform.forward, holdPlanePoint);
+            if (plane.Raycast(ray, out float t)) held.Follow(ray.GetPoint(t) + holdOffset);
+            var instruments = GetComponent<LabInstruments>();
+            if (instruments != null) instruments.ShowHand(held.Centre, -cam.transform.forward, true);
+        }
+
+        private void ReleaseHeld()
+        {
+            if (held == null) return;
+            held.Drop(TraySpot(Body, Lying, pieces.IndexOf(held)), DownWorld(Body, Lying));
+            held = null;
+        }
+
+        /// <summary>Takes the structure out as a piece and puts it in the hand.</summary>
+        public void TakeOutPiece(PhotoBody body, int index)
+        {
+            if (body == null || body.Labels == null || index <= 0 || body.Labels.ObjectHidden(index)) return;
+            TakeOut(body, index);
+            OrganPiece piece = OrganPiece.Create(body, index);
+            if (piece == null) return;
+            pieces.Add(piece);
+            piece.Hold();
+            held = piece;
+            Camera cam = Camera.main;
+            holdPlanePoint = cam != null ? piece.Centre - cam.transform.forward * 0.06f : piece.Centre;
+            holdOffset = Vector3.zero;
+            if (cam != null)
+            {
+                Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+                var plane = new Plane(-cam.transform.forward, holdPlanePoint);
+                if (plane.Raycast(ray, out float t)) holdOffset = holdPlanePoint - ray.GetPoint(t);
+            }
+        }
+
+        /// <summary>Where the slot-th piece rests: on the table beside a lying body, on the tray beside a head (world).</summary>
+        public static Vector3 TraySpot(PhotoBody body, bool lying, int slot)
+        {
+            Vector3 size = body.SizeM;
+            Vector3 local = lying
+                ? new Vector3(size.x * 0.5f + 0.16f + 0.14f * (slot % 3), 0.35f - 0.18f * (slot / 3), size.z * 0.5f + 0.002f)
+                : new Vector3(0.16f + 0.12f * (slot % 3), -size.y * 0.5f - 0.0015f, -0.12f * (slot / 3));
+            return body.transform.TransformPoint(local);
+        }
+
+        /// <summary>Down for a piece: towards the table a lying body is on, else the world's down for a head on its tray.</summary>
+        public static Vector3 DownWorld(PhotoBody body, bool lying) => lying ? body.transform.forward : -body.transform.up;
+
+        private void ClearPieces()
+        {
+            held = null;
+            foreach (OrganPiece p in pieces) if (p != null) Destroy(p.gameObject);
+            pieces.Clear();
+        }
 
         private int Hover(Camera cam)
         {
@@ -340,7 +410,8 @@ namespace DicomViewer.AnatomyLab
         private void TakeOutInput()
         {
             if (ViewerUi.ActiveTool != ViewerUi.Tool.TakeOut || !Input.GetMouseButtonDown(0) || Input.touchCount >= 2) return;
-            TakeOut(hoverBody, hoverIndex);
+            if (VolumeOrbitController.GestureRecent) return;
+            TakeOutPiece(hoverBody, hoverIndex);
         }
 
         public static void TakeOut(PhotoBody body, int index)
@@ -355,6 +426,7 @@ namespace DicomViewer.AnatomyLab
 
         public void PutBackAll()
         {
+            ClearPieces();
             if (Body.Labels != null)
             {
                 Body.Labels.PutBackObjects();
