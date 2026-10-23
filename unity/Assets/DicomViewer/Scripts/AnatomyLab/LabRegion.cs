@@ -111,6 +111,7 @@ namespace DicomViewer.AnatomyLab
                 r.Material.SetFloat("_Open", src.GetFloat("_Open"));
                 r.Material.SetFloat("_ModelEyes", src.GetFloat("_ModelEyes"));
                 r.Material.SetFloat("_StepScale", src.GetFloat("_StepScale"));
+                if (src.HasFloat("_SkinMode")) r.Material.SetFloat("_SkinMode", src.GetFloat("_SkinMode"));
                 foreach (var sm in r.GetComponents<SkinMesh>()) sm.Sync();
             }
         }

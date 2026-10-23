@@ -191,6 +191,8 @@ namespace DicomViewer.AnatomyLab
             // The eyes open geometrically round the eyeballs the export found (the lid map is no longer needed).
             Material.SetFloat("_HasLids", meta.eyes != null && meta.eyes.Length >= 2 ? 1f : 0f);
             if (SkinDepthTexture != null) Material.SetTexture("_SkinDepthTex", SkinDepthTexture);
+            Material.SetFloat("_SkinMode", 1f);                      // the skin mesh: one even tone (SkinMesh.Sync reads it here)
+            Material.SetVector("_Underwear", Vector4.zero);
             mr.sharedMaterial = Material;
             Loaded?.Invoke();
         }

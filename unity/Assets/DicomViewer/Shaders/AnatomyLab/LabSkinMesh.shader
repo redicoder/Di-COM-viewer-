@@ -18,6 +18,9 @@ Shader "DicomViewer/LabSkinMesh"
         _SkinLut ("Skin scattering LUT (SkinBake)", 2D) = "white" {}
         _ShowStain ("Show blood stains", Float) = 1
         _Living ("Living tone (0 as photographed, 1 alive)", Range(0, 1)) = 1
+        _SkinMode ("Skin: 1 clean (one even tone), 0 the photographs", Float) = 1
+        _SkinTone ("Clean skin tone (sRGB; Unity hands it to the shader linear)", Color) = (0.84, 0.68, 0.62, 1)
+        _Underwear ("Briefs: from y (x) to y (y), body mm; none when y <= x", Vector) = (0, 0, 0, 0)
     }
     SubShader
     {
@@ -36,6 +39,9 @@ Shader "DicomViewer/LabSkinMesh"
             float _RegionOn;                 // 1: a finer export's mesh covers the box below; this one stays out
             float4 _RegionMin, _RegionMax;   // body mm
             float _ClipBelowMm;              // a region's mesh: nothing below this height (the export's cut end)
+            float _SkinMode;                 // 1: one even skin tone over his shape (the table look); 0: the photographs
+            float4 _SkinTone;
+            float4 _Underwear;               // briefs between these heights (body mm)
         CBUFFER_END
 
         #include "LabBody.hlsl"
@@ -121,19 +127,40 @@ Shader "DicomViewer/LabSkinMesh"
                 float m = CutAway(i.positionMm, away);
                 if (away) discard;
 
-                // Colour from just under the skin, averaged over 2 mm of surface (the frozen photographs are
-                // blotchy with pooled blood; living skin has an even base, its detail is in the relief).
-                float3 inside = (i.positionMm - nMm * 0.7) / _SizeMm.xyz;
-                float3 T = normalize(cross(nMm, abs(nMm.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0)));
-                float3 B = cross(nMm, T);
-                float3 sum = 0.0;
-                [unroll] for (int k = 0; k < 7; k++)
+                float3 albedo;
+                float cloth = 0.0;
+                [branch] if (_SkinMode > 0.5)
                 {
-                    float ang = k * 0.8976;                                    // 2 pi / 7
-                    float3 off = k == 0 ? 0.0 : (T * cos(ang) + B * sin(ang)) * 1.8;   // mm
-                    sum += SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, inside + off / _SizeMm.xyz, 0).rgb;
+                    // Clean skin: one even tone over his real shape, as a dissection table shows a body, with the
+                    // slow unevenness living skin has, a flush where the skin is thin (ears, nose, lips), and briefs.
+                    float3 tone = _SkinTone.rgb;
+                    float n1 = LabNoise(i.positionMm * 0.045), n2 = LabNoise(i.positionMm * 0.22 + 7.0);
+                    tone *= 1.0 + 0.07 * (n1 - 0.5) + 0.04 * (n2 - 0.5);
+                    float thin = saturate(1.0 - i.bake.y / 12.0);
+                    albedo = lerp(tone, tone * float3(1.06, 0.90, 0.88), thin * 0.6);
+                    if (_Underwear.y > _Underwear.x && i.positionMm.y > _Underwear.x && i.positionMm.y < _Underwear.y)
+                    {
+                        float band = smoothstep(0.0, 10.0, _Underwear.y - i.positionMm.y);   // the waistband a shade darker
+                        albedo = lerp(float3(0.64, 0.65, 0.69), float3(0.82, 0.83, 0.86), band);
+                        cloth = 1.0;
+                    }
                 }
-                float3 albedo = Living(sum / 7.0);
+                else
+                {
+                    // The photographs: colour from just under the skin, averaged over 2 mm of surface (the frozen
+                    // photographs are blotchy with pooled blood), graded to a living tone.
+                    float3 inside = (i.positionMm - nMm * 0.7) / _SizeMm.xyz;
+                    float3 T = normalize(cross(nMm, abs(nMm.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0)));
+                    float3 B = cross(nMm, T);
+                    float3 sum = 0.0;
+                    [unroll] for (int k = 0; k < 7; k++)
+                    {
+                        float ang = k * 0.8976;                                    // 2 pi / 7
+                        float3 off = k == 0 ? 0.0 : (T * cos(ang) + B * sin(ang)) * 1.8;   // mm
+                        sum += SAMPLE_TEXTURE3D_LOD(_ColorTex, sampler_ColorTex, inside + off / _SizeMm.xyz, 0).rgb;
+                    }
+                    albedo = Living(sum / 7.0);
+                }
                 float skin = smoothstep(0.5, 1.0, m);
                 float stain = SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, uvw, 0).r;
                 float wet = smoothstep(0.04, 0.35, stain) * _ShowStain;
@@ -144,8 +171,17 @@ Shader "DicomViewer/LabSkinMesh"
                 Light light = GetMainLight(shadowCoord);
                 float aoInstr = 1.0, shade = light.shadowAttenuation;
                 if (_InstrCount > 0.5) shade *= InstrumentShade(i.positionWS, light.direction, aoInstr);
-                float3 lit = LabShadeSkinBaked(albedo, N, V, light.direction, light.color, wet, skin, aoInstr, shade,
-                                               i.positionMm, LabPixelMm(i.positionWS), i.bake);
+                float3 lit;
+                [branch] if (cloth > 0.5)
+                {
+                    // Cotton: matte, lit by the key and the room, darker in the folds the body makes.
+                    float ndl = saturate(dot(N, light.direction));
+                    float3 ambient = lerp(0.10, 0.34, dot(N, float3(0, 1, 0)) * 0.5 + 0.5) * lerp(0.3, 1.0, i.bake.x);
+                    lit = albedo * (light.color * ndl * shade * 0.8 + ambient) * aoInstr;
+                }
+                else
+                    lit = LabShadeSkinBaked(albedo, N, V, light.direction, light.color, wet, skin, aoInstr, shade,
+                                            i.positionMm, LabPixelMm(i.positionWS), i.bake);
                 return half4(lit, 1.0);
             }
             ENDHLSL

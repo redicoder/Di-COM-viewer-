@@ -1,3 +1,4 @@
+using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
@@ -80,6 +81,21 @@ namespace DicomViewer.AnatomyLab
             }
             var curv = new float[nv];
             for (int i = 0; i < nv; i++) curv[i] = count[i] > 0 ? sum[i] / count[i] : 0f;
+            // Edge by edge the curvature is noise (a 1.3 mm volume's normals wobble); the scattering wants the
+            // curvature of the body's forms, so it is averaged over the neighbours a few times.
+            for (int pass = 0; pass < 4; pass++)
+            {
+                Array.Clear(sum, 0, nv);
+                Array.Clear(count, 0, nv);
+                for (int t = 0; t + 2 < tris.Length; t += 3)
+                    for (int e = 0; e < 3; e++)
+                    {
+                        int a = tris[t + e], b = tris[t + (e + 1) % 3];
+                        sum[a] += curv[b]; sum[b] += curv[a];
+                        count[a]++; count[b]++;
+                    }
+                for (int i = 0; i < nv; i++) if (count[i] > 0) curv[i] = 0.5f * curv[i] + 0.5f * sum[i] / count[i];
+            }
             return curv;
         }
 

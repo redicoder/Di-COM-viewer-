@@ -114,6 +114,29 @@ namespace DicomViewer.AnatomyLab
 
         public string Layer(int index) => index > 0 && index < 256 ? layers[index] : null;
 
+        /// <summary>The range of y voxel indices the named objects occupy (any of them); false when none is present.</summary>
+        public bool BoundsY(string[] objectNames, out int yMin, out int yMax)
+        {
+            var wanted = new bool[256];
+            bool any = false;
+            foreach (LabelObject o in Table.objects)
+                if (o.index > 0 && o.index < 256 && Array.IndexOf(objectNames, o.name) >= 0 && o.voxels > 0) { wanted[o.index] = true; any = true; }
+            yMin = int.MaxValue; yMax = int.MinValue;
+            if (!any) return false;
+            int plane = Dims.x * Dims.y;
+            for (int y = 0; y < Dims.y; y++)
+            {
+                bool hit = false;
+                for (int z = 0; z < Dims.z && !hit; z++)
+                {
+                    int row = z * plane + y * Dims.x;
+                    for (int x = 0; x < Dims.x; x++) if (wanted[Index[row + x]]) { hit = true; break; }
+                }
+                if (hit) { yMin = Math.Min(yMin, y); yMax = Math.Max(yMax, y); }
+            }
+            return yMin <= yMax;
+        }
+
         /// <summary>Is the voxel at a texture coordinate in a layer the student has taken away?</summary>
         public bool HiddenAt(Vector3 uvw) => hiddenLayers.Count > 0 && hidden[IndexAt(uvw)] != 0;
 

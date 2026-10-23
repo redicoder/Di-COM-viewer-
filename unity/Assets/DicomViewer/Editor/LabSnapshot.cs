@@ -376,6 +376,7 @@ public static class LabSnapshot
         room.PushLight();
         var skin = bodyGo.AddComponent<SkinMesh>();
         Debug.Log($"LabSnapshot: skin mesh {(skin.Attach(body) ? "on" : "absent")}");
+        m.SetVector("_Underwear", AnatomyLab.Briefs(body));
         var regions = bodyGo.AddComponent<LabRegion>();
         regions.Attach(body, LoadBody);
         Debug.Log($"LabSnapshot: {regions.Count} region(s) at full detail");
@@ -433,6 +434,9 @@ public static class LabSnapshot
         }
         View(0f, 35f, dist);
         Shot("body_oblique.png");
+        m.SetFloat("_SkinMode", 0f);
+        Shot("body_oblique_photos.png");
+        m.SetFloat("_SkinMode", 1f);
         // His face on the table, eyes closed and open (the eyes carried over from the head export).
         if (meta2.eyes != null && meta2.eyes.Length >= 2)
         {

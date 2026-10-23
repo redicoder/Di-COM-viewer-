@@ -55,6 +55,7 @@ namespace DicomViewer.AnatomyLab
             x += pad * 2;
             if (Button(lab.livingEyes ? "Eyes: living" : "Eyes: his real", 150)) lab.livingEyes = !lab.livingEyes;
             if (Button(lab.ShowBlood ? "Blood: on" : "Blood: off", 120)) lab.ShowBlood = !lab.ShowBlood;
+            if (lab.SkinMeshOn && Button(lab.CleanSkin ? "Skin: clean" : "Skin: photos", 130)) lab.CleanSkin = !lab.CleanSkin;
             if (Button("Front view", 120)) lab.ResetView();
             if (Button(lab.IsWholeBody ? "Body: whole" : "Body: head", 130))
                 lab.UseBody(lab.IsWholeBody ? AnatomyLab.HeadBody : AnatomyLab.WholeBody);

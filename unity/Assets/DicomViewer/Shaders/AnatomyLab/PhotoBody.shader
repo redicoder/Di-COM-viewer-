@@ -12,6 +12,7 @@ Shader "DicomViewer/PhotoBody"
         _StainTex ("Blood stain", 3D) = "black" {}
         _LabelTex ("Object labels (BodyLabels)", 3D) = "black" {}
         _LabelHideTex ("Hidden labels, 256 x 1", 2D) = "black" {}
+        _SkinTone ("Clean skin tone (sRGB), as LabSkinMesh", Color) = (0.84, 0.68, 0.62, 1)
         _LidTex ("Eyelids (0.25 lower, 0.5 upper)", 3D) = "black" {}
         _OccTex ("Occupancy (tissue somewhere in this brick)", 3D) = "white" {}
         _ShowStain ("Show blood stains", Float) = 1
@@ -62,6 +63,8 @@ Shader "DicomViewer/PhotoBody"
             #include "TissueWarp.hlsl"         // live grabs (GrabDisplacement) and the baked grab field
             #include "LabSkin.hlsl"            // the skin's lighting
             float _ClipBelowMm;                // a region's volume: nothing below this height (the export's cut end)
+            float _SkinMode;                   // 1: intact skin the volume draws (the lids' zone) takes the clean tone too
+            float4 _SkinTone;
 
             #include "LabBody.hlsl"            // the body's textures, sheets, lids, instruments (shared with the skin mesh)
 
@@ -246,6 +249,13 @@ Shader "DicomViewer/PhotoBody"
                 albedo = LabSkinGrade(albedo, skin);
                 [branch] if (_HighlightIndex > 0.5 && abs(LabelIndexAt(srcHit) - _HighlightIndex) < 0.5)
                     albedo = lerp(albedo, albedo * float3(1.35, 1.3, 0.55) + 0.10, 0.6);
+                [branch] if (_SkinMode > 0.5 && skin > 0.5 && SkinDepthAt(srcHit) <= 2.5)
+                {
+                    // Intact skin drawn by the volume (the lids' zone while the eyes open): the clean tone, as the mesh.
+                    float3 pm = (p + 0.5) * _SizeM.xyz * 1000.0;
+                    float3 tone = _SkinTone.rgb * (1.0 + 0.07 * (LabNoise(pm * 0.045) - 0.5) + 0.04 * (LabNoise(pm * 0.22 + 7.0) - 0.5));
+                    albedo = lerp(albedo, tone, skin);
+                }
 
                 float stain = max(SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, srcHit, 0).r,
                                   SAMPLE_TEXTURE3D_LOD(_StainTex, sampler_StainTex, SourceUVW(p + 0.5 + inwardM * 0.0006 / _SizeM.xyz), 0).r);

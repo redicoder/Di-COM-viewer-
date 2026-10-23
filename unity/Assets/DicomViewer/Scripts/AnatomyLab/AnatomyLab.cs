@@ -154,6 +154,27 @@ namespace DicomViewer.AnatomyLab
 
         public bool IsWholeBody => bodyName == WholeBody;
 
+        /// <summary>Skin drawn as one even tone over his shape (a dissection table's body) rather than the photographs.</summary>
+        public bool CleanSkin
+        {
+            get => cleanSkin;
+            set { cleanSkin = value; if (Body != null && Body.Material != null) Body.Material.SetFloat("_SkinMode", value ? 1f : 0f); }
+        }
+        private bool cleanSkin = true;
+
+        /// <summary>
+        /// Where briefs go on the clean skin, body mm (from y to y; none when the body has no labels): from just
+        /// above the hip bones to a hand below the genitals.
+        /// </summary>
+        public static Vector4 Briefs(PhotoBody body)
+        {
+            if (body == null || body.Labels == null) return Vector4.zero;
+            if (!body.Labels.BoundsY(new[] { "left hip bone", "right hip bone" }, out _, out int hipTop)) return Vector4.zero;
+            if (!body.Labels.BoundsY(new[] { "scrotum", "penis", "testis" }, out int genitalBottom, out _)) return Vector4.zero;
+            float sy = body.Space.SpacingMm.y;
+            return new Vector4((genitalBottom + 0.5f) * sy - 30f, (hipTop + 0.5f) * sy + 10f, 0f, 0f);
+        }
+
         /// <summary>The lab's key light casts soft shadows (the skin mesh casts and receives them).</summary>
         public static void LabShadows(Light light)
         {
@@ -187,6 +208,8 @@ namespace DicomViewer.AnatomyLab
                 warp.Bind(Body.Material);
             }
             if (sheets != null) sheets.Attach(Body, Mask);
+            Body.Material.SetFloat("_SkinMode", cleanSkin ? 1f : 0f);
+            Body.Material.SetVector("_Underwear", Briefs(Body));
             if (skinMesh != null) skinMesh.Attach(Body);
             if (region != null) region.Attach(Body);
             if (scalpel != null) scalpel.ForgetCut();
