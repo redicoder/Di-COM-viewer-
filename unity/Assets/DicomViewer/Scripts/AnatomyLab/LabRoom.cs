@@ -94,7 +94,7 @@ namespace DicomViewer.AnatomyLab
         }
 
         // Boxes with flat faces (every face its own vertices), wound to face outward.
-        private static Mesh BoxMesh(List<(Vector3 lo, Vector3 hi)> boxes)
+        public static Mesh BoxMesh(List<(Vector3 lo, Vector3 hi)> boxes)
         {
             var v = new List<Vector3>();
             var t = new List<int>();

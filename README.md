@@ -64,6 +64,15 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv\Scripts\python.exe tools\import_ct_bone.py data\vhp_male_frozen out\photo_head
   ```
   In the app choose **Anatomy lab** on the start screen.
+- **The modelled body** (the new body built step by step from generated reference pictures: body, skeleton,
+  muscles, each organ as a GLB made by an image-to-3D tool from Gemini pictures): put the files in
+  `unity/Assets/Models/` (`body.glb`, `skeleton.glb`, `muscles.glb`, `heart.glb`, ...). The glTF importer
+  (`com.unity.cloud.gltfast`) turns each into a model. Unity menu **DICOM Viewer → Build Model Lab Scene** lays him
+  on the table at 1.78 m in `Assets/Scenes/ModelLab.unity` (open it, Play, drag to walk round him, wheel to come
+  closer, right-drag to slide); **DICOM Viewer → Model Body Snapshots** renders `build/snapshots/model_*.png`:
+  ```powershell
+  & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.Run -logFile build\model_snapshot.log -quit
+  ```
 - **Run the viewer**: Play in Unity, or the built app `build/DICOM 3D Viewer.exe`
   (Unity menu **DICOM Viewer → Build Windows App**).
 

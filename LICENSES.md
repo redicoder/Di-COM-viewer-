@@ -13,6 +13,8 @@ the row says "confirmed".
 | Nifti.NET (bundled inside UnityVolumeRendering, `ThirdParty/Nifti.NET`) | verify | unused by us; remove with openDicom |
 | Unity 6 editor / player, URP | build tool and runtime | Unity terms; Unity Personal only below Unity's revenue/funding threshold | check plan before sale |
 | Unity Burst, Collections, Mathematics packages | skin physics job (`TissueSheetJob`) | Unity Companion License (ship with Unity) | confirmed |
+| Unity glTFast (`com.unity.cloud.gltfast` 6.20.0) | imports the modelled body's GLB files (`unity/Assets/Models/`) | Apache-2.0 (Unity package) | confirmed |
+| The modelled body's GLB files (`unity/Assets/Models/*.glb`) | made by the product owner: reference pictures generated with Gemini, meshed by an image-to-3D service (Tripo) | the service's terms for generated output; **record the plan and its commercial-use terms here before sale** | verify |
 | numpy, scipy | backend | BSD-3-Clause | confirmed |
 | pydicom | backend | MIT | confirmed |
 | fastapi / uvicorn / httpx | backend (optional HTTP service, tests) | MIT / BSD-3 / BSD-3 | confirmed |
