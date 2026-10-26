@@ -5,21 +5,22 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 /// <summary>
-/// The modelled body (Assets/Models/body.glb) on the table: builds the scene, saves it as Assets/Scenes/ModelLab.unity
-/// (open it, press Play, walk round him) and renders it to PNG files without Play mode:
+/// The modelled body (Assets/Models/body.glb with muscles.glb and skeleton.glb as layers) on the table: builds the
+/// scene, saves it as Assets/Scenes/ModelLab.unity (open it, press Play, walk round him, switch the layers) and
+/// renders it to PNG files without Play mode:
 ///   Unity.exe -batchmode -projectPath unity -executeMethod ModelSnapshot.Run -logFile - -quit
 /// Pictures go to <repo>/build/snapshots/model_*.png.
 /// </summary>
 public static class ModelSnapshot
 {
-    public const string BodyAsset = "Assets/Models/body.glb";
+    public const string ModelsFolder = "Assets/Models";
     public const string ScenePath = "Assets/Scenes/ModelLab.unity";
 
     private static readonly int Roughness = Shader.PropertyToID("roughnessFactor");
     private static readonly int Metallic = Shader.PropertyToID("metallicFactor");
 
-    /// <summary>Camera, key light, post-processing, the body laid on the table and the room; his world bounds.</summary>
-    private static (Camera cam, GameObject body, Bounds bounds) Build()
+    /// <summary>Camera, key light, post-processing, the layers laid on the table and the room; the body's world bounds.</summary>
+    private static (Camera cam, ModelBody body, Bounds bounds) Build()
     {
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         ShaderUtil.allowAsyncCompilation = false;
@@ -41,29 +42,40 @@ public static class ModelSnapshot
         RenderSettings.ambientLight = new Color(0.30f, 0.31f, 0.33f);
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
-        var asset = AssetDatabase.LoadAssetAtPath<GameObject>(BodyAsset);
-        if (asset == null) { Debug.LogError($"ModelSnapshot: {BodyAsset} did not import as a model"); return (cam, null, default); }
-        GameObject body = (GameObject)PrefabUtility.InstantiatePrefab(asset);
-        body.name = "Body";
-        foreach (Renderer r in body.GetComponentsInChildren<Renderer>())
+        var body = new GameObject("Body").AddComponent<ModelBody>();
+        Bounds bounds = default;
+        bool any = false;
+        foreach (string name in ModelBody.LayerNames)
         {
-            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-            Material rm = r.sharedMaterial;
-            if (rm == null) continue;
-            Debug.Log($"ModelSnapshot: renderer {r.name}, shader {rm.shader.name}, texture "
-                      + $"{(rm.mainTexture != null ? rm.mainTexture.name + " " + rm.mainTexture.width + "x" + rm.mainTexture.height : "none")}, "
-                      + $"roughness {(rm.HasFloat(Roughness) ? rm.GetFloat(Roughness).ToString("F2") : "-")}, metallic {(rm.HasFloat(Metallic) ? rm.GetFloat(Metallic).ToString("F2") : "-")}");
-            // Skin: a little sheen, never metal (the generator leaves the material fully rough).
-            var skin = new Material(rm) { name = "Body skin" };
-            if (skin.HasFloat(Roughness)) skin.SetFloat(Roughness, 0.62f);
-            if (skin.HasFloat(Metallic)) skin.SetFloat(Metallic, 0f);
-            r.sharedMaterial = skin;
+            string path = $"{ModelsFolder}/{name}.glb";
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (asset == null) { Debug.LogWarning($"ModelSnapshot: no {path}"); continue; }
+            GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(asset);
+            model.name = name;
+            foreach (Renderer r in model.GetComponentsInChildren<Renderer>())
+            {
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                Material rm = r.sharedMaterial;
+                if (rm == null) continue;
+                Debug.Log($"ModelSnapshot: {name}: shader {rm.shader.name}, texture "
+                          + $"{(rm.mainTexture != null ? rm.mainTexture.width + "x" + rm.mainTexture.height : "none")}, "
+                          + $"roughness {(rm.HasFloat(Roughness) ? rm.GetFloat(Roughness).ToString("F2") : "-")}, metallic {(rm.HasFloat(Metallic) ? rm.GetFloat(Metallic).ToString("F2") : "-")}");
+                // The generator exports everything fully rough and fully metal: skin with a little sheen, muscle wet, bone matte.
+                var m = new Material(rm) { name = name };
+                float rough = name == "muscles" ? 0.45f : name == "skeleton" ? 0.7f : 0.62f;
+                if (m.HasFloat(Roughness)) m.SetFloat(Roughness, rough);
+                if (m.HasFloat(Metallic)) m.SetFloat(Metallic, 0f);
+                r.sharedMaterial = m;
+            }
+            Bounds raw = ModelLab.WorldBounds(model);
+            Bounds b = ModelLab.Lay(model, ModelLab.DefaultHeightM);
+            Debug.Log($"ModelSnapshot: {name} as imported {raw.size}, laid {b.size} centre {b.center}");
+            body.Add(name, model);
+            if (!any) { bounds = b; any = true; } else bounds.Encapsulate(b);
         }
-        Bounds raw = ModelLab.WorldBounds(body);
-        Bounds b = ModelLab.Lay(body, ModelLab.DefaultHeightM);
-        Debug.Log($"ModelSnapshot: model size as imported {raw.size}, laid {b.size} centre {b.center}");
-        ModelLab.Room(b.size.x);
-        return (cam, body, b);
+        if (!any) { Debug.LogError($"ModelSnapshot: no models in {ModelsFolder}"); return (cam, null, default); }
+        ModelLab.Room(bounds.size.x);
+        return (cam, body, bounds);
     }
 
     /// <summary>Builds the scene and saves it, with the camera walking round the table (ModelOrbit) in Play mode.</summary>
@@ -116,18 +128,39 @@ public static class ModelSnapshot
             Debug.Log($"ModelSnapshot: wrote {name}");
         }
         Vector3 centre = new Vector3(0f, b.size.y * 0.5f, 0f);
+        Vector3 head = new Vector3(b.min.x + 0.12f, b.size.y * 0.6f, 0f);
+        Vector3 chest = new Vector3(b.min.x + 0.45f, b.size.y * 0.5f, 0f);
         View(0f, 90f, dist, centre);
         Shot("model_above.png");
         View(0f, 35f, dist, centre);
         Shot("model_oblique.png");
         View(-90f, 10f, dist * 0.8f, centre);
         Shot("model_from_feet.png");
-        Vector3 head = new Vector3(b.min.x + 0.12f, b.size.y * 0.6f, 0f);
         View(-30f, 30f, dist * 0.18f, head);
         Shot("model_face.png");
-        Vector3 chest = new Vector3(b.min.x + 0.45f, b.size.y * 0.5f, 0f);
         View(-20f, 35f, dist * 0.4f, chest);
         Shot("model_chest.png");
+        // The layers: skin away (the muscles), muscles away (the skeleton).
+        if (body.Find("muscles") != null)
+        {
+            body.Show("body", false);
+            View(0f, 35f, dist, centre);
+            Shot("model_layers_muscles.png");
+            View(-20f, 35f, dist * 0.4f, chest);
+            Shot("model_layers_muscles_chest.png");
+        }
+        if (body.Find("skeleton") != null)
+        {
+            body.Show("body", false);
+            body.Show("muscles", false);
+            View(0f, 35f, dist, centre);
+            Shot("model_layers_skeleton.png");
+            View(-20f, 35f, dist * 0.4f, chest);
+            Shot("model_layers_skeleton_chest.png");
+            View(-30f, 30f, dist * 0.18f, head);
+            Shot("model_layers_skull.png");
+        }
+        foreach (string layer in ModelBody.LayerNames) body.Show(layer, true);
         Debug.Log($"ModelSnapshot: done -> {outDir}");
         BuildScene();
     }

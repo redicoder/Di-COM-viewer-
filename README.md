@@ -69,7 +69,7 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   `unity/Assets/Models/` (`body.glb`, `skeleton.glb`, `muscles.glb`, `heart.glb`, ...). The glTF importer
   (`com.unity.cloud.gltfast`) turns each into a model. Unity menu **DICOM Viewer → Build Model Lab Scene** lays him
   on the table at 1.78 m in `Assets/Scenes/ModelLab.unity` (open it, Play, drag to walk round him, wheel to come
-  closer, right-drag to slide); **DICOM Viewer → Model Body Snapshots** renders `build/snapshots/model_*.png`:
+  closer, right-drag to slide; the Skin / Muscles / Skeleton buttons pick the layer to see); **DICOM Viewer → Model Body Snapshots** renders `build/snapshots/model_*.png`:
   ```powershell
   & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.Run -logFile build\model_snapshot.log -quit
   ```
