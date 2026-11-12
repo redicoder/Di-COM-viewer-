@@ -2,7 +2,7 @@
 the hair of chest, arms and legs).
 
 A hair is far thinner than a pixel, so no texture can hold it and a card of painted hair reads as a flake at
-close range; a strand of its own is the only form that holds up (build/research/realtime_skin_hair.md). The body
+close range; a strand of its own is the only form that holds up (docs/research/realtime_skin_hair.md). The body
 does not move, so the strands are static. Each strand is a centre line of a few segments; both vertices of every
 ring sit ON the centre line, and Unity's LabHair.shader pushes them apart to the hair's width facing the camera
 (never under a pixel wide, with the coverage in alpha), so the file stores no width in its positions.
@@ -12,7 +12,7 @@ skin it grows from), TANGENT the strand's direction, TEXCOORD_0 = (side -1/+1, d
 TEXCOORD_1 = (width in mm at this point, the strand's random seed 0..1), COLOR_0 = the hair's colour (sRGB).
 
 Roots are scattered by area and by the region's weight (zones.regions); directions follow the hair streams of
-the body (Kidd 1903, via build/research/skin_features_hair_maps.md): a whorl on the crown, down the cheeks and the
+the body (Kidd 1903, via docs/research/skin_features_hair_maps.md): a whorl on the crown, down the cheeks and the
 legs, along the brow towards the temple, towards the hand on the arm, down and towards the midline on the chest.
 Densities are what a renderer needs to read as that hair, below the real follicle counts.
 """

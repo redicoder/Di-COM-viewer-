@@ -5,7 +5,7 @@ the face's profile; the sternum, the arms' and the legs' bones come from the lab
 gets weights 0..1 for the regions that matter to its look (lips, lids, brows, scalp, beard, areola, chest, belly
 line, arms, legs, soles), and from the weights its colour, its gloss and how much hair grows there.
 
-Sizes and colours follow build/research/skin_features_hair_maps.md and palette.md (measured from photographs
+Sizes and colours follow docs/research/skin_features_hair_maps.md and palette.md (measured from photographs
 where the report says so, typical values where it says they are from memory); they are starting values, tuned by
 eye against renders. Everything is in glTF metres: x patient left, y up, z front.
 """

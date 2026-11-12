@@ -1,0 +1,71 @@
+tissue,image_url,"rectangle_px(x0,y0,x1,y1 of WxH at 1280px thumb)",r,g,b,r_iqr,g_iqr,b_iqr
+"01 skin chest (light, living)",https://commons.wikimedia.org/wiki/File:Bodymorphproj_DanielMMS_modB001_20211025_posA01.jpg,"409,357,742,492 of 1280x795",229,204,192,227-231,201-207,189-194
+"01 skin abdomen (light, living)",https://commons.wikimedia.org/wiki/File:Bodymorphproj_DanielMMS_modB001_20211025_posA01.jpg,"448,596,768,755 of 1280x795",222,198,186,219-225,191-201,181-190
+"01 skin chest (light, living)",https://commons.wikimedia.org/wiki/File:Bodymorphproj_mkg_modA002_20070407_posA01.jpg,"409,343,601,457 of 1280x763",166,131,109,163-169,126-134,104-113
+"01 skin abdomen (light, living)",https://commons.wikimedia.org/wiki/File:Bodymorphproj_mkg_modA002_20070407_posA01.jpg,"448,610,832,724 of 1280x763",168,138,122,165-170,134-141,118-126
+"01 skin abdomen (light, living)",https://commons.wikimedia.org/wiki/File:A_nude_Torso_of_a_Man.JPG,"291,337,460,450 of 768x1024",138,118,108,133-147,113-126,102-115
+"01 skin abdomen (light, living)",https://commons.wikimedia.org/wiki/File:Central_Obesity_008.jpg,"384,431,704,616 of 1280x1232",244,226,199,241-247,222-232,192-205
+"01 skin chest (light, living)",https://commons.wikimedia.org/wiki/File:Median_Sternotomy_Example.jpg,"685,604,914,720 of 1143x1162",204,168,143,194-212,158-182,135-152
+02 lips upper,https://commons.wikimedia.org/wiki/File:Close_up_man_lips.jpg,"512,346,665,399 of 1280x1050",138,64,75,123-151,52-75,62-87
+02 lips lower,https://commons.wikimedia.org/wiki/File:Close_up_man_lips.jpg,"422,493,640,567 of 1280x1050",166,92,106,140-177,69-103,80-118
+03 areola male,https://commons.wikimedia.org/wiki/File:Male_Areola.jpg,"358,785,460,921 of 1280x1707",131,123,125,117-141,109-134,111-137
+03 nipple male,https://commons.wikimedia.org/wiki/File:Male_Areola.jpg,"480,836,524,887 of 1280x1707",122,117,121,117-128,109-125,112-130
+03 areola male,https://commons.wikimedia.org/wiki/File:Bodymorphproj_mkg_modA002_20070407_posA01.jpg,"357,515,369,545 of 1280x763",104,59,50,99-111,53-64,45-56
+03 areola male,https://commons.wikimedia.org/wiki/File:Median_Sternotomy_Example.jpg,"211,546,251,586 of 1143x1162",124,87,71,104-140,75-100,60-81
+04 lunula,https://commons.wikimedia.org/wiki/File:Fingernail_label_%28enwiki%29.jpg,"824,351,871,380 of 1044x634",253,241,239,252-255,217-246,219-245
+05 palm,https://commons.wikimedia.org/wiki/File:Open_Palm_of_the_Left_Hand%2C_Fingers.jpg,"256,528,640,768 of 1280x960",211,157,119,198-224,145-169,110-129
+05 palm,https://commons.wikimedia.org/wiki/File:Right_Hand_Palm.png,"384,1206,896,1608 of 1280x2011",228,173,129,221-234,162-184,119-139
+06 subcutaneous fat (surgery),https://commons.wikimedia.org/wiki/File:Electrocautery_during_abdominoplasty.jpg,"128,844,384,1152 of 1280x1920",212,127,36,191-231,102-152,19-55
+06 subcutaneous fat (surgery),https://commons.wikimedia.org/wiki/File:Rectus_diastasis_repair_during_abdominoplasty.jpg,"256,422,384,672 of 1280x1920",216,112,42,181-242,80-137,11-65
+06b omental fat (laparoscopy),https://commons.wikimedia.org/wiki/File:Gallenblase.jpg,"768,528,1152,682 of 1280x853",167,106,75,158-180,96-116,66-85
+06b omental fat (open),https://commons.wikimedia.org/wiki/File:Splenose.jpg,"320,644,537,718 of 1280x1239",239,190,73,229-247,167-204,62-83
+07 muscle fresh (bloody field),https://commons.wikimedia.org/wiki/File:Intraoperative_fibularis_longus_tendon.jpg,"422,768,576,853 of 1280x1707",218,113,111,195-238,84-138,83-136
+07 muscle fresh,https://commons.wikimedia.org/wiki/File:Ruptured_achilles_tendon.jpg,"436,558,519,608 of 1180x822",142,31,32,83-177,13-52,18-52
+"08 tendon (Achilles, cut)",https://commons.wikimedia.org/wiki/File:Achilles_tendon_02.jpg,"711,392,732,512 of 1280x1707",206,199,199,192-211,181-207,176-206
+08 aponeurosis (abdominal fascia),https://commons.wikimedia.org/wiki/File:Electrocautery_during_abdominoplasty.jpg,"384,1344,512,1459 of 1280x1920",199,153,77,177-230,124-196,38-124
+11 liver (laparoscopy),https://commons.wikimedia.org/wiki/File:Gallbladder_in_laparoscopy.jpg,"422,259,652,432 of 768x576",152,82,73,141-168,75-89,67-84
+11 liver (laparoscopy),https://commons.wikimedia.org/wiki/File:Gallenblase.jpg,"704,255,1088,341 of 1280x853",92,46,48,82-107,39-56,40-60
+"11 liver (open, pale/fatty)",https://commons.wikimedia.org/wiki/File:Splenose.jpg,"320,123,640,433 of 1280x1239",206,134,102,195-216,121-151,92-113
+20 gallbladder (laparoscopy),https://commons.wikimedia.org/wiki/File:Gallenblase.jpg,"396,281,486,383 of 1280x853",181,164,179,169-190,151-176,166-191
+"03r skin beside areola (same photos, for ratio)",https://commons.wikimedia.org/wiki/File:Male_Areola.jpg,"102,1365,384,1621 of 1280x1707",149,152,149,143-155,146-158,141-156
+"03r skin beside areola (same photos, for ratio)",https://commons.wikimedia.org/wiki/File:Bodymorphproj_mkg_modA002_20070407_posA01.jpg,"409,343,601,457 of 1280x763",166,131,109,163-169,126-134,104-113
+"03r skin beside areola (same photos, for ratio)",https://commons.wikimedia.org/wiki/File:Median_Sternotomy_Example.jpg,"685,604,914,720 of 1143x1162",204,168,143,194-212,158-182,135-152
+"13a epicardial fat (fresh heart, small photo)",https://commons.wikimedia.org/wiki/File:Humhrt2.jpg,"62,29,103,49 of 173x224",248,194,178,239-253,177-211,162-189
+"13b myocardium through epicardium (fresh heart, small photo)",https://commons.wikimedia.org/wiki/File:Humhrt2.jpg,"95,112,138,156 of 173x224",165,75,110,128-205,42-120,66-155
+"18 kidney surface (flushed donor kidney, blood washed out)",https://commons.wikimedia.org/wiki/File:Kidney_for_transplant_from_live_donor.jpg,"614,302,806,379 of 1280x960",241,186,87,238-245,182-190,82-92
+18b perirenal hilum fat (donor kidney),https://commons.wikimedia.org/wiki/File:Kidney_for_transplant_from_live_donor.jpg,"396,432,563,494 of 1280x960",249,181,22,237-255,157-199,7-45
+22 brain cortex fresh (autopsy),https://commons.wikimedia.org/wiki/File:Brain_autopsy_lateral_view.jpg,"384,240,768,480 of 1280x960",188,169,157,163-198,140-182,131-171
+22 brain cortex fresh (autopsy),https://commons.wikimedia.org/wiki/File:Brain_autopsy_top_view.jpg,"230,860,537,1173 of 1280x1565",156,129,97,135-173,106-149,81-116
+22 brain cortex fresh (autopsy),https://commons.wikimedia.org/wiki/File:Gross_pathology_of_normal_brain_and_brain_of_patient_treated_with_methylene_blue_before_death.jpg,"192,104,537,390 of 1280x1302",149,112,96,78-212,59-156,45-134
+14 small intestine (open abdomen),https://commons.wikimedia.org/wiki/File:Splenose.jpg,"576,1053,896,1177 of 1280x1239",183,139,107,174-195,127-153,97-120
+"15 large intestine (probable transverse colon, open abdomen)",https://commons.wikimedia.org/wiki/File:Splenose.jpg,"256,780,704,916 of 1280x1239",214,179,106,202-224,163-192,92-125
+29 eyelid skin (closed upper lid),https://commons.wikimedia.org/wiki/File:Closed_human_eye%2C_superior_view.jpg,"256,115,768,288 of 1280x960",239,187,184,231-248,173-206,169-205
+"29r skin below the eye (same photo, for ratio)",https://commons.wikimedia.org/wiki/File:Closed_human_eye%2C_superior_view.jpg,"384,787,896,912 of 1280x960",238,200,203,230-251,188-221,190-224
+"10 articular cartilage fresh (femoral head, blood-stained)",https://commons.wikimedia.org/wiki/File:Head_of_femur_avascular_necrosis.jpg,"512,404,665,501 of 1280x964",204,145,125,199-209,137-157,118-137
+"10 articular cartilage fresh (femoral head, clean)",https://commons.wikimedia.org/wiki/File:Head_of_femur.jpg,"512,283,716,526 of 1280x1013",185,186,178,173-198,178-200,171-194
+04 nail plate over nail bed,https://commons.wikimedia.org/wiki/File:Lunula_07.jpg,"704,832,1024,1046 of 1280x1189",181,102,113,175-187,96-108,106-120
+04 nail plate over nail bed,https://commons.wikimedia.org/wiki/File:Thumb-nail_and_hand.jpeg,"537,802,793,921 of 1280x1707",180,141,147,168-191,131-153,137-156
+04 lunula,https://commons.wikimedia.org/wiki/File:Thumb-nail_and_hand.jpeg,"563,964,768,1024 of 1280x1707",174,158,170,168-179,146-173,159-186
+"26 thyroid (thyroidectomy, flash photo)",https://commons.wikimedia.org/wiki/File:Thyroid_Surgery.jpg,"492,451,544,499 of 1280x960",168,89,112,134-206,55-139,81-157
+13a epicardial fat (autopsy heart),https://commons.wikimedia.org/wiki/File:Human_heart_male_adult_autopsy.jpg,"307,593,409,741 of 1280x1483",214,159,73,212-215,152-165,66-80
+13b myocardium through epicardium (autopsy heart),https://commons.wikimedia.org/wiki/File:Human_heart_male_adult_autopsy.jpg,"435,697,537,815 of 1280x1483",183,128,93,172-203,118-142,85-98
+17 spleen (splenectomy specimen),https://commons.wikimedia.org/wiki/File:Splenectomy_specimen.jpg,"435,570,537,677 of 1280x1189",157,105,100,146-163,91-112,85-108
+08 tendon,https://commons.wikimedia.org/wiki/File:Intraoperative_fibularis_longus_tendon.jpg,"576,662,742,691 of 1280x1707",235,199,192,231-239,193-204,184-198
+"12x lung cut surface (autopsy, not pleural surface)",https://commons.wikimedia.org/wiki/File:Normal_lung_%283661494812%29.jpg,"94,740,315,888 of 630x987",114,102,111,95-134,82-126,89-137
+"12y lung outer surface (dark preserved or smoker's lung, not fresh)",https://commons.wikimedia.org/wiki/File:Human_lung.jpg,"324,633,756,864 of 1080x1920",42,36,29,32-64,26-54,21-41
+"09b dry bone (skull, inner table)",https://commons.wikimedia.org/wiki/File:Skull_-_midsaggital_section_P.2005.jpg,"192,219,528,395 of 960x878",159,157,108,152-168,149-166,99-118
+"09b dry bone (skull, frontal)",https://commons.wikimedia.org/wiki/File:Anthroplogy_-_human_skull_of_a_boy.JPG,"537,153,793,307 of 1280x853",207,181,131,195-214,169-191,112-146
+31 eyebrow dark brown (hairs with skin between),https://commons.wikimedia.org/wiki/File:Black_eyebrow.jpg,"141,117,329,154 of 471x309",77,61,60,64-107,52-86,51-81
+"31r skin above eyebrow (same photo, for ratio)",https://commons.wikimedia.org/wiki/File:Black_eyebrow.jpg,"141,30,376,77 of 471x309",189,153,145,185-193,150-156,141-151
+29 eyelid skin (upper lid below brow),https://commons.wikimedia.org/wiki/File:Black_eyebrow.jpg,"141,222,282,253 of 471x309",170,135,128,166-173,132-139,125-131
+02 lips lower,https://commons.wikimedia.org/wiki/File:Lips_man_110.jpg,"422,879,556,915 of 960x1441",153,76,93,144-161,72-82,87-100
+"02r skin of chin (same photos as lips, for ratio)",https://commons.wikimedia.org/wiki/File:Lips_man_110.jpg,"384,979,576,1037 of 960x1441",165,134,131,157-171,128-141,119-138
+"02r skin of chin (same photos as lips, for ratio)",https://commons.wikimedia.org/wiki/File:Close_up_man_lips.jpg,"921,630,1216,840 of 1280x1050",184,150,133,173-190,139-156,123-140
+30 scalp stubble brown (buzz cut over scalp),https://commons.wikimedia.org/wiki/File:Luca_Nowak_portrait.jpg,"190,30,260,55 of 500x500",119,82,62,107-134,72-94,53-73
+"30r forehead skin (same photo, for ratio)",https://commons.wikimedia.org/wiki/File:Luca_Nowak_portrait.jpg,"165,85,275,135 of 500x500",226,163,131,220-230,157-170,126-138
+30b beard hair brown (dense),https://commons.wikimedia.org/wiki/File:Luca_Nowak_portrait.jpg,"115,290,150,330 of 500x500",45,28,17,25-79,16-48,10-33
+31 eyebrow brown (hairs with skin between),https://commons.wikimedia.org/wiki/File:Luca_Nowak_portrait.jpg,"135,162,175,172 of 500x500",88,52,37,69-117,40-74,26-56
+02 lips lower,https://commons.wikimedia.org/wiki/File:Luca_Nowak_portrait.jpg,"195,296,235,304 of 500x500",168,68,68,141-184,48-84,44-83
+16 stomach serosa (fresh sleeve-gastrectomy specimen),https://commons.wikimedia.org/wiki/File:Sleeve-ex_situ.jpg,"640,537,921,672 of 1280x960",140,124,117,129-150,115-132,109-124
+"22 brain cortex fresh (living, craniotomy, orange-cast photo)",https://commons.wikimedia.org/wiki/File:Craniotomy_Arachnoid.jpg,"166,238,242,329 of 758x568",199,124,80,177-212,104-137,65-87
+"12z lung resected lobe (collapsed, blood-stained)",https://commons.wikimedia.org/wiki/File:VATS_08.jpg,"288,194,364,251 of 960x719",61,21,27,49-72,17-26,22-33
