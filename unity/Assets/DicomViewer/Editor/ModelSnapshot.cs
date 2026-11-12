@@ -18,6 +18,7 @@ public static class ModelSnapshot
 
     private static readonly int Roughness = Shader.PropertyToID("roughnessFactor");
     private static readonly int Metallic = Shader.PropertyToID("metallicFactor");
+    private static readonly int BaseColorTexture = Shader.PropertyToID("baseColorTexture");
 
     /// <summary>Camera, key light, post-processing, the layers laid on the table and the room; the body's world bounds.</summary>
     private static (Camera cam, ModelBody body, Bounds bounds) Build()
@@ -43,6 +44,7 @@ public static class ModelSnapshot
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
 
         var body = new GameObject("Body").AddComponent<ModelBody>();
+        var polish = body.gameObject.AddComponent<ModelPolish>();
         Bounds bounds = default;
         bool any = false;
         foreach (string name in ModelBody.LayerNames)
@@ -60,16 +62,31 @@ public static class ModelSnapshot
                 Debug.Log($"ModelSnapshot: {name}: shader {rm.shader.name}, texture "
                           + $"{(rm.mainTexture != null ? rm.mainTexture.width + "x" + rm.mainTexture.height : "none")}, "
                           + $"roughness {(rm.HasFloat(Roughness) ? rm.GetFloat(Roughness).ToString("F2") : "-")}, metallic {(rm.HasFloat(Metallic) ? rm.GetFloat(Metallic).ToString("F2") : "-")}");
-                // The generator exports everything fully rough and fully metal: skin with a little sheen, muscle wet, bone matte.
-                var m = new Material(rm) { name = name };
-                float rough = name == "muscles" ? 0.45f : name == "skeleton" ? 0.7f : 0.62f;
-                if (m.HasFloat(Roughness)) m.SetFloat(Roughness, rough);
-                if (m.HasFloat(Metallic)) m.SetFloat(Metallic, 0f);
+                // The lab's own tissue lighting in place of the generator's material (fully rough, fully metal).
+                Shader lab = Shader.Find("DicomViewer/LabModel");
+                Texture tex = rm.HasTexture(BaseColorTexture) ? rm.GetTexture(BaseColorTexture) : rm.mainTexture;
+                if (lab == null || tex == null) { Debug.LogWarning($"ModelSnapshot: {name}: no LabModel shader or no texture, material kept"); continue; }
+                var m = new Material(lab) { name = name };
+                m.SetTexture("_BaseTex", tex);
+                //                      scatters  gloss  relief mm  grain  occlusion  saturation
+                float[] look = name == "muscles" ? new[] { 0.35f, 0.70f, 1.6f, 0f, 0.9f, 1.12f }
+                             : name == "skeleton" ? new[] { 0.20f, 0.08f, 0.9f, 0.3f, 1f, 0.95f }
+                             : new[] { 1f, 0.10f, 0.35f, 0f, 0.8f, 1.08f };
+                m.SetFloat("_Skin", look[0]);
+                m.SetFloat("_Gloss", look[1]);
+                m.SetFloat("_Bump", look[2]);
+                m.SetFloat("_Grain", look[3]);
+                m.SetFloat("_Occlusion", look[4]);
+                m.SetFloat("_Saturation", look[5]);
+                // The generated textures are painted bright, as if already lit: taken down to tissue's own colour.
+                m.SetColor("_Tint", name == "muscles" ? new Color(0.86f, 0.80f, 0.80f) : name == "skeleton" ? new Color(0.80f, 0.77f, 0.70f) : new Color(0.88f, 0.84f, 0.83f));
+                m.SetColor("_CavityTint", name == "muscles" ? new Color(0.55f, 0.30f, 0.28f) : name == "skeleton" ? new Color(0.50f, 0.40f, 0.30f) : new Color(0.80f, 0.58f, 0.52f));
                 r.sharedMaterial = m;
             }
             Bounds raw = ModelLab.WorldBounds(model);
             Bounds b = ModelLab.Lay(model, ModelLab.DefaultHeightM);
             Debug.Log($"ModelSnapshot: {name} as imported {raw.size}, laid {b.size} centre {b.center}");
+            polish.Add(model);
             body.Add(name, model);
             if (!any) { bounds = b; any = true; } else bounds.Encapsulate(b);
         }
@@ -101,6 +118,7 @@ public static class ModelSnapshot
         var (cam, body, b) = Build();
         if (body == null) return;
         GameObject camGo = cam.gameObject;
+        body.GetComponent<ModelPolish>().Apply();          // what Play mode does on Awake: the bake
 
         float aspect = 1600f / 900f;
         float dist = b.size.x * 0.5f / (0.84f * aspect) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);

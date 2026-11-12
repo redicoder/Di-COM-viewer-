@@ -121,8 +121,9 @@ float LabGGX(float ndh, float rough)
 // carried with the tissue. bake: what SkinBake.cs baked into the skin mesh (x: how open the room above the
 // surface is, 0..1; y: tissue behind the surface, mm; z: curvature, 1/mm); the volume passes an open, thick, flat
 // skin and keeps its own occlusion.
-float3 LabShadeSkinBaked(float3 albedo, float3 N, float3 V, float3 L, float3 keyColor, float wet, float skin, float ao,
-                         float shade, float3 posM, float pixelMm, float3 bake)
+// gloss: how smooth the surface is for the highlight (0 dry skin or bone, 1 wet cut tissue).
+float3 LabShadeTissue(float3 albedo, float3 N, float3 V, float3 L, float3 keyColor, float gloss, float skin, float ao,
+                      float shade, float3 posM, float pixelMm, float3 bake)
 {
     float3 up = float3(0, 1, 0);
     float3 Nsmooth = N;
@@ -170,7 +171,6 @@ float3 LabShadeSkinBaked(float3 albedo, float3 N, float3 V, float3 L, float3 key
     }
 
     // Specular: a rough dielectric, finer where wet; the skin's relief breaks the highlight up.
-    float gloss = max(wet, 1.0 - skin);
     float rough = lerp(0.52, 0.22, gloss);
     float3 Ns = LabSkinMicroNormal(N, posM, lerp(0.5, 0.08, gloss) * skin);
     float f0 = lerp(0.028, 0.045, gloss);
@@ -186,6 +186,13 @@ float3 LabShadeSkinBaked(float3 albedo, float3 N, float3 V, float3 L, float3 key
     // A soft shoulder so a highlight rolls off instead of clipping.
     float peak = max(color.r, max(color.g, color.b));
     return color / (1.0 + 0.12 * peak);
+}
+
+// Skin and cut tissue: wet where cut or bloody.
+float3 LabShadeSkinBaked(float3 albedo, float3 N, float3 V, float3 L, float3 keyColor, float wet, float skin, float ao,
+                         float shade, float3 posM, float pixelMm, float3 bake)
+{
+    return LabShadeTissue(albedo, N, V, L, keyColor, max(wet, 1.0 - skin), skin, ao, shade, posM, pixelMm, bake);
 }
 
 // The same without a bake: the volume and skin in hand (open, thick, gently curved).

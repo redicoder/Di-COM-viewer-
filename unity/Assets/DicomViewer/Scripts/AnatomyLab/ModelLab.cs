@@ -69,7 +69,7 @@ namespace DicomViewer.AnatomyLab
             foreach (float z in new[] { lo.z + 0.03f, hi.z - 0.03f - leg })
                 boxes.Add((new Vector3(x, -floorDropM + 0.001f, z), new Vector3(x + leg, -thick, z + leg)));
             Part(root.transform, "Table", LabRoom.BoxMesh(boxes), Make(lit, "Lab table", TableColour, 0.55f, 0.42f));
-            var floor = new List<(Vector3, Vector3)> { (new Vector3(-4f, -floorDropM - 0.006f, -4f), new Vector3(4f, -floorDropM, 4f)) };
+            var floor = new List<(Vector3, Vector3)> { (new Vector3(-20f, -floorDropM - 0.006f, -20f), new Vector3(20f, -floorDropM, 20f)) };
             Part(root.transform, "Floor", LabRoom.BoxMesh(floor), Make(lit, "Lab floor", FloorColour, 0f, 0.15f));
             return root;
         }
