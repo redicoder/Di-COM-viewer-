@@ -27,7 +27,7 @@ namespace DicomViewer.AnatomyLab
             t.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             t.localScale = Vector3.one;
             Bounds own = WorldBounds(model);
-            float scale = own.size.y > 1e-4f ? heightM / own.size.y : 1f;
+            float scale = heightM > 0f && own.size.y > 1e-4f ? heightM / own.size.y : 1f;   // heightM 0: the model's own size
             t.localScale = Vector3.one * scale;
             // His up (model y) along -x, his front (model z) up.
             t.rotation = Quaternion.LookRotation(faceDown ? Vector3.down : Vector3.up, Vector3.left);

@@ -64,7 +64,11 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv\Scripts\python.exe tools\import_ct_bone.py data\vhp_male_frozen out\photo_head
   ```
   In the app choose **Anatomy lab** on the start screen.
-- **The modelled body** (the new body built step by step from generated reference pictures: body, skeleton,
+- **The anatomy model** (the Model Lab's body: every labelled structure as its own mesh, layers that fit inside one another), built from the labelled export and then laid on the table by the menu below:
+  ```powershell
+  .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb
+  ```
+- **The modelled body, prototype** (the new body built step by step from generated reference pictures: body, skeleton,
   muscles, each organ as a GLB made by an image-to-3D tool from Gemini pictures): put the files in
   `unity/Assets/Models/` (`body.glb`, `skeleton.glb`, `muscles.glb`, `heart.glb`, ...). The glTF importer
   (`com.unity.cloud.gltfast`) turns each into a model. Unity menu **DICOM Viewer → Build Model Lab Scene** lays him

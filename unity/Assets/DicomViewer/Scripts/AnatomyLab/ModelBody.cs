@@ -24,6 +24,9 @@ namespace DicomViewer.AnatomyLab
 
         public List<Layer> layers = new List<Layer>();
 
+        [Tooltip("The layers come from one body and fit inside one another: every layer that is on is drawn.")]
+        public bool nested;
+
         public static readonly string[] LayerNames = { "body", "muscles", "skeleton" };
         public static readonly string[] LayerLabels = { "Skin", "Muscles", "Skeleton" };
 
@@ -65,7 +68,7 @@ namespace DicomViewer.AnatomyLab
         {
             Layer visible = Visible;
             foreach (Layer l in layers)
-                if (l.model != null) l.model.SetActive(l == visible);
+                if (l.model != null) l.model.SetActive(nested ? l.shown : l == visible);
         }
 
         private void OnGUI()
@@ -77,7 +80,7 @@ namespace DicomViewer.AnatomyLab
             foreach (Layer l in layers)
             {
                 int k = Array.IndexOf(LayerNames, l.name);
-                string label = (l == visible ? "● " : "") + (k >= 0 ? LayerLabels[k] : l.name);
+                string label = (l == visible ? "● " : "") + (k >= 0 ? LayerLabels[k] : char.ToUpper(l.name[0]) + l.name.Substring(1));
                 if (GUI.Button(new Rect(x, y, w, h), label)) LookAt(l.name);
                 x += w + 8f * s;
             }

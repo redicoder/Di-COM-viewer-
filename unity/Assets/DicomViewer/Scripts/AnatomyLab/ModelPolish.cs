@@ -19,16 +19,18 @@ namespace DicomViewer.AnatomyLab
 
         [SerializeField] private List<MeshFilter> filters = new List<MeshFilter>();
         [SerializeField] private List<Mesh> sources = new List<Mesh>();
+        [SerializeField] private List<float> mmPerUnits = new List<float>();
         private readonly List<Mesh> baked = new List<Mesh>();
 
         /// <summary>Registers a layer's meshes (the editor's scene builder calls it); the source meshes are remembered.</summary>
-        public void Add(GameObject model)
+        public void Add(GameObject model, float mmPerUnit = 0f)
         {
             foreach (MeshFilter f in model.GetComponentsInChildren<MeshFilter>(true))
             {
                 if (f.sharedMesh == null || filters.Contains(f)) continue;
                 filters.Add(f);
                 sources.Add(f.sharedMesh);
+                mmPerUnits.Add(mmPerUnit);
             }
         }
 
@@ -38,14 +40,15 @@ namespace DicomViewer.AnatomyLab
         public void Apply()
         {
             Texture2D lut = SkinBake.PreintegratedLut();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            int total = 0;
             for (int i = 0; i < filters.Count; i++)
             {
                 MeshFilter f = filters[i];
                 Mesh src = i < sources.Count ? sources[i] : null;
                 if (f == null || src == null) continue;
                 if (!src.isReadable) { Debug.LogWarning($"ModelPolish: mesh {src.name} is not readable, left as it is"); continue; }
-                var clock = System.Diagnostics.Stopwatch.StartNew();
-                float mmPerUnit = heightM * 1000f / Mathf.Max(1e-4f, src.bounds.size.y);
+                float mmPerUnit = i < mmPerUnits.Count && mmPerUnits[i] > 0f ? mmPerUnits[i] : heightM * 1000f / Mathf.Max(1e-4f, src.bounds.size.y);
                 Mesh m = Bake(src, mmPerUnit);
                 baked.Add(m);
                 f.sharedMesh = m;
@@ -56,9 +59,21 @@ namespace DicomViewer.AnatomyLab
                     r.sharedMaterial.SetFloat("_SkinLutOn", 1f);
                     r.sharedMaterial.SetFloat("_MmPerUnit", mmPerUnit);
                 }
-                Debug.Log($"ModelPolish: {f.name}: {src.vertexCount} vertices baked in {clock.ElapsedMilliseconds} ms");
+                total += src.vertexCount;
             }
+            // The skin's lookup for every layer material under this body (also those that came baked, in metres).
+            foreach (Renderer r in GetComponentsInChildren<Renderer>(true))
+            {
+                Material m = r.sharedMaterial;
+                if (m == null || !m.HasProperty("_SkinLut") || m.GetTexture("_SkinLut") == lut) continue;
+                m.SetTexture("_SkinLut", lut);
+                m.SetFloat("_SkinLutOn", 1f);
+                m.SetFloat("_MmPerUnit", 1000f);
+            }
+            if (filters.Count > 0) Report(total, clock.ElapsedMilliseconds);
         }
+
+        private void Report(int total, long ms) => Debug.Log($"ModelPolish: {filters.Count} meshes, {total} vertices baked in {ms} ms");
 
         private void OnDestroy()
         {
@@ -103,7 +118,7 @@ namespace DicomViewer.AnatomyLab
 
             // The surface in a voxel grid (about 4 mm cells).
             Bounds bounds = src.bounds;
-            float cell = Mathf.Max(bounds.size.x, Mathf.Max(bounds.size.y, bounds.size.z)) / 440f;
+            float cell = Mathf.Max(Mathf.Max(bounds.size.x, Mathf.Max(bounds.size.y, bounds.size.z)) / 440f, 1.5f / mmPerUnit);   // never finer than 1.5 mm
             Vector3 lo = bounds.min - Vector3.one * cell * 4f;
             int gx = Mathf.CeilToInt(bounds.size.x / cell) + 8, gy = Mathf.CeilToInt(bounds.size.y / cell) + 8, gz = Mathf.CeilToInt(bounds.size.z / cell) + 8;
             var occ = new bool[gx * gy * gz];

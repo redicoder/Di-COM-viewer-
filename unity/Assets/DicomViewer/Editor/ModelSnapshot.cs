@@ -5,23 +5,25 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 /// <summary>
-/// The modelled body (Assets/Models/body.glb with muscles.glb and skeleton.glb as layers) on the table: builds the
-/// scene, saves it as Assets/Scenes/ModelLab.unity (open it, press Play, walk round him, switch the layers) and
-/// renders it to PNG files without Play mode:
+/// The modelled body on the table. Two bodies: the **anatomy** (Assets/Models/anatomy.glb, from
+/// backend/tools/build_model_meshes.py: every labelled structure as its own mesh, layers skin / muscles /
+/// skeleton / organs that fit inside one another) and the **prototype** (body.glb, muscles.glb, skeleton.glb:
+/// generated models, one layer drawn at a time). Builds the scene, saves it (Assets/Scenes/ModelLab.unity, or
+/// ModelLabPrototype.unity; open it, press Play, walk round him, switch the layers) and renders PNG files:
 ///   Unity.exe -batchmode -projectPath unity -executeMethod ModelSnapshot.Run -logFile - -quit
-/// Pictures go to <repo>/build/snapshots/model_*.png.
+/// Pictures go to <repo>/build/snapshots/anatomy_*.png (or model_*.png for the prototype, RunPrototype).
 /// </summary>
 public static class ModelSnapshot
 {
     public const string ModelsFolder = "Assets/Models";
+    public const string AnatomyAsset = ModelsFolder + "/anatomy.glb";
     public const string ScenePath = "Assets/Scenes/ModelLab.unity";
+    public const string PrototypeScenePath = "Assets/Scenes/ModelLabPrototype.unity";
 
-    private static readonly int Roughness = Shader.PropertyToID("roughnessFactor");
-    private static readonly int Metallic = Shader.PropertyToID("metallicFactor");
+    private static readonly int BaseColor = Shader.PropertyToID("baseColorFactor");
     private static readonly int BaseColorTexture = Shader.PropertyToID("baseColorTexture");
 
-    /// <summary>Camera, key light, post-processing, the layers laid on the table and the room; the body's world bounds.</summary>
-    private static (Camera cam, ModelBody body, Bounds bounds) Build()
+    private static Camera Stage()
     {
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         ShaderUtil.allowAsyncCompilation = false;
@@ -42,7 +44,82 @@ public static class ModelSnapshot
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
         RenderSettings.ambientLight = new Color(0.30f, 0.31f, 0.33f);
         AnatomyLab.AddPostProcessing(camGo.transform, cam);
+        return cam;
+    }
 
+    //                                              scatters  gloss  relief mm  grain  occlusion  saturation
+    private static readonly float[] SkinLook = { 1f, 0.10f, 0.35f, 0f, 0.8f, 1.08f };
+    private static readonly float[] MuscleLook = { 0.35f, 0.70f, 1.6f, 0f, 0.9f, 1.12f };
+    private static readonly float[] BoneLook = { 0.20f, 0.08f, 0.9f, 0.3f, 1f, 0.95f };
+    private static readonly float[] OrganLook = { 0.45f, 0.75f, 0f, 0f, 0.9f, 0.85f };
+    private static readonly float[] ClothLook = { 0f, 0.02f, 0f, 0.15f, 0.6f, 1f };
+
+    private static Material LabMaterial(string name, float[] look, Texture tex, Color tint, Color cavity)
+    {
+        Shader lab = Shader.Find("DicomViewer/LabModel");
+        if (lab == null) { Debug.LogError("ModelSnapshot: shader DicomViewer/LabModel not found"); return null; }
+        var m = new Material(lab) { name = name };
+        if (tex != null) m.SetTexture("_BaseTex", tex);
+        m.SetFloat("_Skin", look[0]);
+        m.SetFloat("_Gloss", look[1]);
+        m.SetFloat("_Bump", tex != null ? look[2] : 0f);
+        m.SetFloat("_Grain", look[3]);
+        m.SetFloat("_Occlusion", look[4]);
+        m.SetFloat("_Saturation", look[5]);
+        m.SetColor("_Tint", tint);
+        m.SetColor("_CavityTint", cavity);
+        return m;
+    }
+
+    /// <summary>The anatomy: one GLB, its four child nodes the layers, every structure its own mesh and colour.</summary>
+    private static (Camera cam, ModelBody body, Bounds bounds) BuildAnatomy()
+    {
+        Camera cam = Stage();
+        var asset = AssetDatabase.LoadAssetAtPath<GameObject>(AnatomyAsset);
+        if (asset == null) { Debug.LogError($"ModelSnapshot: no {AnatomyAsset} (backend/tools/build_model_meshes.py makes it)"); return (cam, null, default); }
+        GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(asset);
+        PrefabUtility.UnpackPrefabInstance(model, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+        model.name = "Body";
+        var body = model.AddComponent<ModelBody>();
+        body.nested = true;
+        var polish = model.AddComponent<ModelPolish>();
+        Bounds b = ModelLab.Lay(model, 0f);                       // real size as built
+        int structures = 0;
+        foreach (string layer in new[] { "skin", "muscles", "skeleton", "organs" })
+        {
+            Transform t = FindDeep(model.transform, layer);
+            if (t == null) { Debug.LogWarning($"ModelSnapshot: anatomy has no layer {layer}"); continue; }
+            float[] look = layer == "skin" ? SkinLook : layer == "muscles" ? MuscleLook : layer == "skeleton" ? BoneLook : OrganLook;
+            Color cavity = layer == "skin" ? new Color(0.80f, 0.58f, 0.52f) : layer == "skeleton" ? new Color(0.50f, 0.40f, 0.30f) : new Color(0.55f, 0.30f, 0.28f);
+            foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
+            {
+                Material rm = r.sharedMaterial;
+                Color tint = rm != null && rm.HasColor(BaseColor) ? rm.GetColor(BaseColor) : Color.white;
+                bool cloth = r.name == "briefs";
+                Material m = LabMaterial(r.name, cloth ? ClothLook : look, null, tint, cloth ? new Color(0.7f, 0.7f, 0.72f) : cavity);
+                if (m != null) r.sharedMaterial = m;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                structures++;
+            }
+            // No bake here: build_model_meshes.py wrote occlusion and thickness into the vertex colours.
+            body.Add(layer, t.gameObject);
+        }
+        Debug.Log($"ModelSnapshot: anatomy {structures} structures, laid {b.size} centre {b.center}");
+        ModelLab.Room(b.size.x);
+        return (cam, body, b);
+    }
+
+    private static Transform FindDeep(Transform root, string name)
+    {
+        if (root.name == name) return root;
+        foreach (Transform c in root) { Transform f = FindDeep(c, name); if (f != null) return f; }
+        return null;
+    }
+
+    /// <summary>The prototype: three generated models, each a layer, laid at the same height and place.</summary>
+    private static (Camera cam, ModelBody body, Bounds bounds) BuildPrototype()
+    {
+        Camera cam = Stage();
         var body = new GameObject("Body").AddComponent<ModelBody>();
         var polish = body.gameObject.AddComponent<ModelPolish>();
         Bounds bounds = default;
@@ -59,33 +136,14 @@ public static class ModelSnapshot
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 Material rm = r.sharedMaterial;
                 if (rm == null) continue;
-                Debug.Log($"ModelSnapshot: {name}: shader {rm.shader.name}, texture "
-                          + $"{(rm.mainTexture != null ? rm.mainTexture.width + "x" + rm.mainTexture.height : "none")}, "
-                          + $"roughness {(rm.HasFloat(Roughness) ? rm.GetFloat(Roughness).ToString("F2") : "-")}, metallic {(rm.HasFloat(Metallic) ? rm.GetFloat(Metallic).ToString("F2") : "-")}");
-                // The lab's own tissue lighting in place of the generator's material (fully rough, fully metal).
-                Shader lab = Shader.Find("DicomViewer/LabModel");
                 Texture tex = rm.HasTexture(BaseColorTexture) ? rm.GetTexture(BaseColorTexture) : rm.mainTexture;
-                if (lab == null || tex == null) { Debug.LogWarning($"ModelSnapshot: {name}: no LabModel shader or no texture, material kept"); continue; }
-                var m = new Material(lab) { name = name };
-                m.SetTexture("_BaseTex", tex);
-                //                      scatters  gloss  relief mm  grain  occlusion  saturation
-                float[] look = name == "muscles" ? new[] { 0.35f, 0.70f, 1.6f, 0f, 0.9f, 1.12f }
-                             : name == "skeleton" ? new[] { 0.20f, 0.08f, 0.9f, 0.3f, 1f, 0.95f }
-                             : new[] { 1f, 0.10f, 0.35f, 0f, 0.8f, 1.08f };
-                m.SetFloat("_Skin", look[0]);
-                m.SetFloat("_Gloss", look[1]);
-                m.SetFloat("_Bump", look[2]);
-                m.SetFloat("_Grain", look[3]);
-                m.SetFloat("_Occlusion", look[4]);
-                m.SetFloat("_Saturation", look[5]);
                 // The generated textures are painted bright, as if already lit: taken down to tissue's own colour.
-                m.SetColor("_Tint", name == "muscles" ? new Color(0.86f, 0.80f, 0.80f) : name == "skeleton" ? new Color(0.80f, 0.77f, 0.70f) : new Color(0.88f, 0.84f, 0.83f));
-                m.SetColor("_CavityTint", name == "muscles" ? new Color(0.55f, 0.30f, 0.28f) : name == "skeleton" ? new Color(0.50f, 0.40f, 0.30f) : new Color(0.80f, 0.58f, 0.52f));
-                r.sharedMaterial = m;
+                Material m = name == "muscles" ? LabMaterial(name, MuscleLook, tex, new Color(0.86f, 0.80f, 0.80f), new Color(0.55f, 0.30f, 0.28f))
+                           : name == "skeleton" ? LabMaterial(name, BoneLook, tex, new Color(0.80f, 0.77f, 0.70f), new Color(0.50f, 0.40f, 0.30f))
+                           : LabMaterial(name, SkinLook, tex, new Color(0.88f, 0.84f, 0.83f), new Color(0.80f, 0.58f, 0.52f));
+                if (m != null) r.sharedMaterial = m;
             }
-            Bounds raw = ModelLab.WorldBounds(model);
             Bounds b = ModelLab.Lay(model, ModelLab.DefaultHeightM);
-            Debug.Log($"ModelSnapshot: {name} as imported {raw.size}, laid {b.size} centre {b.center}");
             polish.Add(model);
             body.Add(name, model);
             if (!any) { bounds = b; any = true; } else bounds.Encapsulate(b);
@@ -95,28 +153,52 @@ public static class ModelSnapshot
         return (cam, body, bounds);
     }
 
-    /// <summary>Builds the scene and saves it, with the camera walking round the table (ModelOrbit) in Play mode.</summary>
-    [MenuItem("DICOM Viewer/Build Model Lab Scene")]
-    public static void BuildScene()
+    private static void Save(Camera cam, ModelBody body, Bounds b, string scenePath)
     {
-        var (cam, body, b) = Build();
         if (body == null) return;
         var orbit = cam.gameObject.AddComponent<ModelOrbit>();
         orbit.yaw = 0f;
         orbit.pitch = 35f;
         orbit.Frame(b, cam);
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(Path.Combine(Application.dataPath, "..", ScenePath))));
-        bool saved = EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), ScenePath);
-        Debug.Log($"ModelSnapshot: scene {(saved ? "saved" : "NOT saved")} -> {ScenePath}");
+        bool saved = EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), scenePath);
+        Debug.Log($"ModelSnapshot: scene {(saved ? "saved" : "NOT saved")} -> {scenePath}");
+    }
+
+    [MenuItem("DICOM Viewer/Build Model Lab Scene")]
+    public static void BuildScene()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        Save(cam, body, b, ScenePath);
+    }
+
+    [MenuItem("DICOM Viewer/Build Model Lab Scene (prototype)")]
+    public static void BuildPrototypeScene()
+    {
+        var (cam, body, b) = BuildPrototype();
+        Save(cam, body, b, PrototypeScenePath);
     }
 
     [MenuItem("DICOM Viewer/Model Body Snapshots")]
     public static void Run()
     {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null) return;
+        Shots(cam, body, b, "anatomy_");
+        BuildScene();
+    }
+
+    public static void RunPrototype()
+    {
+        var (cam, body, b) = BuildPrototype();
+        if (body == null) return;
+        Shots(cam, body, b, "model_");
+        BuildPrototypeScene();
+    }
+
+    private static void Shots(Camera cam, ModelBody body, Bounds b, string prefix)
+    {
         string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
         Directory.CreateDirectory(outDir);
-        var (cam, body, b) = Build();
-        if (body == null) return;
         GameObject camGo = cam.gameObject;
         body.GetComponent<ModelPolish>().Apply();          // what Play mode does on Awake: the bake
 
@@ -138,48 +220,30 @@ public static class ModelSnapshot
             var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
             tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
             tex.Apply();
-            File.WriteAllBytes(Path.Combine(outDir, name), tex.EncodeToPNG());
+            File.WriteAllBytes(Path.Combine(outDir, prefix + name), tex.EncodeToPNG());
             RenderTexture.active = null;
             cam.targetTexture = null;
             Object.DestroyImmediate(rt);
             Object.DestroyImmediate(tex);
-            Debug.Log($"ModelSnapshot: wrote {name}");
+            Debug.Log($"ModelSnapshot: wrote {prefix}{name}");
         }
         Vector3 centre = new Vector3(0f, b.size.y * 0.5f, 0f);
         Vector3 head = new Vector3(b.min.x + 0.12f, b.size.y * 0.6f, 0f);
-        Vector3 chest = new Vector3(b.min.x + 0.45f, b.size.y * 0.5f, 0f);
-        View(0f, 90f, dist, centre);
-        Shot("model_above.png");
-        View(0f, 35f, dist, centre);
-        Shot("model_oblique.png");
-        View(-90f, 10f, dist * 0.8f, centre);
-        Shot("model_from_feet.png");
-        View(-30f, 30f, dist * 0.18f, head);
-        Shot("model_face.png");
-        View(-20f, 35f, dist * 0.4f, chest);
-        Shot("model_chest.png");
-        // The layers: skin away (the muscles), muscles away (the skeleton).
-        if (body.Find("muscles") != null)
+        Vector3 chest = new Vector3(b.min.x + 0.50f, b.size.y * 0.5f, 0f);
+        foreach (ModelBody.Layer layer in body.layers)
         {
-            body.Show("body", false);
+            body.LookAt(layer.name);
             View(0f, 35f, dist, centre);
-            Shot("model_layers_muscles.png");
+            Shot($"{layer.name}.png");
+            View(0f, 90f, dist, centre);
+            Shot($"{layer.name}_above.png");
             View(-20f, 35f, dist * 0.4f, chest);
-            Shot("model_layers_muscles_chest.png");
-        }
-        if (body.Find("skeleton") != null)
-        {
-            body.Show("body", false);
-            body.Show("muscles", false);
-            View(0f, 35f, dist, centre);
-            Shot("model_layers_skeleton.png");
-            View(-20f, 35f, dist * 0.4f, chest);
-            Shot("model_layers_skeleton_chest.png");
+            Shot($"{layer.name}_chest.png");
             View(-30f, 30f, dist * 0.18f, head);
-            Shot("model_layers_skull.png");
+            Shot($"{layer.name}_head.png");
         }
-        foreach (string layer in ModelBody.LayerNames) body.Show(layer, true);
+        body.LookAt(body.layers[0].name);
+        body.GetComponent<ModelPolish>().Restore();
         Debug.Log($"ModelSnapshot: done -> {outDir}");
-        BuildScene();
     }
 }

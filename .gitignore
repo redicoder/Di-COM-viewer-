@@ -52,3 +52,6 @@ unity/crashlytics-build.properties
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# ---- The anatomy model is built from the labelled body (backend/tools/build_model_meshes.py), not committed ----
+unity/Assets/Models/anatomy.glb
