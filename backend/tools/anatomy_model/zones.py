@@ -38,7 +38,10 @@ def smooth(x, lo, hi):
 
 
 def bone_box(body: Body, name: str):
-    """(min, max) corners in glTF metres of a labelled object, or None."""
+    """(min, max) corners in glTF metres of a labelled object (or of a bone given by name in body.extra_bones), or None."""
+    extra = getattr(body, "extra_bones", None)
+    if extra and name in extra:
+        return extra[name]
     o = body.object_named(name)
     if o is None or o["voxels"] == 0:
         return None

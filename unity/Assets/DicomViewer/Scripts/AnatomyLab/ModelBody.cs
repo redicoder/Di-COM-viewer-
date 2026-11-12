@@ -27,6 +27,9 @@ namespace DicomViewer.AnatomyLab
         [Tooltip("The layers come from one body and fit inside one another: every layer that is on is drawn.")]
         public bool nested;
 
+        [Tooltip("The credit lines the data's licences ask for, shown at the foot of the screen.")]
+        [TextArea] public string credits = "";
+
         public static readonly string[] LayerNames = { "body", "muscles", "skeleton" };
         public static readonly string[] LayerLabels = { "Skin", "Muscles", "Skeleton" };
 
@@ -83,6 +86,13 @@ namespace DicomViewer.AnatomyLab
                 string label = (l == visible ? "● " : "") + (k >= 0 ? LayerLabels[k] : char.ToUpper(l.name[0]) + l.name.Substring(1));
                 if (GUI.Button(new Rect(x, y, w, h), label)) LookAt(l.name);
                 x += w + 8f * s;
+            }
+            if (!string.IsNullOrEmpty(credits))
+            {
+                var style = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(11f * s), wordWrap = true };
+                style.normal.textColor = new Color(1f, 1f, 1f, 0.55f);
+                float ch = style.CalcHeight(new GUIContent(credits), Screen.width - 24f * s);
+                GUI.Label(new Rect(12f * s, Screen.height - ch - 8f * s, Screen.width - 24f * s, ch), credits, style);
             }
         }
     }

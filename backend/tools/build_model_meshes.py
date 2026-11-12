@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import fine_skin  # noqa: E402
+from anatomy_model import bonehub, fine_skin  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
@@ -44,6 +44,7 @@ def main() -> int:
     ap.add_argument("--triangles", type=int, default=1_400_000, help="about this many for fat, muscles, skeleton and organs together")
     ap.add_argument("--skin-triangles", type=int, default=600_000, help="the skin's surface (the hair comes on top)")
     ap.add_argument("--photos", type=Path, help="the photographs' folder: (re)reads the fine skin outline from them first (about 12 minutes)")
+    ap.add_argument("--bones", type=Path, help="BoneHub's folder of .seg.nrrd files: reads and fits the 142 named bones first (about 4 minutes)")
     ap.add_argument("--layers", default="", help="rebuild only these layers (comma separated); the others come from the cache")
     ap.add_argument("--preview", type=Path, help="write pictures of the rebuilt layers into this folder")
     args = ap.parse_args()
@@ -53,6 +54,15 @@ def main() -> int:
     fine = fine_skin.load(body)
     if fine is not None:
         body.keep_inside(fine_skin.inside_export(body, fine))      # nothing under the skin may reach outside it
+    if args.bones:
+        bonehub.cache_path(body).unlink(missing_ok=True)
+        bonehub.load_or_build(body, args.bones)
+    if bonehub.cache_path(body).exists():                          # whole bones for the landmarks (ours stop where the SIO stops)
+        placed, _, _ = bonehub.load_or_build(body, None)
+        body.extra_bones = {}
+        for _, name, v, f in placed:
+            g, _ = body.to_gltf(v, f)
+            body.extra_bones[name] = (g.min(axis=0).astype(float), g.max(axis=0).astype(float))
     cache = args.export / "model"
     chosen = [x for x in args.layers.split(",") if x] or LAYERS
     unknown = [x for x in chosen if x not in LAYERS]

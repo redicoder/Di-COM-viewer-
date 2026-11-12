@@ -68,6 +68,8 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   ```powershell
   # the first time (and after a new export): read the fine skin outline from every photograph, about 12 minutes
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --photos data\vhp_male_photos
+  # the named bones (BoneHub, CC BY 4.0: the eleven .seg.nrrd files of 01_Male into data\bonehub), once, about 4 minutes
+  .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --bones data\bonehub --layers skeleton
   # afterwards; --layers skin rebuilds one layer, --preview <folder> renders pictures without Unity
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb
   ```
