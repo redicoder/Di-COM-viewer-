@@ -66,6 +66,9 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   In the app choose **Anatomy lab** on the start screen.
 - **The anatomy model** (the Model Lab's body: every labelled structure as its own mesh, layers that fit inside one another), built from the labelled export and then laid on the table by the menu below:
   ```powershell
+  # the first time (and after a new export): read the fine skin outline from every photograph, about 12 minutes
+  .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --photos data\vhp_male_photos
+  # afterwards; --layers skin rebuilds one layer, --preview <folder> renders pictures without Unity
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb
   ```
 - **The modelled body, prototype** (the new body built step by step from generated reference pictures: body, skeleton,

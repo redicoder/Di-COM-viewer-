@@ -147,7 +147,9 @@ float3 LabShadeTissue(float3 albedo, float3 N, float3 V, float3 L, float3 keyCol
         float3 pre = SAMPLE_TEXTURE2D_LOD(_SkinLut, sampler_SkinLut, float2(ndlLut * 0.5 + 0.5, bake.z / 0.25), 0).rgb;
         key = lerp(key, pre, skin);
     }
-    float3 diffuse = keyColor * key * shade * lerp(0.75, 1.0, sky);
+    // Where the key light's shadow falls on skin, red light travels furthest under it: the shadow's edge is red.
+    float3 shade3 = lerp(shade.xxx, pow(max(shade, 1e-4), float3(0.55, 1.0, 1.25)), skin);
+    float3 diffuse = keyColor * key * shade3 * lerp(0.75, 1.0, sky);
 
     float3 camR = normalize(cross(up, V) + float3(1e-4, 0, 0));
     float3 fillDir = normalize(-camR * 0.75 + up * 0.35 + V * 0.55);
@@ -177,7 +179,9 @@ float3 LabShadeTissue(float3 albedo, float3 N, float3 V, float3 L, float3 keyCol
     float3 H = normalize(L + V);
     float ndh = saturate(dot(Ns, H)), vdh = saturate(dot(V, H));
     float F = f0 + (1.0 - f0) * pow(1.0 - vdh, 5.0);
-    float keySpec = LabGGX(ndh, rough) * F * saturate(ndl) * 0.25 * shade;
+    // Two lobes, as skin has: a broad one from the rough surface and a tighter one from the oil on it.
+    float lobes = lerp(LabGGX(ndh, min(rough * 1.3, 1.0)), LabGGX(ndh, rough * 0.75), 0.15);
+    float keySpec = lobes * F * saturate(ndl) * 0.25 * shade;
     float3 Hf = normalize(fillDir + V);
     float fillSpec = LabGGX(saturate(dot(Ns, Hf)), rough + 0.15) * f0 * saturate(dot(N, fillDir)) * 0.12;
     float sheen = pow(1.0 - ndv, 4.0) * 0.08 * skin;                       // the skin's grazing sheen

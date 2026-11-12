@@ -20,7 +20,6 @@ public static class ModelSnapshot
     public const string ScenePath = "Assets/Scenes/ModelLab.unity";
     public const string PrototypeScenePath = "Assets/Scenes/ModelLabPrototype.unity";
 
-    private static readonly int BaseColor = Shader.PropertyToID("baseColorFactor");
     private static readonly int BaseColorTexture = Shader.PropertyToID("baseColorTexture");
 
     private static Camera Stage()
@@ -48,11 +47,12 @@ public static class ModelSnapshot
     }
 
     //                                              scatters  gloss  relief mm  grain  occlusion  saturation
-    private static readonly float[] SkinLook = { 1f, 0.10f, 0.35f, 0f, 0.8f, 1.08f };
+    private static readonly float[] SkinLook = { 1f, 0.10f, 0.35f, 0f, 0.55f, 1.08f };
     private static readonly float[] MuscleLook = { 0.35f, 0.70f, 1.6f, 0f, 0.9f, 1.12f };
     private static readonly float[] BoneLook = { 0.20f, 0.08f, 0.9f, 0.3f, 1f, 0.95f };
     private static readonly float[] OrganLook = { 0.45f, 0.75f, 0f, 0f, 0.9f, 0.85f };
     private static readonly float[] ClothLook = { 0f, 0.02f, 0f, 0.15f, 0.6f, 1f };
+    private static readonly float[] FatLook = { 0.6f, 0.55f, 0f, 0f, 0.85f, 1f };
 
     private static Material LabMaterial(string name, float[] look, Texture tex, Color tint, Color cavity)
     {
@@ -60,6 +60,8 @@ public static class ModelSnapshot
         if (lab == null) { Debug.LogError("ModelSnapshot: shader DicomViewer/LabModel not found"); return null; }
         var m = new Material(lab) { name = name };
         if (tex != null) m.SetTexture("_BaseTex", tex);
+        m.SetFloat("_VertexAlbedo", tex != null ? 0f : 1f);          // the anatomy model has its colour in the vertices
+        m.SetFloat("_SkinDetail", look[0] > 0.9f ? 1f : 0f);         // skin's own unevenness, on skin only
         m.SetFloat("_Skin", look[0]);
         m.SetFloat("_Gloss", look[1]);
         m.SetFloat("_Bump", tex != null ? look[2] : 0f);
@@ -85,24 +87,39 @@ public static class ModelSnapshot
         var polish = model.AddComponent<ModelPolish>();
         Bounds b = ModelLab.Lay(model, 0f);                       // real size as built
         int structures = 0;
-        foreach (string layer in new[] { "skin", "muscles", "skeleton", "organs" })
+        foreach (string layer in new[] { "skin", "fat", "muscles", "skeleton", "organs" })
         {
             Transform t = FindDeep(model.transform, layer);
             if (t == null) { Debug.LogWarning($"ModelSnapshot: anatomy has no layer {layer}"); continue; }
-            float[] look = layer == "skin" ? SkinLook : layer == "muscles" ? MuscleLook : layer == "skeleton" ? BoneLook : OrganLook;
-            Color cavity = layer == "skin" ? new Color(0.80f, 0.58f, 0.52f) : layer == "skeleton" ? new Color(0.50f, 0.40f, 0.30f) : new Color(0.55f, 0.30f, 0.28f);
+            float[] look = layer == "skin" ? SkinLook : layer == "fat" ? FatLook : layer == "muscles" ? MuscleLook : layer == "skeleton" ? BoneLook : OrganLook;
+            Color cavity = layer == "skin" ? new Color(0.93f, 0.80f, 0.76f) : layer == "fat" ? new Color(0.75f, 0.52f, 0.32f)
+                         : layer == "skeleton" ? new Color(0.50f, 0.40f, 0.30f) : new Color(0.55f, 0.30f, 0.28f);
             foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
             {
-                Material rm = r.sharedMaterial;
-                Color tint = rm != null && rm.HasColor(BaseColor) ? rm.GetColor(BaseColor) : Color.white;
+                if (r.name.StartsWith("hair"))                       // strands: their own shader, no shadow of their own
+                {
+                    Shader hairShader = Shader.Find("DicomViewer/LabHair");
+                    if (hairShader != null) r.sharedMaterial = new Material(hairShader) { name = r.name };
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    structures++;
+                    continue;
+                }
                 bool cloth = r.name == "briefs";
-                Material m = LabMaterial(r.name, cloth ? ClothLook : look, null, tint, cloth ? new Color(0.7f, 0.7f, 0.72f) : cavity);
+                Material m = LabMaterial(r.name, cloth ? ClothLook : look, null, Color.white, cloth ? new Color(0.7f, 0.7f, 0.72f) : cavity);
                 if (m != null) r.sharedMaterial = m;
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 structures++;
             }
             // No bake here: build_model_meshes.py wrote occlusion and thickness into the vertex colours.
             body.Add(layer, t.gameObject);
+        }
+        // How the importer hands the vertex data over (the colour travels in the texture coordinates).
+        Transform skinNode = FindDeep(model.transform, "skin");
+        MeshFilter skinMesh = skinNode != null ? skinNode.GetComponentInChildren<MeshFilter>(true) : null;
+        if (skinMesh != null && skinMesh.sharedMesh != null && skinMesh.sharedMesh.isReadable)
+        {
+            Mesh sm = skinMesh.sharedMesh;
+            Debug.Log($"ModelSnapshot: skin mesh {skinMesh.name}: {sm.vertexCount} vertices, uv0[0] {sm.uv[0]}, uv1[0] {(sm.uv2.Length > 0 ? sm.uv2[0].ToString() : "none")}, colour[0] {sm.colors32[0]}");
         }
         Debug.Log($"ModelSnapshot: anatomy {structures} structures, laid {b.size} centre {b.center}");
         ModelLab.Room(b.size.x);
@@ -241,6 +258,10 @@ public static class ModelSnapshot
             Shot($"{layer.name}_chest.png");
             View(-30f, 30f, dist * 0.18f, head);
             Shot($"{layer.name}_head.png");
+            View(-90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f));       // straight down on the face, chin to the right
+            Shot($"{layer.name}_face.png");
+            View(0f, 40f, dist * 0.2f, new Vector3(b.min.x + 1.25f, b.size.y * 0.5f, 0f));
+            Shot($"{layer.name}_legs.png");
         }
         body.LookAt(body.layers[0].name);
         body.GetComponent<ModelPolish>().Restore();

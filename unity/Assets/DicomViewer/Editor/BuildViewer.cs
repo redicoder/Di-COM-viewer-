@@ -40,6 +40,7 @@ public static class BuildViewer
         "DicomViewer/LabSkinMesh",
         "DicomViewer/LabOrganPiece",
         "DicomViewer/LabModel",
+        "DicomViewer/LabHair",
     };
 
     [MenuItem("DICOM Viewer/Set Up Scene")]
