@@ -27,7 +27,7 @@ from anatomy_model.common import LAYERS, Body, load_structures, save_structures 
 from anatomy_model.glb import write_glb  # noqa: E402
 
 BUDGET = {"fat": 0.14, "muscles": 0.30, "skeleton": 0.31, "organs": 0.25}      # shares of --triangles; the skin has its own
-PREVIEWS = {"skin": ["front", "face", "face_left", "chest", "hands", "feet"], "fat": ["front", "chest"], "muscles": ["front", "chest", "legs"],
+PREVIEWS = {"skin": ["front", "face", "face_left", "eyes", "mouth", "ear_left", "profile_left", "chest", "hands", "feet"], "fat": ["front", "chest"], "muscles": ["front", "chest", "legs"],
             "skeleton": ["front", "face", "chest", "hands"], "organs": ["chest", "abdomen"]}
 
 
@@ -42,7 +42,7 @@ def main() -> int:
     ap.add_argument("export", type=Path)
     ap.add_argument("out", type=Path, nargs="?", help="the GLB to write (omit to build caches and previews only)")
     ap.add_argument("--triangles", type=int, default=1_400_000, help="about this many for fat, muscles, skeleton and organs together")
-    ap.add_argument("--skin-triangles", type=int, default=600_000, help="the skin's surface (the hair comes on top)")
+    ap.add_argument("--skin-triangles", type=int, default=900_000, help="the skin's surface (the hair comes on top)")
     ap.add_argument("--photos", type=Path, help="the photographs' folder: (re)reads the fine skin outline from them first (about 12 minutes)")
     ap.add_argument("--bones", type=Path, help="BoneHub's folder of .seg.nrrd files: reads and fits the 142 named bones first (about 4 minutes)")
     ap.add_argument("--layers", default="", help="rebuild only these layers (comma separated); the others come from the cache")

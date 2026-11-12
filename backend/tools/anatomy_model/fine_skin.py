@@ -33,8 +33,9 @@ from scipy import ndimage
 
 from .common import Body
 
-FACTOR = 2                      # photo pixels averaged per fine voxel, in the plane
-BAND = 4                        # fine pixels (2.6 mm) the fine outline may differ from the coarse one, either way
+FACTOR = 2                      # photo pixels per fine voxel, in the plane: the outline is found at the photographs'
+                                # own 0.33 mm pixels and kept as each 0.66 mm voxel's share of body
+BAND = 4                        # fine voxels (2.6 mm) the fine outline may differ from the coarse one, either way
 GEL, TISSUE = -130.0, 60.0      # red minus blue of the gelatin and of the tissue at the surface: a ring pixel's
                                 # share of tissue is where its own value lies between the two
 CACHE = "skin_fine.npy"
@@ -90,31 +91,34 @@ def extract(body: Body, photos_dir: Path, log=print) -> FineOutline:
         g = ndimage.binary_fill_holes(guide[:, kc, :])
         if every > 1 and k % every and kc + 1 < ny:            # a photograph the export skipped: between two coarse slices
             g |= ndimage.binary_fill_holes(guide[:, kc + 1, :])
-        g = np.repeat(np.repeat(g, scale, axis=0), scale, axis=1)
-        g = np.pad(g, ((0, max(0, fz - g.shape[0])), (0, max(0, fx - g.shape[1]))), mode="edge")[:fz, :fx]
         if not g.any():
             continue
+        # The guide at the photographs' own pixels.
+        g = np.repeat(np.repeat(g, coarse_factor, axis=0), coarse_factor, axis=1)
+        g = np.pad(g, ((0, max(0, fz * FACTOR - g.shape[0])), (0, max(0, fx * FACTOR - g.shape[1]))), mode="edge")[:fz * FACTOR, :fx * FACTOR]
         path = files.get(number)
         a = t = None
         if path is not None:
-            rgb = ppv.block_mean(ppv.read_photo(path)[rows, cols], FACTOR)[:fz, :fx]
+            rgb = ppv.read_photo(path)[rows, cols][:fz * FACTOR, :fx * FACTOR]
             t, a = ppv.tissue_mask(rgb), ring_coverage(rgb)
         if t is None or (t & g).sum() < 0.6 * g.sum():
-            cover[:, k, :], fallback[k] = g.astype(np.uint8) * 255, True      # a blank or missing photograph
+            cover[:, k, :], fallback[k] = g[::FACTOR, ::FACTOR].astype(np.uint8) * 255, True      # a blank or missing photograph
             continue
-        allowed = ndimage.binary_dilation(g, structure, iterations=BAND)
-        core = ndimage.binary_erosion(g, structure, iterations=BAND)
+        allowed = ndimage.binary_dilation(g, structure, iterations=BAND * FACTOR)
+        core = ndimage.binary_erosion(g, structure, iterations=BAND * FACTOR)
         m = ndimage.binary_fill_holes((t & allowed) | core)
-        m = ndimage.binary_opening(m, structure)               # single-pixel frost and threads of gelatin colour
+        m = ndimage.binary_opening(m, structure, iterations=2)  # frost and threads of gelatin colour, a pixel or two wide
         parts, n = ndimage.label(m)
         if n > 1:
             seeds = core if core.any() else g
             keep = np.unique(parts[seeds & m])
             m = np.isin(parts, keep[keep > 0])
-        # Solid where the tissue is, the measured share in the one ring of pixels round it, nothing beyond.
+        # Solid where the tissue is, the measured share in the one ring of pixels round it, nothing beyond; then
+        # each fine voxel's share is the mean of its photo pixels.
         a[m] = 1.0
         a[~ndimage.binary_dilation(m, structure)] = 0.0
-        cover[:, k, :] = np.round(a * 255.0).astype(np.uint8)
+        share = a.reshape(fz, FACTOR, fx, FACTOR).mean(axis=(1, 3))
+        cover[:, k, :] = np.round(share * 255.0).astype(np.uint8)
         if k % 100 == 0:
             log(f"fine skin outline: photograph {number} ({k + 1}/{n_slices})")
     cover.flush()

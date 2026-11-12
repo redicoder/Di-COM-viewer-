@@ -14,11 +14,11 @@ from scipy import ndimage
 from skimage import measure
 
 from . import fine_skin, hair, zones
-from .common import Baker, Body, Structure, decimate, keep_big_pieces, normals_of, outward, relax, surface
+from .common import Baker, Body, Structure, decimate, decimate_regions, keep_big_pieces, normals_of, outward, relax, surface
 from .palette import BRIEFS
 
 SLAB = 96                       # fine slices meshed at a time
-SMOOTH_MM = 1.1                 # blur of the fine outline before contouring
+SMOOTH_MM = 0.65                # blur of the fine outline before contouring (the lid and lip lines are a millimetre high)
 WELD_MM = 1e-3
 
 
@@ -75,6 +75,42 @@ def detail_bubbles(marks: dict) -> list[tuple]:
         if key in marks:
             out.append((marks[key], radius, gain))
     return out
+
+
+def detail_regions(v: np.ndarray, marks: dict, triangles: int) -> tuple[np.ndarray, list[float]]:
+    """A region number per vertex (coarse to fine) and the edge length wanted in each, millimetres: 0 the body,
+    1 the feet, 2 the hands, 3 the head and neck, 4 the face and ears. The body's edge length is what the
+    triangle budget leaves."""
+    v = np.asarray(v, np.float64)
+    region = np.zeros(len(v), np.int8)
+
+    def within(centre, radius):
+        return np.linalg.norm(v - np.asarray(centre), axis=1) < radius
+
+    for key in ("foot_left", "foot_right"):
+        if key in marks:
+            region[within(marks[key], 0.15)] = 1
+    for key in ("hand_left", "hand_right"):
+        if key in marks:
+            region[within(marks[key], 0.105)] = 2
+    if "head" in marks:
+        region[within(marks["head"], 0.15)] = 3
+    if "face" in marks:
+        face = np.asarray(marks["face"], np.float64)
+        region[within(face, 0.082)] = 4
+        for side in (-1.0, 1.0):                                         # the ears, either side and behind the face
+            region[within(face + np.array([side * 0.082, 0.02, -0.085]), 0.05)] = 4
+    edges = [3.0, 1.8, 1.4, 1.8, 0.8]
+    # The body's edge from what is left of the budget.
+    fine_triangles = 0.0
+    # Rough areas: the regions' share of the vertices times the whole surface (the vertices are evenly spread before decimation).
+    share = np.bincount(region, minlength=5) / max(1, len(v))
+    surface_mm2 = 2.13e6
+    for r in range(1, 5):
+        fine_triangles += share[r] * surface_mm2 / (0.433 * edges[r] ** 2)
+    left = max(triangles - fine_triangles, 150_000)
+    edges[0] = float(np.clip(np.sqrt(share[0] * surface_mm2 / (0.433 * left)), 2.0, 4.0))
+    return region, edges
 
 
 def magnify(v: np.ndarray, bubbles: list[tuple]) -> np.ndarray:
@@ -165,6 +201,21 @@ def fine_openness(fine: fine_skin.FineOutline, body: Body, v: np.ndarray, n: np.
     return np.clip(1.0 - (occ - flat) / (0.75 - flat), 0.0, 1.0)
 
 
+def concavity_mm(v: np.ndarray, f: np.ndarray) -> np.ndarray:
+    """How far each vertex lies below the mean of its neighbours along its normal, millimetres (a furrow is
+    positive, a ridge negative), smoothed once over the neighbours."""
+    from scipy import sparse
+    k = len(v)
+    i = np.concatenate([f[:, 0], f[:, 1], f[:, 2], f[:, 1], f[:, 2], f[:, 0]])
+    j = np.concatenate([f[:, 1], f[:, 2], f[:, 0], f[:, 0], f[:, 1], f[:, 2]])
+    adj = sparse.coo_matrix((np.ones(len(i), np.float32), (i, j)), shape=(k, k)).tocsr()
+    adj.data[:] = 1.0
+    degree = np.maximum(np.asarray(adj.sum(axis=1)).ravel(), 1.0)
+    p = np.asarray(v, np.float64)
+    dip = np.einsum("ij,ij->i", (adj @ p) / degree[:, None] - p, normals_of(v, f)) * 1000.0
+    return 0.5 * dip + 0.5 * (adj @ dip) / degree
+
+
 def tolerance(body: Body, fine: fine_skin.FineOutline, v: np.ndarray) -> np.ndarray:
     """How far a skin vertex may move when the surface is relaxed (metres): under a pixel everywhere, and a couple
     of millimetres at the photographs that had to be replaced (the joints between the specimen's blocks, where the
@@ -173,6 +224,15 @@ def tolerance(body: Body, fine: fine_skin.FineOutline, v: np.ndarray) -> np.ndar
     index = np.clip(np.round((y_mm - fine.origin_mm[1]) / fine.spacing[1] - 0.5).astype(np.int64), 0, len(fine.fallback) - 1)
     joint = ndimage.gaussian_filter1d(ndimage.binary_dilation(fine.fallback, iterations=3).astype(np.float32), 2.0)
     return (0.00045 + 0.0018 * np.clip(joint[index] * 1.5, 0, 1)).astype(np.float32)   # the bake reads these two numbers back
+
+
+def face_tolerance(base: np.ndarray, v: np.ndarray, marks: dict) -> np.ndarray:
+    """On the face the relaxation is held tighter: its lines (lids, lips, nostrils) are under a millimetre deep."""
+    if "face" not in marks:
+        return base
+    near = np.linalg.norm(np.asarray(v, np.float64) - np.asarray(marks["face"]), axis=1)
+    weight = np.clip((0.11 - near) / 0.03, 0.0, 1.0)
+    return (base - (base - 0.00032) * weight * (base < 0.0006)).astype(np.float32)
 
 
 # ---- the briefs ------------------------------------------------------------------------------------------------
@@ -224,18 +284,22 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
         v, f = body.to_gltf(v_mm, f)
         v, f = keep_big_pieces(v, f, 0.01)
         log(f"skin surface: {len(f)} triangles from the fine outline")
-        v = relax(v, f, 40, tolerance(body, fine, v))
+        v = relax(v, f, 40, face_tolerance(tolerance(body, fine, v), v, marks))
     else:
         v_mm, f = surface(tissue, body.spacing, 1.6)
         v, f = body.to_gltf(v_mm, f)
         log(f"skin surface: {len(f)} triangles from the export's voxels (no fine outline: run with --photos)")
-    target = int(triangles)
-    big = magnify(v, bubbles)
-    big, f = decimate(big.astype(np.float32), f, target, agg=4.0)
-    v = shrink(big, bubbles).astype(np.float32)
+    if fine is not None:
+        # Finer where a student looks closely: the face under a millimetre, the ears, hands and feet a little over.
+        region, edges = detail_regions(v, marks, triangles)
+        v, f = decimate_regions(v, f, region, edges, log)
+    else:
+        big = magnify(v, bubbles)
+        big, f = decimate(big.astype(np.float32), f, int(triangles), agg=4.0)
+        v = shrink(big, bubbles).astype(np.float32)
     f = outward(v, f)
     if fine is not None:                                                  # the steps the decimation kept as edges
-        v = relax(v, f, 30, tolerance(body, fine, v))
+        v = relax(v, f, 30, face_tolerance(tolerance(body, fine, v), v, marks))
     bake = baker.colours(v, f, field, depth)
     if fine is not None:
         small = fine_openness(fine, body, v, normals_of(v, f))
@@ -243,9 +307,17 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
         joint = np.clip((tolerance(body, fine, v) - 0.00045) / 0.0018, 0, 1)
         small = small + (1.0 - small) * joint
         bake[:, 0] = np.round(np.maximum(bake[:, 0], 255.0 * 0.85 * joint) * (0.35 + 0.65 * small))
+        if "face" in marks:
+            # The face's fine lines (where the lids meet, between the lips, the nostrils' rims) are a millimetre wide:
+            # how far each vertex lies below its neighbours on the finished mesh draws them as the dark lines they
+            # are (the outline's own blur at that scale would read its pixel steps as lines too).
+            near = np.linalg.norm(np.asarray(v, np.float64) - np.asarray(marks["face"]), axis=1)
+            weight = np.clip((0.105 - near) / 0.02, 0.0, 1.0)
+            line = np.clip(1.0 - (concavity_mm(v, f) - 0.03) / 0.26, 0.0, 1.0)
+            bake[:, 0] = np.round(bake[:, 0] * (1.0 - weight * 0.5 * (1.0 - line)))
     # The skin's own colour, gloss and hair by region; then the hair itself.
     normals = normals_of(v, f)
-    albedo, hair_mask, gloss, reg, info = zones.paint(body, v, normals, bake, marks)
+    albedo, hair_mask, gloss, reg, info = zones.paint(body, v, normals, bake, marks, f)
     bake[:, 3] = gloss
     if "face" in info:
         log(info["face"].describe())
@@ -263,6 +335,10 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
         eyes = sorted(body.meta["eyes"], key=lambda e: e["centre_m"][0])
         face = info["face"]
         lid_y = {side: (e["lid_line_y_m"] - face.origin[1]) / zones.MM for side, e in zip(("right", "left"), eyes)}
+        for side, found in (info.get("lid_w") or {}).items():                # the furrow in the skin itself, where it shows
+            if found is not None:
+                lid_y[side] = found
+        log("lid lines, mm above the eyes: %s; read from the relief: %s" % ({k: round(x, 1) for k, x in lid_y.items()}, info.get("lid_w")))
     out += hair.build(v, f, normals, reg, info, covered=covered, lid_y=lid_y, log=log)
     if solid is not None:
         box = ndimage.find_objects(solid.astype(np.int32))[0]

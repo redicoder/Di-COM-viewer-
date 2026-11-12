@@ -208,6 +208,45 @@ def decimate(v: np.ndarray, f: np.ndarray, target: float, agg: float = 7.0):
     return np.asarray(v2, np.float32), np.asarray(f2, np.uint32)
 
 
+def decimate_regions(v: np.ndarray, f: np.ndarray, region: np.ndarray, edge_mm: list[float], log=None):
+    """Decimates a mesh region by region: `region` gives each vertex its region (0, 1, ...), `edge_mm[r]` the edge
+    length wanted there (v in metres). A triangle belongs to the highest-numbered region among its vertices (the
+    finer side, when regions are numbered coarse to fine). Each region is decimated on its own with its border
+    vertices left where they are, so the regions meet exactly and the mesh stays closed."""
+    import pyfqmr
+    v = np.asarray(v, np.float64)
+    tri_region = region[f].max(axis=1)
+    out_v, out_f, offset = [], [], 0
+    for r in range(len(edge_mm)):
+        part = f[tri_region == r]
+        if len(part) == 0:
+            continue
+        used = np.unique(part)
+        remap = np.full(len(v), -1, np.int64)
+        remap[used] = np.arange(len(used))
+        pv, pf = v[used], remap[part]
+        a, b, c = pv[pf[:, 0]], pv[pf[:, 1]], pv[pf[:, 2]]
+        area_mm2 = float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum()) / 2 * 1e6
+        target = int(area_mm2 / (0.433 * edge_mm[r] ** 2))
+        if target < len(pf):
+            simplifier = pyfqmr.Simplify()
+            simplifier.setMesh(pv, pf)
+            simplifier.simplify_mesh(target_count=max(target, 100), aggressiveness=5, preserve_border=True, verbose=False)
+            pv, pf, _ = simplifier.getMesh()
+        if log:
+            log(f"skin region {r}: {len(pf)} triangles at about {edge_mm[r]} mm")
+        out_v.append(np.asarray(pv, np.float64))
+        out_f.append(np.asarray(pf, np.int64) + offset)
+        offset += len(pv)
+    v2, f2 = np.concatenate(out_v), np.concatenate(out_f)
+    # The regions' shared border vertices are the same points twice: one again.
+    key = np.round(v2 * 1e7).astype(np.int64)
+    _, first, inverse = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    f2 = inverse.reshape(-1)[f2]
+    good = (f2[:, 0] != f2[:, 1]) & (f2[:, 1] != f2[:, 2]) & (f2[:, 0] != f2[:, 2])
+    return v2[first].astype(np.float32), f2[good].astype(np.uint32)
+
+
 def taubin(v: np.ndarray, f: np.ndarray, iterations: int = 10, lam: float = 0.5, mu: float = -0.53, weight: np.ndarray | None = None) -> np.ndarray:
     """Taubin smoothing: a Laplacian step in, a slightly larger one out, so the surface smooths without shrinking.
     `weight` (n,) in 0..1 scales the smoothing per vertex (0 leaves a vertex where it is)."""

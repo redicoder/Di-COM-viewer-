@@ -23,6 +23,7 @@ the row says "confirmed".
 | scikit-image | backend/.venv-seg (skin mesh extraction, `tools/extract_skin_mesh.py`) | BSD-3-Clause | confirmed |
 | fast-simplification | backend/.venv-seg (mesh decimation) | MIT | confirmed |
 | tifffile | backend/.venv (reads the SIO label TIFFs) | BSD-3-Clause | confirmed |
+| pyfqmr | backend/.venv-seg (mesh decimation by region with kept borders, `tools/anatomy_model`; a build tool, not shipped) | MIT | confirmed |
 | PyTorch | backend/.venv-seg | BSD-3-Clause | verify |
 | nnU-Net v2 | backend/.venv-seg (used by TotalSegmentator) | Apache-2.0 | verify |
 | nibabel, SimpleITK, dipy | backend/.venv-seg | MIT / Apache-2.0 / BSD-3 | verify |

@@ -11,8 +11,11 @@ eye against renders. Everything is in glTF metres: x patient left, y up, z front
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
-from scipy import ndimage
+from scipy import ndimage, sparse
 
 from .common import Body
 
@@ -94,9 +97,92 @@ class Face:
         p = (np.asarray(v, np.float64) - self.origin) / MM
         return p @ self.ex, p @ self.ey, p @ self.ez
 
+    def lid_line(self, v: np.ndarray, side: str) -> float | None:
+        """Where the closed lids meet, millimetres above the eyes' level: the furrow across the eye's bulge, read
+        from the skin's own relief (the deepest dip of the surface against its smoothed self)."""
+        u, w, d = self.local(v)
+        ue = (-1.0 if side == "right" else 1.0) * self.half_ipd
+        we = self.eye_w[side]
+        near = (np.abs(u - ue) < 9.0) & (w > we - 13.0) & (w < we + 9.0) & (d > 0)
+        if near.sum() < 200:
+            return None
+        ws = np.arange(we - 13.0, we + 9.0, 0.5)
+        rows = np.clip(((w[near] - ws[0]) / 0.5).astype(int), 0, len(ws) - 1)
+        depth = np.full(len(ws), np.nan)
+        for k in np.unique(rows):
+            depth[k] = np.median(d[near][rows == k])
+        good = ~np.isnan(depth)
+        if good.sum() < len(ws) // 2:
+            return None
+        depth = np.interp(ws, ws[good], depth[good])
+        dip = ndimage.gaussian_filter1d(depth, 1.0) - ndimage.gaussian_filter1d(depth, 7.0)
+        inner = slice(4, len(ws) - 4)
+        k = int(np.argmin(dip[inner])) + 4
+        return float(ws[k]) if dip[k] < -0.08 else None
+
     def describe(self) -> str:
         return (f"face: eyes {2 * self.half_ipd:.0f} mm apart, nose tip {self.nose_tip_w:.0f} mm below them and {self.nose_tip_d:.0f} forward, "
                 f"under the nose at {self.subnasale_w:.0f}, lip line at {self.stomion_w:.0f}")
+
+
+def spread(values: np.ndarray, known: np.ndarray, f: np.ndarray, rounds: int = 40, smooth_rounds: int = 8) -> np.ndarray:
+    """Fills the vertices that have no value from their neighbours over the mesh (outwards from the known ones),
+    then smooths everything a little. values (k, c), known bool (k,)."""
+    k = len(values)
+    i = np.concatenate([f[:, 0], f[:, 1], f[:, 2], f[:, 1], f[:, 2], f[:, 0]])
+    j = np.concatenate([f[:, 1], f[:, 2], f[:, 0], f[:, 0], f[:, 1], f[:, 2]])
+    adj = sparse.coo_matrix((np.ones(len(i), np.float32), (i, j)), shape=(k, k)).tocsr()
+    adj.data[:] = 1.0
+    out = np.where(known[:, None], values, 0.0).astype(np.float64)
+    have = known.astype(np.float64)
+    for _ in range(rounds):
+        total, count = adj @ out, adj @ have
+        fill = (have == 0) & (count > 0)
+        if not fill.any():
+            break
+        out[fill] = total[fill] / count[fill][:, None]
+        have[fill] = 1.0
+    out[have == 0] = 1.0
+    degree = np.maximum(np.asarray(adj.sum(axis=1)).ravel(), 1.0)
+    for _ in range(smooth_rounds):
+        out = 0.5 * out + 0.5 * (adj @ out) / degree[:, None]
+    return out
+
+
+def region_colour(body: Body, name: str, v: np.ndarray, n: np.ndarray, depths_mm=(1.2, 2.0, 2.8, 3.6)):
+    """The photographs' own colour just under the skin, from a finer region export (the head at 0.66 mm): float
+    (k, 3) sRGB 0..1 per vertex and a bool mask of the vertices the region covers; None when there is no such region."""
+    entry = next((r for r in body.meta.get("regions", []) if r.get("name") == name), None)
+    if entry is None:
+        return None
+    folder = body.export.parent / entry["folder"]
+    if not (folder / "body.raw").exists():
+        return None
+    meta = json.loads((folder / "body.json").read_text())
+    dx, dy, dz = meta["dims"]
+    rgba = np.fromfile(folder / "body.raw", np.uint8).reshape(dz, dy, dx, 4)
+    # The colour is wanted at the scale of lips and lids, not of voxels: blurred a little first (within the tissue),
+    # or the surface, which crosses the voxels at a slant, would pick up their layers as bands.
+    tissue = (rgba[..., 3] > 100).astype(np.float32)
+    weight_field = np.maximum(ndimage.gaussian_filter(tissue, (1.3, 0.9, 1.3)), 1e-3)
+    blurred = [ndimage.gaussian_filter(rgba[..., c].astype(np.float32) * tissue, (1.3, 0.9, 1.3)) / weight_field for c in range(3)]
+    centre, size = np.array(entry["centre_m"], np.float64), np.array(entry["size_m"], np.float64)
+    total = np.zeros((len(v), 3))
+    weight = np.zeros(len(v))
+    inside = np.ones(len(v), bool)
+    for depth in depths_mm:
+        p = np.asarray(v, np.float64) - n * (depth * MM)
+        local = np.stack([p[:, 0], p[:, 1], -p[:, 2]], axis=1) - centre          # the body's metres: x left, y up, z back
+        idx = (local / size + 0.5) * np.array([dx, dy, dz]) - 0.5
+        ok = ((idx > 0) & (idx < np.array([dx, dy, dz]) - 1)).all(axis=1)
+        inside &= ok
+        coords = np.stack([idx[:, 2], idx[:, 1], idx[:, 0]], axis=0)
+        alpha = ndimage.map_coordinates(tissue, coords, order=1, mode="nearest")
+        for c in range(3):
+            total[:, c] += ndimage.map_coordinates(blurred[c], coords, order=1, mode="nearest") * (alpha > 0.5)
+        weight += alpha > 0.5
+    colour = total / np.maximum(weight, 1.0)[:, None] / 255.0
+    return colour, inside & (weight > 0)
 
 
 def regions(body: Body, v: np.ndarray, n: np.ndarray, marks: dict) -> tuple[dict, dict]:
@@ -104,7 +190,7 @@ def regions(body: Body, v: np.ndarray, n: np.ndarray, marks: dict) -> tuple[dict
     v = np.asarray(v, np.float64)
     k = len(v)
     out = {name: np.zeros(k) for name in ("lips_upper", "lips_lower", "lids", "brow", "scalp", "beard", "areola", "nipple", "chest", "belly_line",
-                                          "forearm", "upper_arm", "thigh", "shin", "sole")}
+                                          "forearm", "upper_arm", "thigh", "shin", "sole", "face_colour")}
     info = {}
     x, y, z = v[:, 0], v[:, 1], v[:, 2]
 
@@ -143,6 +229,10 @@ def regions(body: Body, v: np.ndarray, n: np.ndarray, marks: dict) -> tuple[dict
         heavy = np.exp(-(np.abs(u) / 34.0) ** 2) * smooth(w, face.chin_w - 30.0, face.chin_w - 10.0)          # moustache and chin densest
         out["beard"] = beard * (0.45 + 0.55 * heavy)
         info["crown"] = face.origin + (face.ex * 10.0 + face.ey * 88.0 - face.ez * 150.0) * MM
+        info["lid_w"] = {side: face.lid_line(v, side) for side in ("right", "left")}
+        # How much the face's own photographed colour is trusted: the middle of the face, not its rim (the gelatin
+        # left a seam line and a blue-green halo round it).
+        out["face_colour"] = head * front * smooth(np.hypot(u, w + 40.0), 86.0, 64.0)
 
     # ---- the trunk ----
     sternum = bone_box(body, "sternum")
@@ -203,7 +293,7 @@ def regions(body: Body, v: np.ndarray, n: np.ndarray, marks: dict) -> tuple[dict
     return out, info
 
 
-def paint(body: Body, v: np.ndarray, n: np.ndarray, bake: np.ndarray, marks: dict):
+def paint(body: Body, v: np.ndarray, n: np.ndarray, bake: np.ndarray, marks: dict, f: np.ndarray | None = None):
     """The skin's colour per vertex (uint8 sRGB), its hair mask (uint8), its gloss (uint8, 128 = the material's
     own), the region weights and the landmarks."""
     reg, info = regions(body, v, n, marks)
@@ -218,19 +308,45 @@ def paint(body: Body, v: np.ndarray, n: np.ndarray, bake: np.ndarray, marks: dic
         nonlocal colour
         colour = colour * (1.0 + (np.array(factor, np.float64) - 1.0) * np.clip(weight, 0, 1)[:, None])
 
+    # The face: its own light and dark from the photographs (the lips as they are, the brown round the eyes, the
+    # shadow of the shaved beard), as a ratio against his cheeks' colour laid over the clean skin tone. The body
+    # keeps the clean tone: its photographed surface is frost and lividity; the face's is not.
+    own = np.zeros(k)
+    got = region_colour(body, "head", v, n) if reg["face_colour"].max() > 0 and f is not None else None
+    if got is not None:
+        photo, covered = got
+        face = info["face"]
+        u, w, _ = face.local(v)
+        skin_like = covered & (reg["face_colour"] > 0.9) & (photo[:, 0] > photo[:, 2] + 0.06)
+        cheeks = skin_like & (np.abs(u) > 22) & (np.abs(u) < 55) & (w < -15) & (w > -60)
+        if cheeks.sum() > 200:
+            reference = np.median(photo[cheeks], axis=0)
+            ratio = np.clip(photo / np.maximum(reference, 1e-3), 0.5, 1.1)
+            usable = covered & (photo[:, 0] > photo[:, 2] + 0.03)                 # not the blue-green of the gelatin
+            # Only the face's vertices take part; where the gelatin tinted the photograph the neighbours' colour stands in.
+            part = np.nonzero(reg["face_colour"] > 0)[0]
+            index = np.full(k, -1, np.int64)
+            index[part] = np.arange(len(part))
+            faces = index[f[(index[f] >= 0).all(axis=1)]]
+            ratio[part] = spread(ratio[part], usable[part], faces)
+            own = reg["face_colour"]
+            colour = colour * (1.0 + (ratio ** 0.6 - 1.0) * own[:, None])
+            info["face_reference"] = [float(x) for x in reference]
+    synthetic = 1.0 - own                                                     # painted zones only where the photographs are not used
+
     # Thin skin over little fat shows the blood under it (ears, the nose's wings, fingers, toes).
     thin = smooth(bake[:, 1].astype(np.float64) / 255.0 * 60.0, 16.0, 4.0)
     times((1.0, 0.93, 0.91), 0.7 * thin)
-    times((0.95, 0.91, 0.90), reg["lids"])                                  # palette.md: lid against the skin below the eye
+    times((0.95, 0.91, 0.90), reg["lids"] * synthetic)                      # palette.md: lid against the skin below the eye
     toward(SOLE, 0.6 * reg["sole"])
     # Where the hair was shaved, the stubble under the skin greys it.
-    times(STUBBLE_TINT, 0.75 * reg["beard"])
+    times(STUBBLE_TINT, 0.75 * reg["beard"] * synthetic)
     times(STUBBLE_TINT, 0.55 * reg["scalp"])
     times((0.86, 0.84, 0.84), 0.5 * reg["brow"])
     toward(AREOLA, 0.85 * reg["areola"])
     toward(NIPPLE, 0.8 * reg["nipple"])
-    toward(LIP_UPPER, 0.6 * reg["lips_upper"])
-    toward(LIP_LOWER, 0.6 * reg["lips_lower"])
+    toward(LIP_UPPER, 0.6 * reg["lips_upper"] * synthetic)
+    toward(LIP_LOWER, 0.6 * reg["lips_lower"] * synthetic)
     albedo = np.round(np.clip(colour, 0, 1) * 255).astype(np.uint8)
 
     hair = np.clip(np.maximum.reduce([reg["scalp"], reg["beard"], reg["brow"], 0.5 * reg["chest"], 0.5 * reg["belly_line"], 0.35 * reg["forearm"],
