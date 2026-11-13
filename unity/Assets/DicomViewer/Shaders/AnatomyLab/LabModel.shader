@@ -23,6 +23,11 @@ Shader "DicomViewer/LabModel"
         _SkinLut ("Pre-integrated skin", 2D) = "white" {}
         _SkinLutOn ("Use the lookup", Float) = 0
         _MmPerUnit ("Millimetres per mesh unit", Float) = 890
+        [HideInInspector] _EyeR ("Right eye's centre", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _EyeL ("Left eye's centre", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _EyeFwd ("The face's forward", Vector) = (0, 0, 1, 0)
+        [HideInInspector] _EyeUp ("The face's up", Vector) = (0, 1, 0, 0)
+        [HideInInspector] _LidOpen ("Lids open (right, left) and their full turns (upper, lower)", Vector) = (0, 0, 0.8, 0.12)
     }
     SubShader
     {
@@ -52,6 +57,7 @@ Shader "DicomViewer/LabModel"
                 float4 _Tint;
                 float4 _CavityTint;
                 float _Saturation, _Skin, _Gloss, _Bump, _Grain, _Occlusion, _MmPerUnit, _VertexAlbedo, _SkinDetail;
+                LAB_LID_UNIFORMS
             CBUFFER_END
 
             struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; float2 uv3 : TEXCOORD2; float4 color : COLOR; };
@@ -70,7 +76,7 @@ Shader "DicomViewer/LabModel"
             {
                 Varyings o;
                 float3 position = v.positionOS.xyz, normal = v.normalOS, unused = 0.0;
-                LabLid(v.uv3, position, normal, unused);                                 // an eyelid, where it is opened
+                LabLid(v.uv3, _EyeR.xyz, _EyeL.xyz, _EyeFwd.xyz, _EyeUp.xyz, _LidOpen, position, normal, unused);   // an eyelid, where it is opened
                 o.positionWS = TransformObjectToWorld(position);
                 o.positionCS = TransformWorldToHClip(o.positionWS);
                 o.normalWS = TransformObjectToWorldNormal(normal);

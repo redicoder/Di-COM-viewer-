@@ -88,6 +88,6 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         skin_cache = body.export / "model" / "skin.npz"
         if skin_cache.exists():                                # the eyeballs sit behind the skin's lids
             whole = body.export / "model" / "skin_surface.npz"
-            out += eyes.build(load_structures(skin_cache)[0], log, load_structures(whole)[0] if whole.exists() else None)
+            out += eyes.build(load_structures(skin_cache)[0], log, load_structures(whole)[0] if whole.exists() else None, body)
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")
     return out

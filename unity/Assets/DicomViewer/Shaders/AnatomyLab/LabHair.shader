@@ -16,6 +16,11 @@ Shader "DicomViewer/LabHair"
         _KeepMm ("Pixel size (mm) from which strands are dropped", Range(0.05, 2)) = 0.3
         _Shine ("Highlight", Range(0, 2)) = 1
         _Darken ("Colour scale", Range(0, 2)) = 1
+        [HideInInspector] _EyeR ("Right eye's centre", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _EyeL ("Left eye's centre", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _EyeFwd ("The face's forward", Vector) = (0, 0, 1, 0)
+        [HideInInspector] _EyeUp ("The face's up", Vector) = (0, 1, 0, 0)
+        [HideInInspector] _LidOpen ("Lids open (right, left) and their full turns (upper, lower)", Vector) = (0, 0, 0.8, 0.12)
     }
     SubShader
     {
@@ -42,6 +47,7 @@ Shader "DicomViewer/LabHair"
 
             CBUFFER_START(UnityPerMaterial)
                 float _WidthScale, _KeepMm, _Shine, _Darken;
+                LAB_LID_UNIFORMS
             CBUFFER_END
 
             struct Attributes
@@ -68,7 +74,7 @@ Shader "DicomViewer/LabHair"
             {
                 Varyings o;
                 float3 positionOS = v.positionOS.xyz, tangentOS = v.tangentOS.xyz, normalOS = v.normalOS;
-                LabLid(v.uv3, positionOS, tangentOS, normalOS);                 // lashes go with their lid
+                LabLid(v.uv3, _EyeR.xyz, _EyeL.xyz, _EyeFwd.xyz, _EyeUp.xyz, _LidOpen, positionOS, tangentOS, normalOS);   // lashes go with their lid
                 float3 centre = TransformObjectToWorld(positionOS);
                 float3 T = normalize(TransformObjectToWorldDir(tangentOS));
                 float3 V = normalize(_WorldSpaceCameraPos - centre);
@@ -86,6 +92,7 @@ Shader "DicomViewer/LabHair"
                 o.tangentWS = T;
                 o.data = float4(v.uv.x, v.uv.y, saturate(widthMm / pixelMm) * alive, v.uv2.y);
                 o.colour = SRGBToLinear(v.color.rgb);
+
                 return o;
             }
 

@@ -23,7 +23,7 @@ INNER, SPAN = -15.5, 29.0           # mm from the eye's centre to the inner corn
 UPPER_FOLD, LOWER_FOLD = 11.0, 6.0  # mm of lid that moves, above and below the lid line
 MARGIN = 4.0                        # mm: the lid edge's thickness (his lids are swollen: about 5 mm lie over the globe)
 MARGIN_COLOUR = (196, 124, 118)
-UPPER_DEGREES, LOWER_DEGREES = 46.0, 7.0     # how far the lids' edges turn about the eye's centre when fully open
+UPPER_DEGREES, LOWER_DEGREES = 42.0, 7.0     # how far the lids' edges turn about the eye's centre when fully open
 SIDE_CODE = {"right": 0.25, "left": 0.75}
 
 

@@ -151,6 +151,15 @@ public static class ModelSnapshot
         }
         ReadEyes(body);
         body.PushLids();
+        foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
+            if (mf.name == "hair lashes" || mf.name == "skin")
+            {
+                var uv3 = new System.Collections.Generic.List<Vector2>();
+                mf.sharedMesh.GetUVs(2, uv3);
+                float most = 0f, least = 0f;
+                foreach (Vector2 q in uv3) { most = Mathf.Max(most, q.x); least = Mathf.Min(least, q.x); }
+                Debug.Log($"ModelSnapshot: {mf.name}: lid weights on {uv3.Count} of {mf.sharedMesh.vertexCount} vertices, from {least:F2} to {most:F2}; material {mf.GetComponent<Renderer>().sharedMaterial.shader.name}");
+            }
         Debug.Log($"ModelSnapshot: anatomy {structures} structures, laid {b.size} centre {b.center}");
         ModelLab.Room(b.size.x);
         return (cam, body, b);
@@ -234,6 +243,51 @@ public static class ModelSnapshot
         BuildScene();
     }
 
+    /// <summary>The eyes only, quickly (build/snapshots/eye_*.png): closed, half open and open, from the front and from both sides.</summary>
+    public static void RunEyes()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null || !body.hasEyes) return;
+        string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
+        Directory.CreateDirectory(outDir);
+        Transform skin = FindDeep(body.transform, "skin");
+        Renderer skinRenderer = null, lashes = null;
+        foreach (Renderer r in body.GetComponentsInChildren<Renderer>(true)) { if (r.name == "skin") skinRenderer = r; if (r.name == "hair lashes") lashes = r; }
+        Vector3 eye = skinRenderer.transform.TransformPoint(body.eyeRight);
+        Vector3 up = skinRenderer.transform.TransformDirection(body.eyeUp), forward = skinRenderer.transform.TransformDirection(body.eyeForward);
+        Vector3 across = Vector3.Cross(up, forward).normalized;
+        void Shot(string name, Vector3 from)
+        {
+            cam.transform.position = eye + from;
+            cam.transform.rotation = Quaternion.LookRotation(-from.normalized, up);
+            var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(outDir, "eye_" + name + ".png"), tex.EncodeToPNG());
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            Object.DestroyImmediate(rt);
+            Object.DestroyImmediate(tex);
+        }
+        Vector3 front = forward * 0.16f, side = (forward * 0.45f + across * 1f).normalized * 0.16f, sideOther = (forward * 0.45f - across * 1f).normalized * 0.16f;
+        Shot("closed_front", front);
+        Shot("closed_side", side);
+        foreach (float open in new[] { 0.5f, 1f })
+        {
+            body.lidRight = body.lidLeft = open;
+            body.PushLids();
+            Shot($"open{Mathf.RoundToInt(open * 100)}_front", front);
+            Shot($"open{Mathf.RoundToInt(open * 100)}_side", side);
+            Shot($"open{Mathf.RoundToInt(open * 100)}_side2", sideOther);
+        }
+        Debug.Log("ModelSnapshot: eyes done");
+    }
+
     public static void RunPrototype()
     {
         var (cam, body, b) = BuildPrototype();
@@ -308,6 +362,7 @@ public static class ModelSnapshot
                 Shot($"eyes_{name}_side.png");
             }
             body.lidRight = body.lidLeft = 0f;
+            body.PushLids();
             body.PushLids();
         }
         body.GetComponent<ModelPolish>().Restore();

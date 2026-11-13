@@ -103,14 +103,16 @@ class Body:
         sz, sy, sx = self.spacing
         for e in getattr(self, "eyes_measured", None) or self.meta.get("eyes") or []:
             cx, cy, cz = (np.array(e["centre_m"]) * 1000.0 + np.array(self.size_mm) / 2)      # mm: x, y, z (back)
-            reach = float(e["radius_m"]) * 1000.0 + 10.0
+            reach = float(e["radius_m"]) * 1000.0 + 14.0
             z0, z1 = max(0, int((cz - reach) / sz)), min(lab.shape[0], int((cz + reach) / sz) + 2)
             y0, y1 = max(0, int((cy - reach) / sy)), min(lab.shape[1], int((cy + reach) / sy) + 2)
             x0, x1 = max(0, int((cx - reach) / sx)), min(lab.shape[2], int((cx + reach) / sx) + 2)
             zz, yy, xx = np.meshgrid((np.arange(z0, z1) + 0.5) * sz - cz, (np.arange(y0, y1) + 0.5) * sy - cy, (np.arange(x0, x1) + 0.5) * sx - cx, indexing="ij")
             distance = np.sqrt(zz ** 2 + yy ** 2 + xx ** 2)
             globe = distance < float(e["radius_m"]) * 1000.0 + 3.0
-            before = (distance < reach) & (zz < -1.0) & (np.hypot(yy, xx) < float(e["radius_m"]) * 1000.0 + 6.5)   # z runs back: in front is less
+            # The cup the conjunctiva lines (eyes.socket): round the gaze's axis out to its wall, from in front of
+            # the lids (z runs back: in front is less) to a little behind the globe's middle.
+            before = (np.hypot(yy, xx) < 22.5) & (zz < 4.0)
             lab[z0:z1, y0:y1, x0:x1][globe | before] = 0
         counts = np.bincount(lab.ravel(), minlength=256)
         for o in objects:
