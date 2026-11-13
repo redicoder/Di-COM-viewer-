@@ -70,6 +70,8 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --photos data\vhp_male_photos
   # the named bones (BoneHub, CC BY 4.0: the eleven .seg.nrrd files of 01_Male into data\bonehub), once, about 4 minutes
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --bones data\bonehub --layers skeleton
+  # the head and neck's named structures (TotalSegmentator's open head tasks on his frozen CT; GPU, once, about 15 minutes)
+  .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --head-ct data\vhp_male_frozen --layers fat,muscles,skeleton,organs
   # afterwards; --layers skin rebuilds one layer, --preview <folder> renders pictures without Unity
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb
   ```

@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import bonehub, fine_skin  # noqa: E402
+from anatomy_model import bonehub, fine_skin, head_layers  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
@@ -46,6 +46,7 @@ def main() -> int:
     ap.add_argument("--skin-triangles", type=int, default=900_000, help="the skin's surface (the hair comes on top)")
     ap.add_argument("--photos", type=Path, help="the photographs' folder: (re)reads the fine skin outline from them first (about 12 minutes)")
     ap.add_argument("--bones", type=Path, help="BoneHub's folder of .seg.nrrd files: reads and fits the 142 named bones first (about 4 minutes)")
+    ap.add_argument("--head-ct", type=Path, help="the frozen CT's folder: labels the head and neck on it with TotalSegmentator's open tasks first (GPU, once)")
     ap.add_argument("--layers", default="", help="rebuild only these layers (comma separated); the others come from the cache")
     ap.add_argument("--skin-reuse", action="store_true", help="keep the skin's surface of the last build; redo its colour zones, lids and hair only")
     ap.add_argument("--preview", type=Path, help="write pictures of the rebuilt layers into this folder")
@@ -57,6 +58,9 @@ def main() -> int:
     fine = fine_skin.load(body)
     if fine is not None:
         body.keep_inside(fine_skin.inside_export(body, fine))      # nothing under the skin may reach outside it
+    if args.head_ct:
+        head_layers.segment(body, args.head_ct)
+    head_layers.carve(body)                                        # the named head and neck structures out of the unnamed mass
     if args.bones:
         bonehub.cache_path(body).unlink(missing_ok=True)
         bonehub.load_or_build(body, args.bones)

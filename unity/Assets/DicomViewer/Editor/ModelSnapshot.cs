@@ -111,7 +111,8 @@ public static class ModelSnapshot
         body.nested = true;
         body.credits = "Body: Visible Human Male, courtesy of the U.S. National Library of Medicine. Organs and torso: Segmented Internal Organs of the Visible Human Male, "
                        + "H\u00f6hne et al., University Medical Center Hamburg-Eppendorf, CC BY 4.0, doi:10.5281/zenodo.15882018. Bones: Visible-Human-3d-Models, Alavi and Asseln (BoneHub), "
-                       + "CC BY 4.0, doi:10.57967/hf/10464, based on Andreassen et al., Sci Data 10, 34 (2023). Changes were made. For education only.";
+                       + "CC BY 4.0, doi:10.57967/hf/10464, based on Andreassen et al., Sci Data 10, 34 (2023). Head and neck structures labelled with TotalSegmentator (Wasserthal et al. 2023). "
+                       + "Changes were made. For education only.";
         var polish = model.AddComponent<ModelPolish>();
         Bounds b = ModelLab.Lay(model, 0f);                       // real size as built
         int structures = 0;
