@@ -26,6 +26,7 @@ class Structure:
                             gloss (128 = the material's own, 255 = twice as glossy, 0 = matte)
     albedo  uint8 (n, 3)    sRGB per vertex, or None
     extra   uint8 (n,)      the layer's own use (skin: hair density), or None
+    data2   float32 (n, 2)  a third pair of numbers per vertex (skin: the eyelids' weights, lids.py), or None
     streams dict            ready vertex attributes by glTF name (NORMAL, TANGENT, COLOR_0, TEXCOORD_0, TEXCOORD_1),
                             written as they are in place of the above: hair ribbons (hair.py)
     """
@@ -39,6 +40,7 @@ class Structure:
     extra: np.ndarray | None = None
     info: dict = field(default_factory=dict)
     streams: dict | None = None
+    data2: np.ndarray | None = None
 
     @property
     def triangles(self) -> int:
@@ -96,6 +98,20 @@ class Body:
             skin_ids = [o["index"] for o in objects if o["layer"] == "skin"]
             lab[ndimage.binary_closing(fat, structure=np.ones((1, 7, 1), bool)) & ((lab == 0) | np.isin(lab, skin_ids))] = first
             objects = [o for o in objects if o not in loose[1:]]
+        # The eyes: the globes and what lies in front of them (the lids' own thickness) are left to the eyeballs
+        # (eyes.py) and to the skin; nothing of the layers beneath may stand between an opened lid and its eye.
+        sz, sy, sx = self.spacing
+        for e in getattr(self, "eyes_measured", None) or self.meta.get("eyes") or []:
+            cx, cy, cz = (np.array(e["centre_m"]) * 1000.0 + np.array(self.size_mm) / 2)      # mm: x, y, z (back)
+            reach = float(e["radius_m"]) * 1000.0 + 10.0
+            z0, z1 = max(0, int((cz - reach) / sz)), min(lab.shape[0], int((cz + reach) / sz) + 2)
+            y0, y1 = max(0, int((cy - reach) / sy)), min(lab.shape[1], int((cy + reach) / sy) + 2)
+            x0, x1 = max(0, int((cx - reach) / sx)), min(lab.shape[2], int((cx + reach) / sx) + 2)
+            zz, yy, xx = np.meshgrid((np.arange(z0, z1) + 0.5) * sz - cz, (np.arange(y0, y1) + 0.5) * sy - cy, (np.arange(x0, x1) + 0.5) * sx - cx, indexing="ij")
+            distance = np.sqrt(zz ** 2 + yy ** 2 + xx ** 2)
+            globe = distance < float(e["radius_m"]) * 1000.0 + 3.0
+            before = (distance < reach) & (zz < -1.0) & (np.hypot(yy, xx) < float(e["radius_m"]) * 1000.0 + 6.5)   # z runs back: in front is less
+            lab[z0:z1, y0:y1, x0:x1][globe | before] = 0
         counts = np.bincount(lab.ravel(), minlength=256)
         for o in objects:
             o["voxels"] = int(counts[o["index"]])
@@ -379,6 +395,9 @@ def save_structures(path: Path, structures: list[Structure]) -> None:
             if a is not None:
                 arrays[f"{key}{k}"] = np.asarray(a, np.uint8)
                 entry["has"].append(key)
+        if s.data2 is not None:
+            arrays[f"data2_{k}"] = np.asarray(s.data2, np.float32)
+            entry["data2"] = True
         if s.streams:
             entry["streams"] = sorted(s.streams)
             for key, a in s.streams.items():
@@ -396,6 +415,8 @@ def load_structures(path: Path) -> list[Structure]:
             s = Structure(e["name"], e["layer"], z[f"v{k}"], z[f"f{k}"], tuple(e["colour"]), info=e.get("info", {}))
             for key in e["has"]:
                 setattr(s, key, z[f"{key}{k}"])
+            if e.get("data2"):
+                s.data2 = z[f"data2_{k}"]
             if e.get("streams"):
                 s.streams = {key: z[f"s_{key}_{k}"] for key in e["streams"]}
             out.append(s)

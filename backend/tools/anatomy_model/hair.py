@@ -23,6 +23,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.spatial import cKDTree
 
+from . import lids
 from .common import Structure
 from .zones import MM, Face
 
@@ -169,13 +170,16 @@ def lashes(v, n, face: Face, lid_y: dict, rng) -> tuple | None:
         return None
     tree = cKDTree(np.stack([u[front], w[front]], axis=1))
     index = np.nonzero(front)[0]
-    roots, normals, flows, scale = [], [], [], []
+    roots, normals, flows, scale, weights, codes = [], [], [], [], [], []
     for side, sign in (("right", -1.0), ("left", 1.0)):
         ue, wl = sign * face.half_ipd, lid_y[side]
+        _, w_of = lids.lid_curve(face, side, wl)
         for row, count, length_scale, pitch in (("upper", 120, 1.0, -0.35), ("lower", 60, 0.7, -0.9)):
-            t = rng.uniform(0, 1, count)
-            su = ue + sign * (-15.0 + 28.5 * t)                                   # inner corner to outer corner
-            sw = wl - 1.0 + 2.2 * (2 * t - 1) ** 2 + rng.normal(0, 0.25, count) - (0.5 if row == "lower" else 0.0)
+            t = rng.uniform(0.03, 0.97, count)
+            su = ue + sign * (lids.INNER + lids.SPAN * t)                         # inner corner to outer corner
+            sw = w_of(t) + np.abs(rng.normal(0, 0.25, count)) * (1.0 if row == "upper" else -1.0) + (0.25 if row == "upper" else -0.45)
+            weights.append(lids.lash_weights(face, side, t, row == "upper"))      # the lashes go with their lid
+            codes.append(np.full(count, lids.SIDE_CODE[side]))
             _, near = tree.query(np.stack([su, sw], axis=1))
             vi = index[near]
             roots.append(v[vi] + (face.ex * (su - u[vi])[:, None] + face.ey * (sw - w[vi])[:, None]) * MM)
@@ -195,7 +199,10 @@ def lashes(v, n, face: Face, lid_y: dict, rng) -> tuple | None:
         p = p + t * (length / seg)[:, None]
         t = unit(t + curl * (1.1 / seg))
         pts.append(p.copy())
-    return _ribbon_arrays(np.stack(pts, axis=1), normals, LASH, rng)
+    pos, data, faces = _ribbon_arrays(np.stack(pts, axis=1), normals, LASH, rng)
+    per_strand = np.stack([np.concatenate(weights), np.concatenate(codes)], axis=1)
+    data["TEXCOORD_2"] = np.repeat(per_strand, 2 * (seg + 1), axis=0).astype(np.float32)
+    return pos, data, faces
 
 
 def _ribbon_arrays(pts, n, kind: Kind, rng):

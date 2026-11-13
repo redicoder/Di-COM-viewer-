@@ -1,6 +1,7 @@
 """The model as a GLB: one node per layer (outermost first), one child mesh per structure.
 
-Per vertex: POSITION, NORMAL, COLOR_0 = the bake (openness, thickness / 60 mm, curvature / 0.25 per mm, gloss with
+Per vertex (TEXCOORD_2, where a structure has it, is a third pair of numbers: the skin's eyelid weights):
+POSITION, NORMAL, COLOR_0 = the bake (openness, thickness / 60 mm, curvature / 0.25 per mm, gloss with
 128 = the material's own), TEXCOORD_0 = (albedo red, albedo green), TEXCOORD_1 = (albedo blue, extra): the albedo in
 sRGB 0..1 (the structure's colour where it has no per-vertex albedo), `extra` the layer's own use (skin: hair
 density). The two texture coordinates are data, not a UV map: the meshes have none. The material carries the
@@ -76,6 +77,8 @@ def write_glb(path: Path, structures: list[Structure], generator: str = "dissect
                     data = np.ascontiguousarray(data)
                     if data.dtype == np.uint8:
                         attributes[key] = accessor(data, UBYTE, "VEC4", ARRAY_BUFFER, normalized=True)
+                    elif key.startswith("TEXCOORD"):
+                        attributes[key] = accessor(flip_v(data), FLOAT, "VEC2", ARRAY_BUFFER)
                     else:
                         attributes[key] = accessor(data.astype(np.float32), FLOAT, {2: "VEC2", 3: "VEC3", 4: "VEC4"}[data.shape[1]], ARRAY_BUFFER)
             else:
@@ -84,6 +87,8 @@ def write_glb(path: Path, structures: list[Structure], generator: str = "dissect
                 attributes["COLOR_0"] = accessor(bake, UBYTE, "VEC4", ARRAY_BUFFER, normalized=True)
                 attributes["TEXCOORD_0"] = accessor(flip_v(uv0), FLOAT, "VEC2", ARRAY_BUFFER)
                 attributes["TEXCOORD_1"] = accessor(flip_v(uv1), FLOAT, "VEC2", ARRAY_BUFFER)
+                if s.data2 is not None:
+                    attributes["TEXCOORD_2"] = accessor(flip_v(np.asarray(s.data2, np.float32)), FLOAT, "VEC2", ARRAY_BUFFER)
             indices = accessor(np.ascontiguousarray(s.f, np.uint32).ravel(), UINT, "SCALAR", ELEMENT_ARRAY_BUFFER)
             materials.append({"name": s.name, "pbrMetallicRoughness": {"baseColorFactor": srgb_to_linear(s.colour) + [1.0],
                                                                       "metallicFactor": 0.0, "roughnessFactor": 0.6}})
@@ -141,10 +146,12 @@ def read_glb(path: Path) -> list[Structure]:
             if "COLOR_0" in at and "TANGENT" not in at:
                 s.bake = get(at["COLOR_0"]).copy()
             if "TANGENT" in at:                                           # hair ribbons: attributes as written
-                s.streams = {key: get(index).copy() for key, index in at.items() if key != "POSITION"}
+                s.streams = {key: (flip_v(get(index)) if key.startswith("TEXCOORD") else get(index).copy()) for key, index in at.items() if key != "POSITION"}
             elif "TEXCOORD_0" in at and "TEXCOORD_1" in at:
                 uv0, uv1 = flip_v(get(at["TEXCOORD_0"])), flip_v(get(at["TEXCOORD_1"]))
                 s.albedo = np.round(np.clip(np.stack([uv0[:, 0], uv0[:, 1], uv1[:, 0]], axis=1), 0, 1) * 255).astype(np.uint8)
                 s.extra = np.round(np.clip(uv1[:, 1], 0, 1) * 255).astype(np.uint8)
+                if "TEXCOORD_2" in at:
+                    s.data2 = flip_v(get(at["TEXCOORD_2"]))
             out.append(s)
     return out

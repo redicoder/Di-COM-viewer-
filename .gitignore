@@ -55,3 +55,4 @@ Desktop.ini
 
 # ---- The anatomy model is built from the labelled body (backend/tools/build_model_meshes.py), not committed ----
 unity/Assets/Models/anatomy.glb
+unity/Assets/Models/anatomy.json

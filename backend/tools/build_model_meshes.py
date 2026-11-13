@@ -15,6 +15,7 @@ pictures of the layers just built (anatomy_model.preview), without Unity.
 The package anatomy_model/ holds the parts (see its __init__.py); the GLB's layout is in anatomy_model/glb.py.
 """
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -31,9 +32,9 @@ PREVIEWS = {"skin": ["front", "face", "face_left", "eyes", "mouth", "ear_left", 
             "skeleton": ["front", "face", "chest", "hands"], "organs": ["chest", "abdomen"]}
 
 
-def build_layer(body: Body, layer: str, triangles: int):
+def build_layer(body: Body, layer: str, triangles: int, reuse_surface: bool = False):
     if layer == "skin":
-        return skin.build(body, triangles)
+        return skin.build(body, triangles, reuse_surface=reuse_surface)
     return object_layers.build(body, layer, triangles)
 
 
@@ -46,9 +47,11 @@ def main() -> int:
     ap.add_argument("--photos", type=Path, help="the photographs' folder: (re)reads the fine skin outline from them first (about 12 minutes)")
     ap.add_argument("--bones", type=Path, help="BoneHub's folder of .seg.nrrd files: reads and fits the 142 named bones first (about 4 minutes)")
     ap.add_argument("--layers", default="", help="rebuild only these layers (comma separated); the others come from the cache")
+    ap.add_argument("--skin-reuse", action="store_true", help="keep the skin's surface of the last build; redo its colour zones, lids and hair only")
     ap.add_argument("--preview", type=Path, help="write pictures of the rebuilt layers into this folder")
     args = ap.parse_args()
     body = Body(args.export)
+    body.eyes_measured = skin.measured_eyes(body)                    # before the labels are read: they are cleared round the eyes
     if args.photos:
         fine_skin.extract(body, args.photos)
     fine = fine_skin.load(body)
@@ -72,7 +75,7 @@ def main() -> int:
     for layer in LAYERS:
         path = cache / f"{layer}.npz"
         if layer in chosen or not path.exists():
-            built = build_layer(body, layer, args.skin_triangles if layer == "skin" else int(args.triangles * BUDGET[layer]))
+            built = build_layer(body, layer, args.skin_triangles if layer == "skin" else int(args.triangles * BUDGET[layer]), args.skin_reuse)
             save_structures(path, built)
             if args.preview:
                 from anatomy_model.preview import render
@@ -84,6 +87,9 @@ def main() -> int:
         structures += built
     if args.out:
         write_glb(args.out, structures)
+        # What Unity needs to know beside the meshes (the importer does not hand over a node's extras).
+        skin_info = next((s.info for s in structures if s.name == "skin"), {})
+        args.out.with_suffix(".json").write_text(json.dumps({"eyes": skin_info.get("eyes"), "landmarks": skin_info.get("landmarks")}, indent=1))
         print(f"wrote {args.out} ({args.out.stat().st_size / 1e6:.1f} MB, {len(structures)} structures, {sum(s.triangles for s in structures)} triangles)")
     return 0
 

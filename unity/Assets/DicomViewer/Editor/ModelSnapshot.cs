@@ -22,6 +22,31 @@ public static class ModelSnapshot
 
     private static readonly int BaseColorTexture = Shader.PropertyToID("baseColorTexture");
 
+    // anatomy.json beside the model: what the builder knows and the importer does not hand over.
+    [System.Serializable] private class Sides { public float[] right; public float[] left; }
+    [System.Serializable] private class SideValues { public float right; public float left; }
+    [System.Serializable] private class EyesInfo { public Sides centres; public SideValues radius; public float[] forward; public float[] up; public float upper_degrees; public float lower_degrees; }
+    [System.Serializable] private class AnatomyInfo { public EyesInfo eyes; }
+
+    // glTF's x runs the other way in the imported meshes.
+    private static Vector3 MeshSpace(float[] a) => new Vector3(-a[0], a[1], a[2]);
+
+    private static void ReadEyes(ModelBody body)
+    {
+        string path = Path.Combine(Application.dataPath, "Models", "anatomy.json");
+        if (!File.Exists(path)) return;
+        AnatomyInfo info = JsonUtility.FromJson<AnatomyInfo>(File.ReadAllText(path));
+        if (info == null || info.eyes == null || info.eyes.centres == null || info.eyes.centres.right == null || info.eyes.centres.right.Length < 3) return;
+        body.hasEyes = true;
+        body.eyeRight = MeshSpace(info.eyes.centres.right);
+        body.eyeLeft = MeshSpace(info.eyes.centres.left);
+        body.eyeForward = MeshSpace(info.eyes.forward).normalized;
+        body.eyeUp = MeshSpace(info.eyes.up).normalized;
+        if (info.eyes.upper_degrees > 0f) body.lidUpperDegrees = info.eyes.upper_degrees;
+        if (info.eyes.lower_degrees > 0f) body.lidLowerDegrees = info.eyes.lower_degrees;
+        Debug.Log($"ModelSnapshot: eyes at {body.eyeRight} and {body.eyeLeft} (mesh space), forward {body.eyeForward}, up {body.eyeUp}");
+    }
+
     private static Camera Stage()
     {
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -124,6 +149,8 @@ public static class ModelSnapshot
             Mesh sm = skinMesh.sharedMesh;
             Debug.Log($"ModelSnapshot: skin mesh {skinMesh.name}: {sm.vertexCount} vertices, uv0[0] {sm.uv[0]}, uv1[0] {(sm.uv2.Length > 0 ? sm.uv2[0].ToString() : "none")}, colour[0] {sm.colors32[0]}");
         }
+        ReadEyes(body);
+        body.PushLids();
         Debug.Log($"ModelSnapshot: anatomy {structures} structures, laid {b.size} centre {b.center}");
         ModelLab.Room(b.size.x);
         return (cam, body, b);
@@ -267,6 +294,22 @@ public static class ModelSnapshot
             Shot($"{layer.name}_legs.png");
         }
         body.LookAt(body.layers[0].name);
+        if (body.hasEyes)
+        {
+            // The eyelids: half open, open, and one eye only (as a lid is drawn up with a finger).
+            foreach ((string name, float right, float left) in new[] { ("half", 0.5f, 0.5f), ("open", 1f, 1f), ("one", 1f, 0f) })
+            {
+                body.lidRight = right;
+                body.lidLeft = left;
+                body.PushLids();
+                View(-90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f));
+                Shot($"eyes_{name}.png");
+                View(-30f, 30f, dist * 0.10f, head + new Vector3(0.0f, 0.02f, 0f));
+                Shot($"eyes_{name}_side.png");
+            }
+            body.lidRight = body.lidLeft = 0f;
+            body.PushLids();
+        }
         body.GetComponent<ModelPolish>().Restore();
         Debug.Log($"ModelSnapshot: done -> {outDir}");
     }

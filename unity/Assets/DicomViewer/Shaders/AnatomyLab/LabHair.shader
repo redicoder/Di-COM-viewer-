@@ -38,6 +38,7 @@ Shader "DicomViewer/LabHair"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "LabSkin.hlsl"
+            #include "LabLids.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
                 float _WidthScale, _KeepMm, _Shine, _Darken;
@@ -50,6 +51,7 @@ Shader "DicomViewer/LabHair"
                 float4 tangentOS : TANGENT;
                 float2 uv : TEXCOORD0;
                 float2 uv2 : TEXCOORD1;
+                float2 uv3 : TEXCOORD2;                        // the lashes: their lid's weight and eye (LabLids.hlsl)
                 float4 color : COLOR;
             };
             struct Varyings
@@ -65,8 +67,10 @@ Shader "DicomViewer/LabHair"
             Varyings Vert(Attributes v)
             {
                 Varyings o;
-                float3 centre = TransformObjectToWorld(v.positionOS.xyz);
-                float3 T = normalize(TransformObjectToWorldDir(v.tangentOS.xyz));
+                float3 positionOS = v.positionOS.xyz, tangentOS = v.tangentOS.xyz, normalOS = v.normalOS;
+                LabLid(v.uv3, positionOS, tangentOS, normalOS);                 // lashes go with their lid
+                float3 centre = TransformObjectToWorld(positionOS);
+                float3 T = normalize(TransformObjectToWorldDir(tangentOS));
                 float3 V = normalize(_WorldSpaceCameraPos - centre);
                 float3 side = cross(T, V);
                 side = dot(side, side) > 1e-8 ? normalize(side) : float3(0, 0, 0);
@@ -78,7 +82,7 @@ Shader "DicomViewer/LabHair"
                 float drawnMm = max(widthMm, pixelMm);                          // never under a pixel wide
                 o.positionWS = centre + side * (v.uv.x * 0.5 * drawnMm * 0.001 * alive);
                 o.positionCS = TransformWorldToHClip(o.positionWS);
-                o.rootNormalWS = TransformObjectToWorldNormal(v.normalOS);
+                o.rootNormalWS = TransformObjectToWorldNormal(normalOS);
                 o.tangentWS = T;
                 o.data = float4(v.uv.x, v.uv.y, saturate(widthMm / pixelMm) * alive, v.uv2.y);
                 o.colour = SRGBToLinear(v.color.rgb);

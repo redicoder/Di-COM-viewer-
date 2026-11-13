@@ -107,6 +107,7 @@ class Face:
         if near.sum() < 200:
             return None
         ws = np.arange(we - 13.0, we + 9.0, 0.5)
+        wanted = (ws > we - 9.5) & (ws < we - 2.0)          # the lids meet below the middle of the globe; the crease under the eye lies lower
         rows = np.clip(((w[near] - ws[0]) / 0.5).astype(int), 0, len(ws) - 1)
         depth = np.full(len(ws), np.nan)
         for k in np.unique(rows):
@@ -116,9 +117,14 @@ class Face:
             return None
         depth = np.interp(ws, ws[good], depth[good])
         dip = ndimage.gaussian_filter1d(depth, 1.0) - ndimage.gaussian_filter1d(depth, 7.0)
-        inner = slice(4, len(ws) - 4)
-        k = int(np.argmin(dip[inner])) + 4
-        return float(ws[k]) if dip[k] < -0.08 else None
+        # Of the furrows in that stretch, the one nearest to where lids meet on a globe (about 5 mm below its middle).
+        furrows = [k for k in range(1, len(ws) - 1) if wanted[k] and dip[k] < -0.04 and dip[k] <= dip[k - 1] and dip[k] <= dip[k + 1]]
+        self.furrows = getattr(self, "furrows", {})
+        self.furrows[side] = [(round(float(ws[k] - we), 1), round(float(dip[k]), 2)) for k in furrows]
+        if not furrows:
+            return None
+        k = min(furrows, key=lambda k: abs(ws[k] - (we - 5.0)))
+        return float(ws[k])
 
     def describe(self) -> str:
         return (f"face: eyes {2 * self.half_ipd:.0f} mm apart, nose tip {self.nose_tip_w:.0f} mm below them and {self.nose_tip_d:.0f} forward, "
@@ -146,6 +152,49 @@ def spread(values: np.ndarray, known: np.ndarray, f: np.ndarray, rounds: int = 4
     degree = np.maximum(np.asarray(adj.sum(axis=1)).ravel(), 1.0)
     for _ in range(smooth_rounds):
         out = 0.5 * out + 0.5 * (adj @ out) / degree[:, None]
+    return out
+
+
+def measure_globes(body: Body, name: str = "head") -> list[dict] | None:
+    """The eyeballs measured in a region export's photographs: the dark glassy body of each eye, found round the
+    centre the export recorded, gives the globe's height (its radius) and its centre across, up and in depth (from
+    its back wall; its front is the lens and the cornea, which are not dark). Returns, per eye of body.meta["eyes"],
+    {"centre_m": body metres (x left, y up, z back), "radius_m"}; None when the region is missing."""
+    entry = next((r for r in body.meta.get("regions", []) if r.get("name") == name), None)
+    eyes = body.meta.get("eyes") or []
+    if entry is None or not eyes:
+        return None
+    folder = body.export.parent / entry["folder"]
+    if not (folder / "body.raw").exists():
+        return None
+    meta = json.loads((folder / "body.json").read_text())
+    dx, dy, dz = meta["dims"]
+    sx, sy, sz = meta["spacing_mm"]
+    rgba = np.fromfile(folder / "body.raw", np.uint8).reshape(dz, dy, dx, 4)
+    centre, size = np.array(entry["centre_m"], np.float64), np.array(entry["size_m"], np.float64)
+    out = []
+    for e in eyes:
+        local = (np.array(e["centre_m"]) - centre) / size + 0.5
+        ix, iy, iz = (local * np.array([dx, dy, dz])).astype(int)
+        rx, ry, rz = int(17 / sx), int(17 / sy), int(17 / sz)
+        box = (slice(max(0, iz - rz), iz + rz), slice(max(0, iy - ry), iy + ry), slice(max(0, ix - rx), ix + rx))
+        block = rgba[box].astype(np.int16)
+        brightest = block[..., :3].max(axis=-1)
+        dark = (brightest < 120) & (block[..., 3] > 100) & ((block[..., 0] - block[..., 2]) < 45)     # the vitreous: dark, hardly red
+        dark = ndimage.binary_opening(dark, iterations=2)
+        parts, count = ndimage.label(dark)
+        if count == 0:
+            out.append({"centre_m": list(e["centre_m"]), "radius_m": float(e["radius_m"])})
+            continue
+        sizes = ndimage.sum(dark, parts, range(1, count + 1))
+        blob = parts == (1 + int(np.argmax(sizes)))
+        zs, ys, xs = np.nonzero(blob)
+        radius_mm = 0.5 * ((ys.max() - ys.min() + 1) * sy + (xs.max() - xs.min() + 1) * sx) / 2
+        cy = (ys.min() + ys.max() + 1) / 2 + box[1].start
+        cx = (xs.min() + xs.max() + 1) / 2 + box[2].start
+        cz = (zs.max() + 1 + box[0].start) - radius_mm / sz                   # from the back wall forwards
+        c = (np.array([cx, cy, cz]) / np.array([dx, dy, dz]) - 0.5) * size + centre
+        out.append({"centre_m": [float(x) for x in c], "radius_m": float(radius_mm / 1000.0)})
     return out
 
 

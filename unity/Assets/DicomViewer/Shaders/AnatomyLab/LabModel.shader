@@ -44,6 +44,7 @@ Shader "DicomViewer/LabModel"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "LabSkin.hlsl"
+            #include "LabLids.hlsl"
 
             TEXTURE2D(_BaseTex);  SAMPLER(sampler_BaseTex);
             CBUFFER_START(UnityPerMaterial)
@@ -53,7 +54,7 @@ Shader "DicomViewer/LabModel"
                 float _Saturation, _Skin, _Gloss, _Bump, _Grain, _Occlusion, _MmPerUnit, _VertexAlbedo, _SkinDetail;
             CBUFFER_END
 
-            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; float4 color : COLOR; };
+            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; float2 uv3 : TEXCOORD2; float4 color : COLOR; };
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
@@ -68,9 +69,11 @@ Shader "DicomViewer/LabModel"
             Varyings Vert(Attributes v)
             {
                 Varyings o;
-                o.positionWS = TransformObjectToWorld(v.positionOS.xyz);
+                float3 position = v.positionOS.xyz, normal = v.normalOS, unused = 0.0;
+                LabLid(v.uv3, position, normal, unused);                                 // an eyelid, where it is opened
+                o.positionWS = TransformObjectToWorld(position);
                 o.positionCS = TransformWorldToHClip(o.positionWS);
-                o.normalWS = TransformObjectToWorldNormal(v.normalOS);
+                o.normalWS = TransformObjectToWorldNormal(normal);
                 o.uv = v.uv;
                 o.positionMm = v.positionOS.xyz * _MmPerUnit;
                 o.bake = v.color;

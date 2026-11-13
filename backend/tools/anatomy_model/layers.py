@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub
-from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, surface
+from . import bonehub, eyes
+from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, surface
 from .palette import BONE, colour_of
 
 SKIP = ("marker", "penis", "scrotum", "trachea lumen")      # markers are not anatomy; the outer genitals are skin
@@ -84,5 +84,10 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         v, f = body.to_gltf(v, f)
         out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]),
                              info={"label": int(o["index"]), "class": o["layer"]}))
+    if layer == "organs":
+        skin_cache = body.export / "model" / "skin.npz"
+        if skin_cache.exists():                                # the eyeballs sit behind the skin's lids
+            whole = body.export / "model" / "skin_surface.npz"
+            out += eyes.build(load_structures(skin_cache)[0], log, load_structures(whole)[0] if whole.exists() else None)
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")
     return out

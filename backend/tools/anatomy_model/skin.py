@@ -13,8 +13,8 @@ import numpy as np
 from scipy import ndimage
 from skimage import measure
 
-from . import fine_skin, hair, zones
-from .common import Baker, Body, Structure, decimate, decimate_regions, keep_big_pieces, normals_of, outward, relax, surface
+from . import fine_skin, hair, lids, zones
+from .common import Baker, Body, Structure, decimate, decimate_regions, keep_big_pieces, load_structures, normals_of, outward, relax, save_structures, surface
 from .palette import BRIEFS
 
 SLAB = 96                       # fine slices meshed at a time
@@ -23,12 +23,21 @@ WELD_MM = 1e-3
 
 
 # ---- landmarks the skin needs (glTF metres) ----------------------------------------------------------------------
+def measured_eyes(body: Body) -> list[dict]:
+    """The export's eyes with their globes measured again in the head's photographs, where those are at hand."""
+    eyes = body.meta.get("eyes") or []
+    measured = zones.measure_globes(body) if len(eyes) == 2 else None
+    if not measured:
+        return eyes
+    return [dict(e, centre_m=m["centre_m"], radius_m=m["radius_m"]) for e, m in zip(eyes, measured)]
+
+
 def landmarks(body: Body) -> dict:
     """Where the face, the hands and the feet are, from the export's own data."""
     lab = body.labels
     sz, sy, sx = body.spacing
     out = {}
-    eyes = body.meta.get("eyes") or []
+    eyes = measured_eyes(body)
     if len(eyes) == 2:
         c = np.mean([e["centre_m"] for e in eyes], axis=0)                 # body metres: x left, y up, z back
         out["eyes"] = [np.array([e["centre_m"][0], e["centre_m"][1], -e["centre_m"][2]]) for e in eyes]
@@ -271,7 +280,9 @@ def briefs_solid(body: Body) -> np.ndarray | None:
 
 
 # ---- the layer -------------------------------------------------------------------------------------------------
-def build(body: Body, triangles: int, log=print) -> list[Structure]:
+def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) -> list[Structure]:
+    """The skin layer: the skin, the briefs, the hair. `reuse_surface` takes the surface (shape and bake) from the
+    last build and redoes only what is painted and grown on it: for working on the zones, the lids or the hair."""
     lab = body.labels
     baker = Baker(body)
     tissue = lab > 0
@@ -279,7 +290,12 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
     marks = landmarks(body)
     bubbles = detail_bubbles(marks)
     fine = fine_skin.load(body)
-    if fine is not None:
+    base_path = body.export / "model" / "skin_surface.npz"
+    base = load_structures(base_path)[0] if reuse_surface and base_path.exists() else None
+    if base is not None:
+        v, f, bake = base.v, base.f, base.bake.copy()
+        log(f"skin surface: {len(f)} triangles from the last build")
+    elif fine is not None:
         v_mm, f = fine_surface(fine, log=log)
         v, f = body.to_gltf(v_mm, f)
         v, f = keep_big_pieces(v, f, 0.01)
@@ -289,7 +305,9 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
         v_mm, f = surface(tissue, body.spacing, 1.6)
         v, f = body.to_gltf(v_mm, f)
         log(f"skin surface: {len(f)} triangles from the export's voxels (no fine outline: run with --photos)")
-    if fine is not None:
+    if base is not None:
+        pass
+    elif fine is not None:
         # Finer where a student looks closely: the face under a millimetre, the ears, hands and feet a little over.
         region, edges = detail_regions(v, marks, triangles)
         v, f = decimate_regions(v, f, region, edges, log)
@@ -297,11 +315,13 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
         big = magnify(v, bubbles)
         big, f = decimate(big.astype(np.float32), f, int(triangles), agg=4.0)
         v = shrink(big, bubbles).astype(np.float32)
-    f = outward(v, f)
-    if fine is not None:                                                  # the steps the decimation kept as edges
+    if base is None:
+        f = outward(v, f)
+    if base is None and fine is not None:                                 # the steps the decimation kept as edges
         v = relax(v, f, 30, face_tolerance(tolerance(body, fine, v), v, marks))
-    bake = baker.colours(v, f, field, depth)
-    if fine is not None:
+    if base is None:
+        bake = baker.colours(v, f, field, depth)
+    if base is None and fine is not None:
         small = fine_openness(fine, body, v, normals_of(v, f))
         # At the joints between the specimen's blocks the outline steps; that step is not a crease of his skin.
         joint = np.clip((tolerance(body, fine, v) - 0.00045) / 0.0018, 0, 1)
@@ -315,6 +335,8 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
             weight = np.clip((0.105 - near) / 0.02, 0.0, 1.0)
             line = np.clip(1.0 - (concavity_mm(v, f) - 0.03) / 0.26, 0.0, 1.0)
             bake[:, 0] = np.round(bake[:, 0] * (1.0 - weight * 0.5 * (1.0 - line)))
+    if base is None:
+        save_structures(base_path, [Structure("skin surface", "skin", v, f, (1.0, 1.0, 1.0), bake=bake)])
     # The skin's own colour, gloss and hair by region; then the hair itself.
     normals = normals_of(v, f)
     albedo, hair_mask, gloss, reg, info = zones.paint(body, v, normals, bake, marks, f)
@@ -322,24 +344,43 @@ def build(body: Body, triangles: int, log=print) -> list[Structure]:
     if "face" in info:
         log(info["face"].describe())
     skin_colour = tuple(c / 255 for c in zones.SKIN_BASE)
-    out = [Structure("skin", "skin", v, f, skin_colour, bake=bake, albedo=albedo, extra=hair_mask,
-                     info={"landmarks": {k: [float(x) for x in np.ravel(p)] for k, p in marks.items()}})]
-
-    solid = briefs_solid(body)
-    covered = None
-    if solid is not None:                                                 # no hair grows through the cloth
-        cloth = ndimage.gaussian_filter(solid[::2, ::2, ::2].astype(np.float32), 0.8)
-        covered = zones.smooth(body.sample(cloth, v, step=2), 0.3, 0.6)
+    skin_info = {"landmarks": {k: [float(x) for x in np.ravel(p)] for k, p in marks.items()}}
     lid_y = None
     if "face" in info and len(body.meta.get("eyes") or []) == 2:
-        eyes = sorted(body.meta["eyes"], key=lambda e: e["centre_m"][0])
+        eyes = sorted(measured_eyes(body), key=lambda e: e["centre_m"][0])
+        log("eyes as measured in the photographs: " + "; ".join(f"centre {[round(x * 1000, 1) for x in e['centre_m']]} mm, radius {e['radius_m'] * 1000:.1f} mm" for e in eyes)
+            + " | as the export had them: " + "; ".join(str([round(x * 1000, 1) for x in e["centre_m"]]) for e in sorted(body.meta["eyes"], key=lambda e: e["centre_m"][0])))
         face = info["face"]
         lid_y = {side: (e["lid_line_y_m"] - face.origin[1]) / zones.MM for side, e in zip(("right", "left"), eyes)}
         for side, found in (info.get("lid_w") or {}).items():                # the furrow in the skin itself, where it shows
             if found is not None:
                 lid_y[side] = found
-        log("lid lines, mm above the eyes: %s; read from the relief: %s" % ({k: round(x, 1) for k, x in lid_y.items()}, info.get("lid_w")))
-    out += hair.build(v, f, normals, reg, info, covered=covered, lid_y=lid_y, log=log)
+        log("lid lines, mm above the eyes: %s; read from the relief: %s; furrows below each globe's middle (mm, depth): %s"
+            % ({k: round(x, 1) for k, x in lid_y.items()}, info.get("lid_w"), getattr(face, "furrows", None)))
+        centres = {side: np.array([e["centre_m"][0], e["centre_m"][1], -e["centre_m"][2]]) for side, e in zip(("right", "left"), eyes)}
+        skin_info["eyes"] = {"centres": {s: [float(x) for x in c] for s, c in centres.items()},
+                             "radius": {side: float(e["radius_m"]) for side, e in zip(("right", "left"), eyes)},
+                             "forward": [float(x) for x in face.ez], "up": [float(x) for x in face.ey],
+                             "lid_w": {s: float(x) for s, x in lid_y.items()},
+                             "upper_degrees": lids.UPPER_DEGREES, "lower_degrees": lids.LOWER_DEGREES}
+    # The lids: the hair is grown on the uncut skin (its roots do not care), then the slits are cut.
+    data2 = None
+    v_hair, f_hair, n_hair = v, f, normals
+    if lid_y is not None:
+        v2, f2, source, data2, margin = lids.cut(v, f, info["face"], lid_y, centres, log)
+        bake, albedo, hair_mask = bake[source], albedo[source], hair_mask[source]
+        albedo[margin] = lids.MARGIN_COLOUR
+        bake[margin, 3] = 215                                              # the margin is wet
+        bake[margin, 0] = 150
+        v, f = v2, f2
+    out = [Structure("skin", "skin", v, f, skin_colour, bake=bake, albedo=albedo, extra=hair_mask, data2=data2, info=skin_info)]
+
+    solid = briefs_solid(body)
+    covered = None
+    if solid is not None:                                                 # no hair grows through the cloth
+        cloth = ndimage.gaussian_filter(solid[::2, ::2, ::2].astype(np.float32), 0.8)
+        covered = zones.smooth(body.sample(cloth, v_hair, step=2), 0.3, 0.6)
+    out += hair.build(v_hair, f_hair, n_hair, reg, info, covered=covered, lid_y=lid_y, log=log)
     if solid is not None:
         box = ndimage.find_objects(solid.astype(np.int32))[0]
         got = surface(solid[box], body.spacing, 2.2, [s.start for s in box])

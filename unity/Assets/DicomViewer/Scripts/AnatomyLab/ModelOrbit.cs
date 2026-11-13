@@ -46,6 +46,12 @@ namespace DicomViewer.AnatomyLab
 
         private void Update()
         {
+            if (ModelBody.Grabbing)                                      // an eyelid is in the hand: the view stays
+            {
+                dragging = false;
+                lastMouse = Input.mousePosition;
+                return;
+            }
             if (Input.touchCount >= 2)
             {
                 Touch a = Input.GetTouch(0), b = Input.GetTouch(1);
