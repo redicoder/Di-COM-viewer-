@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, head_layers, mouth
+from . import bonehub, eyes, face_muscles, head_layers, mouth, skull_bones
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, surface
 from .palette import BONE, colour_of
 
@@ -34,6 +34,10 @@ KEEP_WITH_BONEHUB = ("cartilage", "disc", "coccyx")      # what BoneHub does not
 def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
     """The structures of one layer (fat, muscles, skeleton or organs), about `triangles` in all."""
     lab = body.labels
+    if layer == "muscles":                                 # the face's muscles are drawn whole (face_muscles.py): the labels' scraps of them go
+        face_muscles.clear_scraps(body, log)
+    if layer == "fat":                                     # and the fat over those of them that lie right under the skin
+        face_muscles.expose(body, log)
     objs = objects_of(body, layer)
     named = []
     if layer == "skeleton" and bonehub.cache_path(body).exists():
@@ -93,6 +97,12 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
             for s in out:
                 if s.name in ("cranium and maxilla", "mandible"):
                     mouth.without_crowns(body, m, s, s.name != "mandible", log)
+    if layer == "muscles":
+        out += face_muscles.build(body, log)
+    if layer == "skeleton":                                # the skull in its bones (the atlas fitted: skull_bones.py)
+        whole = next((s for s in out if s.name == skull_bones.WHOLE), None)
+        if whole is not None:
+            out = [s for s in out if s is not whole] + skull_bones.split(body, whole, log)
     if layer == "organs":
         skin_cache = body.export / "model" / "skin.npz"
         if skin_cache.exists():                                # the eyeballs sit behind the skin's lids

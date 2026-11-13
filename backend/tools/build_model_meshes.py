@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import bonehub, fine_skin, head_layers, mouth  # noqa: E402
+from anatomy_model import bonehub, fine_skin, head_layers, mouth, skull_bones  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
@@ -46,6 +46,8 @@ def main() -> int:
     ap.add_argument("--skin-triangles", type=int, default=900_000, help="the skin's surface (the hair comes on top)")
     ap.add_argument("--photos", type=Path, help="the photographs' folder: (re)reads the fine skin outline from them first (about 12 minutes)")
     ap.add_argument("--bones", type=Path, help="BoneHub's folder of .seg.nrrd files: reads and fits the 142 named bones first (about 4 minutes)")
+    ap.add_argument("--atlas", type=Path, help="BodyParts3D's folder (its .obj files and isa_element_parts.txt): fits its skull bones to his skull first, "
+                                               "so the skull is built as its named bones (once; about half a minute)")
     ap.add_argument("--head-ct", type=Path, help="the frozen CT's folder: labels the head and neck on it with TotalSegmentator's open tasks first (GPU, once)")
     ap.add_argument("--layers", default="", help="rebuild only these layers (comma separated); the others come from the cache")
     ap.add_argument("--skin-reuse", action="store_true", help="keep the skin's surface of the last build; redo its colour zones, lids and hair only")
@@ -70,6 +72,11 @@ def main() -> int:
         for _, name, v, f in placed:
             g, _ = body.to_gltf(v, f)
             body.extra_bones[name] = (g.min(axis=0).astype(float), g.max(axis=0).astype(float))
+        if args.atlas:                                             # the skull's bones: the atlas fitted to his skull
+            _, _, whole_v, whole_f = next(b for b in placed if b[1] == skull_bones.WHOLE)
+            skull_bones.fit_atlas(body, args.atlas, whole_v, whole_f)
+    elif args.atlas:
+        raise SystemExit("--atlas needs the BoneHub skull first (run once with --bones)")
     cache = args.export / "model"
     body.head_ct_dir = args.head_ct
     whole_skin = cache / "skin_surface.npz"
