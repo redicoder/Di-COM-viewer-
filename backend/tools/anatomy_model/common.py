@@ -101,6 +101,7 @@ class Body:
         # The eyes: the globes and what lies in front of them (the lids' own thickness) are left to the eyeballs
         # (eyes.py) and to the skin; nothing of the layers beneath may stand between an opened lid and its eye.
         sz, sy, sx = self.spacing
+        self.eye_pits = []
         for e in getattr(self, "eyes_measured", None) or self.meta.get("eyes") or []:
             cx, cy, cz = (np.array(e["centre_m"]) * 1000.0 + np.array(self.size_mm) / 2)      # mm: x, y, z (back)
             reach = float(e["radius_m"]) * 1000.0 + 14.0
@@ -110,10 +111,12 @@ class Body:
             zz, yy, xx = np.meshgrid((np.arange(z0, z1) + 0.5) * sz - cz, (np.arange(y0, y1) + 0.5) * sy - cy, (np.arange(x0, x1) + 0.5) * sx - cx, indexing="ij")
             distance = np.sqrt(zz ** 2 + yy ** 2 + xx ** 2)
             globe = distance < float(e["radius_m"]) * 1000.0 + 3.0
-            # The cup the conjunctiva lines (eyes.socket): round the gaze's axis out to its wall, from in front of
+            # The space the conjunctiva lines (eyes.lining): round the gaze's axis out to 22 mm, from in front of
             # the lids (z runs back: in front is less) to a little behind the globe's middle.
             before = (np.hypot(yy, xx) < 22.5) & (zz < 4.0)
-            lab[z0:z1, y0:y1, x0:x1][globe | before] = 0
+            pit = (globe | before) & (lab[z0:z1, y0:y1, x0:x1] > 0)
+            self.eye_pits.append(((z0, y0, x0), pit))            # eyes.py lines it with conjunctiva
+            lab[z0:z1, y0:y1, x0:x1][pit] = 0
         counts = np.bincount(lab.ravel(), minlength=256)
         for o in objects:
             o["voxels"] = int(counts[o["index"]])

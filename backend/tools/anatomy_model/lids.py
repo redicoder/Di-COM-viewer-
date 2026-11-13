@@ -5,13 +5,14 @@ lid and know how to move. So the skin mesh is cut along each lid line (zones.Fac
 relief), from a little inside the inner corner to a little inside the outer one: the vertices on the line are
 moved onto it and doubled, the lower lid's triangles take the copies. Every vertex of a lid then carries how
 much it follows the lid's edge: 1 on the edge at the middle of the eye, falling to 0 at the corners and at the
-fold of the upper lid (11 mm up) or 6 mm down the lower. Unity's shaders turn each lid vertex about the eye's
+brow above the upper lid (21 mm up) or 6 mm down the lower. Unity's shaders turn each lid vertex about the eye's
 centre by its weight times the opening (LabModel.shader, LabHair.shader for the lashes): the edge travels, the
 skin behind it gathers into the fold, as a lid does. A strip of wet pink margin, 2.2 mm deep towards the eye,
 gives the lid's edge its thickness when it is open.
 
 Per vertex (Structure.data2, written as TEXCOORD_2): x = the weight, positive on the upper lid and negative on
-the lower; y = 0.25 for the right eye, 0.75 for the left, 0 elsewhere.
+the lower; y = which eye (0.05 the right, 0.55 the left) plus 0.2 times how much the skin there stands out as a
+fold when the lid is open (0..1); 0 elsewhere.
 """
 from __future__ import annotations
 
@@ -20,11 +21,15 @@ import numpy as np
 from .zones import MM, Face, smooth
 
 INNER, SPAN = -15.5, 29.0           # mm from the eye's centre to the inner corner, and the fissure's length
-UPPER_FOLD, LOWER_FOLD = 11.0, 6.0  # mm of lid that moves, above and below the lid line
+UPPER_FOLD, LOWER_FOLD = 21.0, 6.0  # mm of skin that moves, above and below the lid line. The upper lid's edge travels
+                                    # 13 mm; the skin above must give way no faster than the edge comes (the weight may
+                                    # fall by at most 1 per 13 mm), or the edge runs into skin that has not moved: so the
+                                    # skin goes up with it all the way to the brow, and gathers into a fold on the way
+FOLD_CODE = 0.2                     # the fold's height rides on the eye's code: code + FOLD_CODE * (0..1)
 MARGIN = 4.0                        # mm: the lid edge's thickness (his lids are swollen: about 5 mm lie over the globe)
 MARGIN_COLOUR = (196, 124, 118)
 UPPER_DEGREES, LOWER_DEGREES = 42.0, 7.0     # how far the lids' edges turn about the eye's centre when fully open
-SIDE_CODE = {"right": 0.25, "left": 0.75}
+SIDE_CODE = {"right": 0.05, "left": 0.55}
 
 
 def lid_curve(face: Face, side: str, lid_w: float):
@@ -58,7 +63,7 @@ def cut(v: np.ndarray, f: np.ndarray, face: Face, lid_w: dict, eye_centres: dict
         t_of, w_of = lid_curve(face, side, lid_w[side])
         t = t_of(u)
         g = w - w_of(np.clip(t, 0.0, 1.0))                                   # mm above the lid line
-        near = (t > -0.25) & (t < 1.25) & (np.abs(g) < 18.0) & (d > 4.0) & ~margin
+        near = (t > -0.25) & (t < 1.25) & (g > -18.0) & (g < UPPER_FOLD + 3.0) & (d > 4.0) & ~margin
         tri_near = near[f].all(axis=1)
         tri_t = t[f].mean(axis=1)
         tri_g = g[f].mean(axis=1)
@@ -75,11 +80,15 @@ def cut(v: np.ndarray, f: np.ndarray, face: Face, lid_w: dict, eye_centres: dict
         # The seam's vertices onto the line itself, so the lid's edge is a clean curve and not the mesh's zigzag.
         v[seam] -= face.ey * (g[seam] * MM)[:, None]
         profile = np.sin(np.pi * np.clip(t, 0.0, 1.0)) ** 0.8
-        upper = profile * smooth(g, UPPER_FOLD, 0.0) * (g >= 0) * near
+        rise = smooth(g, UPPER_FOLD, 0.0) * (g >= 0) * near                  # 1 at the lid's edge, 0 at the brow
+        upper = profile * rise
         lower = profile * smooth(-g, LOWER_FOLD, 0.0) * (g < 0) * near
         upper[seam] = profile[seam]
         lid = np.where(upper > 0, upper, np.where(lower > 0, -lower, lid))
-        eye = np.where((upper > 0) | (lower > 0), SIDE_CODE[side], eye)
+        # Where the gathered skin stands out as a fold: most half way up, nothing at the edge and at the brow.
+        fold = profile * 4.0 * rise * (1.0 - rise)
+        fold[seam] = 0.0
+        eye = np.where((upper > 0) | (lower > 0), SIDE_CODE[side] + FOLD_CODE * np.clip(fold, 0.0, 1.0), eye)
         new_v, new_lid, new_src, new_margin = [], [], [], []
         # The lower lid takes copies of the seam's vertices.
         copy_of = np.full(k0, -1, np.int64)
