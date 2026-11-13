@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import bonehub, fine_skin, head_layers  # noqa: E402
+from anatomy_model import bonehub, fine_skin, head_layers, mouth  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
@@ -71,6 +71,12 @@ def main() -> int:
             g, _ = body.to_gltf(v, f)
             body.extra_bones[name] = (g.min(axis=0).astype(float), g.max(axis=0).astype(float))
     cache = args.export / "model"
+    body.head_ct_dir = args.head_ct
+    whole_skin = cache / "skin_surface.npz"
+    if whole_skin.exists() and len(body.eyes_measured or []) == 2:  # the mouth, measured on the skin as last built (the skin layer measures it again on a new surface)
+        from anatomy_model.zones import Face
+        surface = load_structures(whole_skin)[0]
+        mouth.prepare(body, Face(skin.landmarks(body), surface.v), surface.v, args.head_ct)
     chosen = [x for x in args.layers.split(",") if x] or LAYERS
     unknown = [x for x in chosen if x not in LAYERS]
     if unknown:
@@ -89,11 +95,14 @@ def main() -> int:
             built = load_structures(path)
             print(f"{layer}: {len(built)} structures from the cache")
         structures += built
+    if getattr(body, "mouth", None) is not None:                   # every structure's share in the jaw's turn
+        moved = mouth.assign(structures, body, body.mouth)
+        print(f"mouth: {moved} structures go with the jaw, wholly or in part")
     if args.out:
         write_glb(args.out, structures)
         # What Unity needs to know beside the meshes (the importer does not hand over a node's extras).
         skin_info = next((s.info for s in structures if s.name == "skin"), {})
-        args.out.with_suffix(".json").write_text(json.dumps({"eyes": skin_info.get("eyes"), "landmarks": skin_info.get("landmarks")}, indent=1))
+        args.out.with_suffix(".json").write_text(json.dumps({"eyes": skin_info.get("eyes"), "mouth": skin_info.get("mouth"), "landmarks": skin_info.get("landmarks")}, indent=1))
         print(f"wrote {args.out} ({args.out.stat().st_size / 1e6:.1f} MB, {len(structures)} structures, {sum(s.triangles for s in structures)} triangles)")
     return 0
 

@@ -96,6 +96,42 @@ def volume(ct_dir: Path, first: int, last: int, cache: Path | None = None, log=p
     return out
 
 
+def native(ct_dir: Path, first: int, last: int, x_mm: tuple, y_mm: tuple, cache: Path, log=print) -> dict | None:
+    """A window of the CT at its own pixels (the head's 0.527 mm), for what the common grid blurs (the teeth):
+    {"hu" int16 (slices, rows, columns), "first", "px", "x0", "y0" (the window's corner in the scanner's mm)}.
+    Read once from `ct_dir` and kept in `cache`; None when neither is there. Only as many slices from `first` on as
+    share its pixel size and corner are read (len(hu) says how many)."""
+    if cache.exists():
+        with np.load(cache) as z:
+            return {k: (z[k] if k == "hu" else float(z[k])) for k in ("hu", "first", "px", "x0", "y0")}
+    if ct_dir is None or not Path(ct_dir).exists():
+        return None
+    import pydicom
+    ct, _ = _tools()
+    files = ct.index_ct(Path(ct_dir))
+    blocks, px, corner = [], None, None
+    for number in range(first, last + 1):
+        path = files.get(number)
+        if path is None:
+            return None
+        ds = pydicom.dcmread(path)
+        here = float(ds.PixelSpacing[0])
+        here_corner = (float(ds.ImagePositionPatient[0]) - here / 2, float(ds.ImagePositionPatient[1]) - here / 2)
+        if px is None:
+            px, corner = here, here_corner
+            c0, c1 = int(max(0, (x_mm[0] - corner[0]) / px)), int((x_mm[1] - corner[0]) / px) + 2
+            r0, r1 = int(max(0, (y_mm[0] - corner[1]) / px)), int((y_mm[1] - corner[1]) / px) + 2
+        elif abs(here - px) > 1e-4 or abs(here_corner[0] - corner[0]) > 1e-3 or abs(here_corner[1] - corner[1]) > 1e-3:
+            break                                                 # the series ends here (the CT changes its pixels at the chin)
+        image = ds.pixel_array.astype(np.float32) * float(getattr(ds, "RescaleSlope", 1.0)) + float(getattr(ds, "RescaleIntercept", 0.0))
+        blocks.append(np.round(image[r0:r1, c0:c1]).astype(np.int16))
+    out = {"hu": np.stack(blocks), "first": float(first), "px": px, "x0": corner[0] + c0 * px, "y0": corner[1] + r0 * px}
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(cache, **out)
+    log(f"ct: slices {first}..{last} at {px:.3f} mm, {out['hu'].shape[2]} x {out['hu'].shape[1]} pixels, kept in {cache.name}")
+    return out
+
+
 class CtToBody:
     """The scanner's millimetres (slice number, y, x) -> the body's millimetres (array order z, y, x)."""
 
@@ -135,6 +171,26 @@ class CtToBody:
         xx = col_mm - self.crop_mm[1]
         yy = (self.bottom - np.asarray(slice_number, np.float64)) + self.every / 2.0
         return np.stack([z, yy, xx], axis=-1)
+
+    def inverse(self, zyx_mm: np.ndarray) -> np.ndarray:
+        """The body's millimetres (..., 3 in array order z, y, x) -> the CtVolume's grid index (3, ...: slices, rows,
+        columns, as scipy.ndimage.map_coordinates wants them: a voxel's centre at its whole index)."""
+        p = np.asarray(zyx_mm, np.float64)
+        number = self.bottom + self.every / 2.0 - p[..., 1]
+        k = np.clip(number - self.vol.first, 0, len(self.vol.hu) - 1)
+        index = np.arange(len(self.vol.hu))
+
+        def at(table):
+            return np.interp(k, index, table)
+
+        cx, cy = at(self.vol.centroid[:, 0]), at(self.vol.centroid[:, 1])
+        x = cx + (p[..., 2] + self.crop_mm[1] - at(self.origin[:, 1]) - cx) * self.scale
+        y = cy + (p[..., 0] + self.crop_mm[0] - at(self.origin[:, 0]) - cy) * self.scale
+        return np.stack([number - self.vol.first - 0.5, (y - GRID_ORIGIN[1]) / GRID_MM - 0.5, (x - GRID_ORIGIN[0]) / GRID_MM - 0.5], axis=0)
+
+    def scanner(self, index: np.ndarray) -> tuple:
+        """What `inverse` returned -> the slice number and the scanner's y and x in millimetres."""
+        return index[0] + self.vol.first + 0.5, GRID_ORIGIN[1] + (index[1] + 0.5) * GRID_MM, GRID_ORIGIN[0] + (index[2] + 0.5) * GRID_MM
 
     def grid_points(self, zyx_index: np.ndarray) -> np.ndarray:
         """Voxel coordinates of the CtVolume's grid (slices, rows, columns; a voxel's centre at index + 0.5) -> body mm."""

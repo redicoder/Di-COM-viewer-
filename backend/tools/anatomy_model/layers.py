@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, head_layers
+from . import bonehub, eyes, head_layers, mouth
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, surface
 from .palette import BONE, colour_of
 
@@ -85,6 +85,14 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]),
                              info={"label": int(o["index"]), "class": o["layer"]}))
     out += head_layers.structures(body, layer, log)        # the head and neck, named on his CT
+    m = getattr(body, "mouth", None)
+    if m is not None and layer in ("skeleton", "organs"):  # the teeth and the tongue as the mouth has them (finer, and fitting its space)
+        mine = [s for s in (mouth.teeth(body, m, log) if layer == "skeleton" else [mouth.tongue(body, m, log)]) if s is not None]
+        out = [s for s in out if s.name not in {x.name for x in mine}] + mine
+        if layer == "skeleton" and mine:
+            for s in out:
+                if s.name in ("cranium and maxilla", "mandible"):
+                    mouth.without_crowns(body, m, s, s.name != "mandible", log)
     if layer == "organs":
         skin_cache = body.export / "model" / "skin.npz"
         if skin_cache.exists():                                # the eyeballs sit behind the skin's lids

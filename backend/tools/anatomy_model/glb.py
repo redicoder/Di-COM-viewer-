@@ -1,6 +1,7 @@
 """The model as a GLB: one node per layer (outermost first), one child mesh per structure.
 
-Per vertex (TEXCOORD_2, where a structure has it, is a third pair of numbers: the skin's eyelid weights):
+Per vertex (TEXCOORD_2, where a structure has it, is a third pair of numbers: the skin's eyelid weights; TEXCOORD_3
+a fourth: x = how far the vertex goes with the jaw):
 POSITION, NORMAL, COLOR_0 = the bake (openness, thickness / 60 mm, curvature / 0.25 per mm, gloss with
 128 = the material's own), TEXCOORD_0 = (albedo red, albedo green), TEXCOORD_1 = (albedo blue, extra): the albedo in
 sRGB 0..1 (the structure's colour where it has no per-vertex albedo), `extra` the layer's own use (skin: hair
@@ -73,7 +74,10 @@ def write_glb(path: Path, structures: list[Structure], generator: str = "dissect
                 continue
             attributes = {"POSITION": accessor(np.ascontiguousarray(s.v, np.float32), FLOAT, "VEC3", ARRAY_BUFFER, bounds=True)}
             if s.streams:                                                 # ready attributes (hair ribbons)
-                for key, data in s.streams.items():
+                streams = dict(s.streams)
+                if "TEXCOORD_3" in streams and "TEXCOORD_2" not in streams:  # the importer keeps the fourth pair only after a third
+                    streams["TEXCOORD_2"] = np.zeros((len(s.v), 2), np.float32)
+                for key, data in streams.items():
                     data = np.ascontiguousarray(data)
                     if data.dtype == np.uint8:
                         attributes[key] = accessor(data, UBYTE, "VEC4", ARRAY_BUFFER, normalized=True)
@@ -87,8 +91,11 @@ def write_glb(path: Path, structures: list[Structure], generator: str = "dissect
                 attributes["COLOR_0"] = accessor(bake, UBYTE, "VEC4", ARRAY_BUFFER, normalized=True)
                 attributes["TEXCOORD_0"] = accessor(flip_v(uv0), FLOAT, "VEC2", ARRAY_BUFFER)
                 attributes["TEXCOORD_1"] = accessor(flip_v(uv1), FLOAT, "VEC2", ARRAY_BUFFER)
-                if s.data2 is not None:
-                    attributes["TEXCOORD_2"] = accessor(flip_v(np.asarray(s.data2, np.float32)), FLOAT, "VEC2", ARRAY_BUFFER)
+                if s.data2 is not None or s.data3 is not None:           # (the importer keeps a fourth pair only after a third)
+                    third = np.asarray(s.data2, np.float32) if s.data2 is not None else np.zeros((len(s.v), 2), np.float32)
+                    attributes["TEXCOORD_2"] = accessor(flip_v(third), FLOAT, "VEC2", ARRAY_BUFFER)
+                if s.data3 is not None:
+                    attributes["TEXCOORD_3"] = accessor(flip_v(np.asarray(s.data3, np.float32)), FLOAT, "VEC2", ARRAY_BUFFER)
             indices = accessor(np.ascontiguousarray(s.f, np.uint32).ravel(), UINT, "SCALAR", ELEMENT_ARRAY_BUFFER)
             materials.append({"name": s.name, "pbrMetallicRoughness": {"baseColorFactor": srgb_to_linear(s.colour) + [1.0],
                                                                       "metallicFactor": 0.0, "roughnessFactor": 0.6}})
@@ -153,5 +160,7 @@ def read_glb(path: Path) -> list[Structure]:
                 s.extra = np.round(np.clip(uv1[:, 1], 0, 1) * 255).astype(np.uint8)
                 if "TEXCOORD_2" in at:
                     s.data2 = flip_v(get(at["TEXCOORD_2"]))
+                if "TEXCOORD_3" in at:
+                    s.data3 = flip_v(get(at["TEXCOORD_3"]))
             out.append(s)
     return out

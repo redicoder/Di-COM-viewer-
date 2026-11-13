@@ -21,6 +21,8 @@ Shader "DicomViewer/LabHair"
         [HideInInspector] _EyeFwd ("The face's forward", Vector) = (0, 0, 1, 0)
         [HideInInspector] _EyeUp ("The face's up", Vector) = (0, 1, 0, 0)
         [HideInInspector] _LidOpen ("Lids open (right, left) and their full turns (upper, lower)", Vector) = (0, 0, 0.8, 0.12)
+        [HideInInspector] _JawHinge ("A point on the jaw's axis; w = the jaw's turn now, radians", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _JawAxis ("The jaw's axis", Vector) = (1, 0, 0, 0)
     }
     SubShader
     {
@@ -48,6 +50,7 @@ Shader "DicomViewer/LabHair"
             CBUFFER_START(UnityPerMaterial)
                 float _WidthScale, _KeepMm, _Shine, _Darken;
                 LAB_LID_UNIFORMS
+                LAB_JAW_UNIFORMS
             CBUFFER_END
 
             struct Attributes
@@ -58,6 +61,7 @@ Shader "DicomViewer/LabHair"
                 float2 uv : TEXCOORD0;
                 float2 uv2 : TEXCOORD1;
                 float2 uv3 : TEXCOORD2;                        // the lashes: their lid's weight and eye (LabLids.hlsl)
+                float2 uv4 : TEXCOORD3;                        // the beard: how far its root goes with the jaw
                 float4 color : COLOR;
             };
             struct Varyings
@@ -75,6 +79,7 @@ Shader "DicomViewer/LabHair"
                 Varyings o;
                 float3 positionOS = v.positionOS.xyz, tangentOS = v.tangentOS.xyz, normalOS = v.normalOS;
                 LabLid(v.uv3, _EyeR.xyz, _EyeL.xyz, _EyeFwd.xyz, _EyeUp.xyz, _LidOpen, positionOS, tangentOS, normalOS);   // lashes go with their lid
+                LabJaw(v.uv4.x, _JawHinge, _JawAxis.xyz, positionOS, tangentOS, normalOS);                                  // the beard with the jaw
                 float3 centre = TransformObjectToWorld(positionOS);
                 float3 T = normalize(TransformObjectToWorldDir(tangentOS));
                 float3 V = normalize(_WorldSpaceCameraPos - centre);

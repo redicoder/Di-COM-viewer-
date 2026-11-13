@@ -1,0 +1,89 @@
+"""The mouth's jaw weights on made-up blocks: the flesh on the lower jaw goes with it, the flesh on the upper stays,
+nothing flows across the sheet between them, and a point turned about the hinge goes where the shader will take it.
+Needs scikit-image and scipy (backend/.venv-seg); skipped without them."""
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+pytest.importorskip("skimage")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+
+from anatomy_model import mouth  # noqa: E402
+from anatomy_model.common import Structure, load_structures, save_structures  # noqa: E402
+from anatomy_model.glb import read_glb, write_glb  # noqa: E402
+
+
+def block():
+    """Tissue 20 x 24 x 20 voxels: held at 0 along the top, at 1 along the bottom; a sheet half way up over the
+    front three quarters (z < 15), none behind."""
+    shape = (20, 24, 20)
+    node = np.ones(shape, bool)
+    zero, one = np.zeros(shape, bool), np.zeros(shape, bool)
+    zero[:, -1, :] = True
+    one[:, 0, :] = True
+    side = np.zeros(shape, np.int8)
+    side[:15, 12:, :] = 1
+    side[:15, :12, :] = -1
+    return node, zero, one, side
+
+
+def test_nothing_flows_across_the_sheet_and_it_blends_behind_it():
+    node, zero, one, side = block()
+    w = mouth.solve_weights(node, zero, one, side, log=lambda *_: None)
+    # In front, right at the sheet: its two sides differ by most of the whole step.
+    assert w[2, 11, 10] - w[2, 12, 10] > 0.6
+    assert w[2, 11, 10] > 0.8 and w[2, 12, 10] < 0.2
+    # Behind the sheet's end the tissue is one piece: neighbours across that height differ little.
+    assert abs(w[18, 11, 10] - w[18, 12, 10]) < 0.1
+    assert 0.3 < w[18, 11, 10] < 0.7
+    # And it is a blend everywhere: between the held values, rising towards the lower jaw.
+    assert w.min() >= 0.0 and w.max() <= 1.0
+    assert (np.diff(w[18, :, 10]) <= 1e-4).all()
+
+
+def test_stiffen_gives_what_is_mostly_with_a_jaw_to_it_wholly():
+    w = np.array([0.0, 0.05, 0.3, 0.5, 0.7, 0.95, 1.0], np.float32)
+    s = mouth.stiffen(w)
+    assert s[0] == 0.0 and s[1] == 0.0 and s[-1] == 1.0 and s[-2] == 1.0
+    assert s[3] == pytest.approx(0.5)
+    assert (np.diff(s) >= 0).all()
+    assert s[2] == pytest.approx(1.0 - s[4], abs=1e-6)
+
+
+def test_nearest_fill_takes_only_valid_values():
+    values = np.array([[1.0, 5.0, 9.0]])
+    valid = np.array([[True, False, False]])
+    assert mouth.nearest_fill(values, valid).tolist() == [[1.0, 1.0, 1.0]]
+
+
+def test_turned_carries_a_point_in_front_of_the_hinge_down_and_back():
+    m = mouth.Mouth.__new__(mouth.Mouth)
+    m.hinge, m.axis = np.array([0.0, 0.8, 0.0]), np.array([1.0, 0.0, 0.0])
+    v = np.array([[0.0, 0.75, 0.11], [0.0, 0.75, 0.11], [0.02, 0.9, 0.05]])
+    out = mouth.turned(m, v, np.array([1.0, 0.5, 0.0]))
+    assert out[0, 1] < v[0, 1] - 0.025 and out[0, 2] < v[0, 2]          # the whole turn: down by centimetres, and back
+    assert out[0, 1] < out[1, 1] < v[1, 1]                              # half the weight, half the way
+    assert np.allclose(out[2], v[2])                                    # no weight: it stays
+    assert np.linalg.norm(out[0] - m.hinge) == pytest.approx(np.linalg.norm(v[0] - m.hinge))
+
+
+def test_fill_columns_carries_known_heights_over_the_domain():
+    values = np.zeros((9, 9))
+    known = np.zeros((9, 9), bool)
+    known[:, 0], known[:, -1] = True, True
+    values[:, -1] = 8.0
+    h = mouth.fill_columns(values, known, np.ones((9, 9), bool), rounds=600)
+    assert np.allclose(h[4], np.arange(9.0), atol=0.05)                 # a straight slope between the two known edges
+
+
+def test_jaw_weights_survive_the_cache_and_the_glb(tmp_path):
+    v = np.array([[0, 0, 0], [0.01, 0, 0], [0, 0.01, 0], [0, 0, 0.01]], np.float32)
+    f = np.array([[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]], np.uint32)
+    weights = np.array([[0.0, 0.0], [0.25, 0.0], [0.5, 0.0], [1.0, 0.0]], np.float32)
+    s = Structure("chin", "skin", v, f, (0.8, 0.6, 0.5), bake=np.full((4, 4), 200, np.uint8), albedo=np.full((4, 3), 180, np.uint8), extra=np.zeros(4, np.uint8), data3=weights)
+    save_structures(tmp_path / "skin.npz", [s])
+    assert np.allclose(load_structures(tmp_path / "skin.npz")[0].data3, weights)
+    write_glb(tmp_path / "a.glb", [s])
+    assert np.allclose(read_glb(tmp_path / "a.glb")[0].data3, weights, atol=1e-6)

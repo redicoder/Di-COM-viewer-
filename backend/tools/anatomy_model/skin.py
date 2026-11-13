@@ -13,7 +13,7 @@ import numpy as np
 from scipy import ndimage
 from skimage import measure
 
-from . import fine_skin, hair, lids, zones
+from . import fine_skin, hair, lids, mouth, zones
 from .common import Baker, Body, Structure, decimate, decimate_regions, keep_big_pieces, load_structures, normals_of, outward, relax, save_structures, surface
 from .palette import BRIEFS
 
@@ -373,7 +373,27 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
         bake[margin, 3] = 215                                              # the margin is wet
         bake[margin, 0] = 150
         v, f = v2, f2
-    out = [Structure("skin", "skin", v, f, skin_colour, bake=bake, albedo=albedo, extra=hair_mask, data2=data2, info=skin_info)]
+    # The mouth: measured on this surface, the lips parted along their line, every vertex given its share in the jaw's turn.
+    data3, mouth_lining = None, None
+    if "face" in info:
+        m = getattr(body, "mouth", None)
+        if m is None or base is None:
+            m = mouth.prepare(body, info["face"], v_hair, getattr(body, "head_ct_dir", None), log)
+        if m is not None:
+            v2, f2, source, side, margin, anchor = mouth.cut(v, f, body, m, log)
+            bake, albedo, hair_mask = bake[source], albedo[source], hair_mask[source]
+            if data2 is not None:
+                data2 = data2[source]
+            albedo[margin] = mouth.MUCOSA
+            bake[margin, 3] = 215
+            bake[margin, 0] = 170
+            v, f = v2, f2
+            data3 = mouth.skin_weights(body, m, v, side, anchor)
+            skin_info["mouth"] = m.info["unity"]
+            mouth_lining = mouth.lining(body, m, log)
+    out = [Structure("skin", "skin", v, f, skin_colour, bake=bake, albedo=albedo, extra=hair_mask, data2=data2, data3=data3, info=skin_info)]
+    if mouth_lining is not None:
+        out.append(mouth_lining)
 
     solid = briefs_solid(body)
     covered = None

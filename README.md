@@ -73,6 +73,8 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   # the head and neck's named structures (TotalSegmentator's open head tasks on his frozen CT; GPU, once, about 15 minutes)
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --head-ct data\vhp_male_frozen --layers fat,muscles,skeleton,organs
   # afterwards; --layers skin rebuilds one layer, --preview <folder> renders pictures without Unity
+  # (the mouth is measured on every run, about a minute: it needs out\photo_head, the head CT's labels and the skin of an earlier build;
+  #  with --head-ct its teeth come from the CT's own 0.5 mm pixels, kept afterwards in out\photo_body\model\ct_mouth.npz)
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb
   ```
 - **The modelled body, prototype** (the new body built step by step from generated reference pictures: body, skeleton,

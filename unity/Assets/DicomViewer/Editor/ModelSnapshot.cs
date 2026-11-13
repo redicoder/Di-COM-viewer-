@@ -26,7 +26,8 @@ public static class ModelSnapshot
     [System.Serializable] private class Sides { public float[] right; public float[] left; }
     [System.Serializable] private class SideValues { public float right; public float left; }
     [System.Serializable] private class EyesInfo { public Sides centres; public SideValues radius; public float[] forward; public float[] up; public float upper_degrees; public float lower_degrees; }
-    [System.Serializable] private class AnatomyInfo { public EyesInfo eyes; }
+    [System.Serializable] private class MouthInfo { public float[] hinge; public float[] axis; public float[] grab; public float degrees; }
+    [System.Serializable] private class AnatomyInfo { public EyesInfo eyes; public MouthInfo mouth; }
 
     // glTF's x runs the other way in the imported meshes.
     private static Vector3 MeshSpace(float[] a) => new Vector3(-a[0], a[1], a[2]);
@@ -45,6 +46,20 @@ public static class ModelSnapshot
         if (info.eyes.upper_degrees > 0f) body.lidUpperDegrees = info.eyes.upper_degrees;
         if (info.eyes.lower_degrees > 0f) body.lidLowerDegrees = info.eyes.lower_degrees;
         Debug.Log($"ModelSnapshot: eyes at {body.eyeRight} and {body.eyeLeft} (mesh space), forward {body.eyeForward}, up {body.eyeUp}");
+    }
+
+    private static void ReadMouth(ModelBody body)
+    {
+        string path = Path.Combine(Application.dataPath, "Models", "anatomy.json");
+        if (!File.Exists(path)) return;
+        AnatomyInfo info = JsonUtility.FromJson<AnatomyInfo>(File.ReadAllText(path));
+        if (info == null || info.mouth == null || info.mouth.hinge == null || info.mouth.hinge.Length < 3 || info.mouth.axis == null || info.mouth.axis.Length < 3) return;
+        body.hasMouth = true;
+        body.jawHinge = MeshSpace(info.mouth.hinge);
+        body.jawAxis = -MeshSpace(info.mouth.axis).normalized;      // an axis of turning: mirrored with the meshes, it points the other way
+        body.mouthGrab = MeshSpace(info.mouth.grab);
+        if (info.mouth.degrees > 0f) body.jawDegrees = info.mouth.degrees;
+        Debug.Log($"ModelSnapshot: jaw hinge at {body.jawHinge}, axis {body.jawAxis} (mesh space), {body.jawDegrees} degrees; lower lip at {body.mouthGrab}");
     }
 
     private static Camera Stage()
@@ -152,6 +167,14 @@ public static class ModelSnapshot
         }
         ReadEyes(body);
         body.PushLids();
+        ReadMouth(body);
+        body.jawRenderers.Clear();
+        foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
+            if (mf.sharedMesh != null && mf.sharedMesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord3) && mf.GetComponent<Renderer>() != null)
+                body.jawRenderers.Add(mf.GetComponent<Renderer>());
+        body.jaw = 0f;
+        body.PushJaw();
+        Debug.Log($"ModelSnapshot: {body.jawRenderers.Count} meshes carry jaw weights");
         foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
             if (mf.name == "hair lashes" || mf.name == "skin")
             {
@@ -289,6 +312,64 @@ public static class ModelSnapshot
         Debug.Log("ModelSnapshot: eyes done");
     }
 
+    /// <summary>The mouth only, quickly (build/snapshots/mouth_*.png): closed, half open and open, from the front, from below and from the side; open on the inner layers.</summary>
+    public static void RunMouth()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null || !body.hasMouth) { Debug.LogError("ModelSnapshot: the model has no mouth (anatomy.json)"); return; }
+        string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
+        Directory.CreateDirectory(outDir);
+        Renderer skinRenderer = null;
+        foreach (Renderer r in body.GetComponentsInChildren<Renderer>(true)) if (r.name == "skin") skinRenderer = r;
+        Transform space = skinRenderer.transform;
+        Vector3 mouth = space.TransformPoint(body.mouthGrab);
+        Vector3 up = space.TransformDirection(body.eyeUp), forward = space.TransformDirection(body.eyeForward);
+        Vector3 across = Vector3.Cross(up, forward).normalized;
+        void Shot(string name, Vector3 from, Vector3 lookAt)
+        {
+            cam.transform.position = lookAt + from;
+            cam.transform.rotation = Quaternion.LookRotation(-from.normalized, up);
+            var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(outDir, "mouth_" + name + ".png"), tex.EncodeToPNG());
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            Object.DestroyImmediate(rt);
+            Object.DestroyImmediate(tex);
+        }
+        Vector3 front = forward * 0.30f, below = (forward * 0.9f - up * 0.45f).normalized * 0.26f, side = (forward * 0.5f + across).normalized * 0.34f;
+        Vector3 face = mouth + up * 0.03f - forward * 0.02f, inside = mouth - up * 0.012f - forward * 0.02f;
+        foreach (float open in new[] { 0f, 0.5f, 1f })
+        {
+            body.jaw = open;
+            body.PushJaw();
+            string tag = $"open{Mathf.RoundToInt(open * 100):000}";
+            Shot(tag + "_front", front, face);
+            Shot(tag + "_below", below, inside);
+            Shot(tag + "_side", side, face);
+            if (open == 1f)
+            {
+                Shot(tag + "_close", (forward * 0.95f - up * 0.3f).normalized * 0.15f, inside);
+                Shot(tag + "_above", (forward * 0.8f + up * 0.6f).normalized * 0.2f, inside);
+            }
+        }
+        foreach (string layer in new[] { "fat", "muscles", "skeleton" })
+        {
+            body.LookAt(layer);
+            Shot("open100_" + layer, (forward * 0.9f + across * 0.45f).normalized * 0.34f, face);
+        }
+        body.LookAt("skin");
+        body.jaw = 0f;
+        body.PushJaw();
+        Debug.Log("ModelSnapshot: mouth done");
+    }
+
     public static void RunPrototype()
     {
         var (cam, body, b) = BuildPrototype();
@@ -364,7 +445,29 @@ public static class ModelSnapshot
             }
             body.lidRight = body.lidLeft = 0f;
             body.PushLids();
-            body.PushLids();
+        }
+        if (body.hasMouth)
+        {
+            // The mouth: half open and open, on the skin; open on the layers under it.
+            foreach ((string name, float open) in new[] { ("half", 0.5f), ("open", 1f) })
+            {
+                body.jaw = open;
+                body.PushJaw();
+                View(-90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f));
+                Shot($"mouth_{name}.png");
+                View(-90f, 35f, dist * 0.13f, head + new Vector3(0.07f, 0f, 0f));       // from the chin's side, looking in
+                Shot($"mouth_{name}_in.png");
+            }
+            foreach (ModelBody.Layer layer in body.layers)
+            {
+                if (layer.name == "skin") continue;
+                body.LookAt(layer.name);
+                View(-60f, 40f, dist * 0.16f, head + new Vector3(0.05f, 0f, 0f));
+                Shot($"mouth_open_{layer.name}.png");
+            }
+            body.LookAt(body.layers[0].name);
+            body.jaw = 0f;
+            body.PushJaw();
         }
         body.GetComponent<ModelPolish>().Restore();
         Debug.Log($"ModelSnapshot: done -> {outDir}");

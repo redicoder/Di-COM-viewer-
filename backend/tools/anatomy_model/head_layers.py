@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage
 
-from . import ct_frame
+from . import ct_frame, fine_skin
 from .common import Baker, Body, Structure, decimate, surface
 
 FIRST, LAST = 1006, 1420                         # the photographs' slice numbers: the top of the head to the shoulders
@@ -47,7 +47,7 @@ USE = {
     },
     "head_glands_cavities": {
         "parotid_gland": ("organs", "parotid gland", GLAND, 6), "submandibular_gland": ("organs", "submandibular gland", GLAND, 2),
-        "optic_nerve": ("organs", "optic nerve", NERVE, 0.15), "soft_palate": ("organs", "soft palate", (0.80, 0.50, 0.48), 1),
+        "optic_nerve": ("organs", "optic nerve", NERVE, 0.15), "soft_palate": ("organs", "soft palate", (0.80, 0.50, 0.48), 3),
     },
     "headneck_bones_vessels": {
         "thyroid_cartilage": ("skeleton", "thyroid cartilage", CARTILAGE, 2), "cricoid_cartilage": ("skeleton", "cricoid cartilage", CARTILAGE, 0.8),
@@ -229,4 +229,54 @@ def build(body: Body, ct_dir: Path | None, triangles_each: int = 9000, log=print
                              info={"source": "TotalSegmentator " + task, "label": label, "class": layer, "cm3": round(cm3, 1)}))
         report.append(f"{name} {cm3:.1f} cm3")
     log("head layers: " + "; ".join(report))
+    tuck_under_skin(body, out, log=log)
     return out
+
+
+def tuck_under_skin(body: Body, structures: list[Structure], least_mm: float = 1.8, log=print) -> int:
+    """Draws under the skin what lies at it or outside it. The structures are placed from the CT, which fits the
+    photographs to a millimetre or two; where a muscle lies right under the skin (the sternocleidomastoid on the
+    neck, the temporalis) that is enough for it to show through. Such vertices go inwards, along the way the
+    depth under the fine skin outline grows, until `least_mm` of skin lies over them. Returns how many moved."""
+    fine = fine_skin.load(body)
+    if fine is None or not structures:
+        return 0
+    size = np.array([body.size_mm[2], body.size_mm[1], body.size_mm[0]])       # z, y, x
+
+    def to_mm(v):
+        p = np.asarray(v, np.float64) * 1000.0
+        return np.stack([-p[:, 2], p[:, 1], p[:, 0]], axis=1) + size / 2
+
+    step = 2                                                                    # every second voxel of the outline: 1.3 x 2 x 1.3 mm
+    spacing = np.array(fine.spacing, np.float64) * step
+    origin = np.array(fine.origin_mm, np.float64)
+    every = np.concatenate([to_mm(s.v) for s in structures])
+    lo = np.maximum(np.floor((every.min(axis=0) - 8.0 - origin) / spacing).astype(int), 0)
+    hi = np.minimum(np.ceil((every.max(axis=0) + 8.0 - origin) / spacing).astype(int), np.array(fine.cover.shape) // step)
+    block = np.asarray(fine.cover[lo[0] * step:hi[0] * step:step, lo[1] * step:hi[1] * step:step, lo[2] * step:hi[2] * step:step]) > 127
+    depth = ndimage.distance_transform_edt(np.pad(block, 1, constant_values=True), sampling=spacing)[1:-1, 1:-1, 1:-1].astype(np.float32)
+    depth = ndimage.gaussian_filter(depth, 0.7)
+    slope = np.gradient(depth, *spacing)
+    corner = origin + lo * spacing * 1.0 + (step - 1) * np.array(fine.spacing) / 2      # the block's first voxel's corner (a coarse voxel spans `step` fine ones)
+    moved, names = 0, []
+    for s in structures:
+        mm = to_mm(s.v)
+        first = mm.copy()
+        for _ in range(4):
+            at = ((mm - corner) / spacing - 0.5).T
+            d = ndimage.map_coordinates(depth, at, order=1, mode="nearest")
+            shallow = d < least_mm
+            if not shallow.any():
+                break
+            g = np.stack([ndimage.map_coordinates(c, at[:, shallow], order=1, mode="nearest") for c in slope], axis=1)
+            g /= np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-6)
+            mm[shallow] += g * (least_mm - d[shallow] + 0.2)[:, None]
+        changed = np.linalg.norm(mm - first, axis=1) > 0.05
+        if changed.any():
+            p = mm - size / 2
+            s.v = (np.stack([p[:, 2], p[:, 1], -p[:, 0]], axis=1) / 1000.0).astype(np.float32)
+            moved += int(changed.sum())
+            names.append(f"{s.name} {int(changed.sum())}")
+    if moved:
+        log("head layers: drawn under the skin (vertices): " + "; ".join(names))
+    return moved

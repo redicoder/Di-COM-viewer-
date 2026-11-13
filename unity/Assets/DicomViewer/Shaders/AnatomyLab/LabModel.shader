@@ -28,10 +28,26 @@ Shader "DicomViewer/LabModel"
         [HideInInspector] _EyeFwd ("The face's forward", Vector) = (0, 0, 1, 0)
         [HideInInspector] _EyeUp ("The face's up", Vector) = (0, 1, 0, 0)
         [HideInInspector] _LidOpen ("Lids open (right, left) and their full turns (upper, lower)", Vector) = (0, 0, 0.8, 0.12)
+        [HideInInspector] _JawHinge ("A point on the jaw's axis; w = the jaw's turn now, radians", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _JawAxis ("The jaw's axis", Vector) = (1, 0, 0, 0)
     }
     SubShader
     {
         Tags { "RenderType" = "Opaque" "Queue" = "Geometry" "RenderPipeline" = "UniversalPipeline" }
+
+        // The material's values, the same block in both passes (the shadow pass turns the jaw too).
+        HLSLINCLUDE
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+        #include "LabLids.hlsl"
+        CBUFFER_START(UnityPerMaterial)
+            float4 _BaseTex_ST;
+            float4 _Tint;
+            float4 _CavityTint;
+            float _Saturation, _Skin, _Gloss, _Bump, _Grain, _Occlusion, _MmPerUnit, _VertexAlbedo, _SkinDetail;
+            LAB_LID_UNIFORMS
+            LAB_JAW_UNIFORMS
+        CBUFFER_END
+        ENDHLSL
 
         Pass
         {
@@ -52,15 +68,8 @@ Shader "DicomViewer/LabModel"
             #include "LabLids.hlsl"
 
             TEXTURE2D(_BaseTex);  SAMPLER(sampler_BaseTex);
-            CBUFFER_START(UnityPerMaterial)
-                float4 _BaseTex_ST;
-                float4 _Tint;
-                float4 _CavityTint;
-                float _Saturation, _Skin, _Gloss, _Bump, _Grain, _Occlusion, _MmPerUnit, _VertexAlbedo, _SkinDetail;
-                LAB_LID_UNIFORMS
-            CBUFFER_END
 
-            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; float2 uv3 : TEXCOORD2; float4 color : COLOR; };
+            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv : TEXCOORD0; float2 uv2 : TEXCOORD1; float2 uv3 : TEXCOORD2; float2 uv4 : TEXCOORD3; float4 color : COLOR; };
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
@@ -77,6 +86,7 @@ Shader "DicomViewer/LabModel"
                 Varyings o;
                 float3 position = v.positionOS.xyz, normal = v.normalOS, unused = 0.0;
                 LabLid(v.uv3, _EyeR.xyz, _EyeL.xyz, _EyeFwd.xyz, _EyeUp.xyz, _LidOpen, position, normal, unused);   // an eyelid, where it is opened
+                LabJaw(v.uv4.x, _JawHinge, _JawAxis.xyz, position, normal, unused);                                  // what goes with the jaw, where the mouth is opened
                 o.positionWS = TransformObjectToWorld(position);
                 o.positionCS = TransformWorldToHClip(o.positionWS);
                 o.normalWS = TransformObjectToWorldNormal(normal);
@@ -181,18 +191,21 @@ Shader "DicomViewer/LabModel"
             #pragma multi_compile_vertex _ _CASTING_PUNCTUAL_LIGHT_SHADOW
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
+            #include "LabLids.hlsl"
 
             float3 _LightDirection;
             float3 _LightPosition;
 
-            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; };
+            struct Attributes { float4 positionOS : POSITION; float3 normalOS : NORMAL; float2 uv4 : TEXCOORD3; };
             struct Varyings { float4 positionCS : SV_POSITION; };
 
             Varyings ShadowVert(Attributes v)
             {
                 Varyings o;
-                float3 positionWS = TransformObjectToWorld(v.positionOS.xyz);
-                float3 normalWS = TransformObjectToWorldNormal(v.normalOS);
+                float3 position = v.positionOS.xyz, normal = v.normalOS, unused = 0.0;
+                LabJaw(v.uv4.x, _JawHinge, _JawAxis.xyz, position, normal, unused);      // the open jaw casts the shadow it has
+                float3 positionWS = TransformObjectToWorld(position);
+                float3 normalWS = TransformObjectToWorldNormal(normal);
             #if _CASTING_PUNCTUAL_LIGHT_SHADOW
                 float3 lightDir = normalize(_LightPosition - positionWS);
             #else

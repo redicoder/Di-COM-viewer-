@@ -27,6 +27,7 @@ class Structure:
     albedo  uint8 (n, 3)    sRGB per vertex, or None
     extra   uint8 (n,)      the layer's own use (skin: hair density), or None
     data2   float32 (n, 2)  a third pair of numbers per vertex (skin: the eyelids' weights, lids.py), or None
+    data3   float32 (n, 2)  a fourth pair: x = how far the vertex goes with the jaw (mouth.py), or None
     streams dict            ready vertex attributes by glTF name (NORMAL, TANGENT, COLOR_0, TEXCOORD_0, TEXCOORD_1),
                             written as they are in place of the above: hair ribbons (hair.py)
     """
@@ -41,6 +42,7 @@ class Structure:
     info: dict = field(default_factory=dict)
     streams: dict | None = None
     data2: np.ndarray | None = None
+    data3: np.ndarray | None = None
 
     @property
     def triangles(self) -> int:
@@ -403,6 +405,9 @@ def save_structures(path: Path, structures: list[Structure]) -> None:
         if s.data2 is not None:
             arrays[f"data2_{k}"] = np.asarray(s.data2, np.float32)
             entry["data2"] = True
+        if s.data3 is not None:
+            arrays[f"data3_{k}"] = np.asarray(s.data3, np.float32)
+            entry["data3"] = True
         if s.streams:
             entry["streams"] = sorted(s.streams)
             for key, a in s.streams.items():
@@ -422,6 +427,8 @@ def load_structures(path: Path) -> list[Structure]:
                 setattr(s, key, z[f"{key}{k}"])
             if e.get("data2"):
                 s.data2 = z[f"data2_{k}"]
+            if e.get("data3"):
+                s.data3 = z[f"data3_{k}"]
             if e.get("streams"):
                 s.streams = {key: z[f"s_{key}_{k}"] for key in e["streams"]}
             out.append(s)
