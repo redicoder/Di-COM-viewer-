@@ -385,8 +385,8 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
             if data2 is not None:
                 data2 = data2[source]
             albedo[margin] = mouth.MUCOSA
-            bake[margin, 3] = 215
-            bake[margin, 0] = 170
+            bake[margin] = (178, 255, 82, 220)                               # the lips' inner sides: one even, wet lining (not their edges' own shading, drawn out in streaks)
+            hair_mask[margin] = 0                                            # and no beard's follicles on them
             v, f = v2, f2
             data3 = mouth.skin_weights(body, m, v, side, anchor, held)
             skin_info["mouth"] = m.info["unity"]

@@ -484,7 +484,8 @@ def build(body: Body, log=print) -> list[Structure]:
             ring_s = out[-1]
             mm = mouth.to_mm(body, ring_s.v)
             height, there = mouth.sheet_at(m, mm)
-            mm[:, 1] = np.where(there, np.maximum(mm[:, 1], height + 0.5) if lip_side > 0 else np.minimum(mm[:, 1], height - 0.5), mm[:, 1])
+            # (clear of the lips' inner sides in the skin mesh: the upper lip's lies 1 mm over the sheet, the lower's 4 mm under it)
+            mm[:, 1] = np.where(there, np.maximum(mm[:, 1], height + 2.0) if lip_side > 0 else np.minimum(mm[:, 1], height - mouth.SPACE_MM - 2.0), mm[:, 1])
             ring_s.v = mouth.to_gltf(body, mm).astype(np.float32)
             w = mouth.weight(body, m, ring_s.v, np.full(len(mm), lip_side))
             pull = mouth.lip_pull(body, m, ring_s.v, np.full(len(mm), lip_side)) if m.lip is not None else np.zeros_like(w)

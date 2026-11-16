@@ -232,6 +232,7 @@ class Mouth:
     rim: np.ndarray = None                         # (nz, nx) 0..1: how far the sheet's two sides part there (nothing at its rim and at the mouth's corners)
     rim_only: np.ndarray = None                    # (nz, nx) 0..1: the rim's share of that alone
     lip: np.ndarray = None                         # (nz, ny, nx) 0..1: how far a point goes with the lower lip when it is drawn down (lip_field)
+    lip_whole: np.ndarray = None                   # the same for points known to be the lower lip's (not asked which lip they are of)
     lip_down: np.ndarray | None = None             # glTF: the way the lower lip is drawn (down the face and a little forward)
     info: dict = field(default_factory=dict)
 
@@ -660,6 +661,15 @@ def lining(body: Body, m: Mouth, log=print) -> Structure | None:
     # Its colour: gum by the teeth, the palate paler, the rest the cheeks' and the floor's red; lighter and darker as the photographs are.
     by_tooth = np.clip(1.0 - g.sample(to_tooth, v_mm) / 6.0, 0.0, 1.0)
     above = g.sample(m.upper.astype(np.float32), v_mm + _zyx(n) * 1.5) > 0.5
+    if m.teeth_upper.any():
+        # The palate's ridges: a few cross ridges behind the upper front teeth, each side's running back a little as it
+        # goes outwards. The scan's voxels do not hold them; they are drawn in, half a millimetre high.
+        front = float(g.axis(0)[np.argmax(m.teeth_upper.any(axis=(1, 2)))])
+        behind = v_mm[:, 0] - front
+        across = np.abs(v_mm[:, 2] - m.stomion_mm[2])
+        window = np.clip((behind - 7.0) / 3.0, 0.0, 1.0) * np.clip((26.0 - behind) / 5.0, 0.0, 1.0) * np.clip((across - 1.5) / 2.0, 0.0, 1.0) * np.clip((15.0 - across) / 4.0, 0.0, 1.0)
+        ridge = 0.0005 * np.clip(np.sin(2.0 * np.pi * (behind - 0.3 * across) / 3.9), 0.0, 1.0) ** 1.5 * window * (above & (n[:, 1] > 0.6))
+        v = v - n * ridge[:, None]                                          # (n looks up into the palate: the ridges stand down into the mouth)
     colour = np.tile(np.array(MUCOSA, np.float64), (len(v), 1))
     colour[above] = PALATE
     colour += (np.array(GUM, np.float64) - colour) * by_tooth[:, None]
@@ -730,6 +740,11 @@ def gums(body: Body, m: Mouth, log=print) -> list[Structure]:
         away = ((rows - edge[:, None, :]) if upper else (edge[:, None, :] - rows)) * sy       # mm from the biting edge towards the roots
         start = GUM_FROM_MM + 0.7 * np.clip(1.0 - np.abs(m.u_of_x) / 14.0, 0.0, 1.0)[None, None, :]
         solid = (hard | near(row, g.spacing, 1.8)) & (distance[:, None, :] <= 4.0) & (away >= start) & (away <= start + GUM_DEEP_MM) & (m.depth > 1.0)
+        # Between two teeth the gum rises to where their crowns touch (its points between the teeth): the gaps between
+        # neighbouring teeth, up to 3 mm wide, are closed for 3.5 mm above the gum's edge.
+        span = 2 * int(round(1.6 / sz)) + 1
+        between = ndimage.binary_closing(row, structure=np.ones((span, 1, span), bool)) & ~row
+        solid |= between & (away >= start - 3.5) & (away <= start + 1.0) & (m.depth > 1.0)
         got = _mesh(body, g, solid, 0.8)
         if got is None:
             continue
@@ -1041,7 +1056,7 @@ def weight(body: Body, m: Mouth, v_gltf: np.ndarray, side: np.ndarray | None = N
     return out
 
 
-def lip_field(body: Body, m: Mouth) -> np.ndarray:
+def lip_field(body: Body, m: Mouth):
     """How far each voxel of the mouth's grid goes with the lower lip when it is drawn down off the teeth (0..1).
     With the jaw only turned, the lower lip stays before the lower teeth as it lay (their edges are 3 to 5 mm
     under the lip line) and nothing of them is seen. A lip taken in the fingers and drawn towards the chin comes
@@ -1059,7 +1074,10 @@ def lip_field(body: Body, m: Mouth) -> np.ndarray:
     first = np.where(hard.any(axis=0), np.argmax(hard, axis=0), hard.shape[0])          # per (y, x): the first hard voxel from the front
     in_front = np.arange(hard.shape[0])[:, None, None] < first[None, :, :]
     lip_thick = (zs[:, None, None] - m.skin_front[None, None, :]) < 16.0
-    return (lens[None, None, :] * down * lower_side * in_front * lip_thick).astype(np.float32)
+    whole = (lens[None, None, :] * down * in_front * lip_thick).astype(np.float32)
+    # (`whole`: without the question of which lip a point is of, for points that are known to be the lower lip's: read
+    # across the line between the lips, the answer stepped with the voxels' rows and notched the lip's edge.)
+    return (whole * lower_side).astype(np.float32), whole
 
 
 def lip_pull(body: Body, m: Mouth, v_gltf: np.ndarray, side: np.ndarray | None = None) -> np.ndarray:
@@ -1070,9 +1088,7 @@ def lip_pull(body: Body, m: Mouth, v_gltf: np.ndarray, side: np.ndarray | None =
     if side is None:
         return m.grid.sample(m.lip, p, order=1, cval=0.0).astype(np.float32)
     given = np.asarray(side, np.float64)
-    lower = given < 0
-    p = p - np.where(lower, 0.8, 0.0)[:, None] * np.array([0.0, 1.0, 0.0])
-    out = m.grid.sample(m.lip, p, order=1, cval=0.0)
+    out = np.where(given < 0, m.grid.sample(m.lip_whole, p, order=1, cval=0.0), m.grid.sample(m.lip, p, order=1, cval=0.0))
     return np.where(given > 0, 0.0, out).astype(np.float32)
 
 
@@ -1099,6 +1115,13 @@ def clear_labels(body: Body, m: Mouth, log=print) -> int:
     in_lips = ndimage.map_coordinates(m.lips.astype(np.float32), at, order=0, mode="constant", cval=0.0) > 0.5
     slit = (in_lips & (np.abs(flat[:, 1] - (height - 1.0)) < 2.4)).reshape(block.shape)
     hit |= slit & np.isin(view, loose)
+    # And a little more of them round it, in the lips and 9 mm beyond the mouth's corners: from 3.5 mm over the line to
+    # 3.5 mm under the lower lip's inner side. What the labels have there stood up over the lips' inner sides at the
+    # opened mouth's corners (the red of the lips has no fat, and its muscle is drawn: face_muscles).
+    wide = ndimage.binary_dilation(m.lips, iterations=int(round(9.0 / g.spacing[0])))
+    in_wide = ndimage.map_coordinates(wide.astype(np.float32), at, order=0, mode="constant", cval=0.0) > 0.5
+    band = (in_wide & (flat[:, 1] < height + 3.5) & (flat[:, 1] > height - SPACE_MM - 4.5)).reshape(block.shape)
+    hit |= band & np.isin(view, loose)
     # The labels' fat is "what is fat-coloured in the photographs", on voxels of 1.3 x 2 mm: round the tongue and
     # under the palate it marks mucosa, glands and the tongue's own pale edge, and in the opened mouth it stood there
     # as yellow slabs. Within the arch of the teeth and the cheeks' wall, from the palate down to the mouth's
@@ -1111,7 +1134,7 @@ def clear_labels(body: Body, m: Mouth, log=print) -> int:
     # And in the lips and the mouth's corners, the half of them towards the teeth (more than 5 mm in from their
     # skin): the labels' fat and unnamed muscle there stood behind the lips' inner sides and showed in the opened
     # mouth, drawn out where the lower lip comes down. The lips keep what lies under their skin.
-    near_lips = ndimage.binary_dilation(m.lips, iterations=int(round(4.0 / g.spacing[0])))
+    near_lips = ndimage.binary_dilation(m.lips, iterations=int(round(9.0 / g.spacing[0])))       # (and 9 mm beyond the mouth's corners)
     in_lips = ndimage.map_coordinates(near_lips.astype(np.float32), at, order=0, mode="constant", cval=0.0) > 0.5
     behind_skin = flat[:, 0] - np.interp(flat[:, 2], g.axis(2), m.skin_front)
     inner_lip = (in_lips & (behind_skin > 5.0) & (np.abs(flat[:, 1] - height) < 17.0)).reshape(block.shape)
@@ -1137,7 +1160,7 @@ def prepare(body: Body, face: Face, skin_v: np.ndarray, ct_dir: Path | None = No
         return None
     m.hinge, m.axis = hinge
     jaw_weights(body, m, log=log)
-    m.lip = lip_field(body, m)
+    m.lip, m.lip_whole = lip_field(body, m)
     m.lip_down = -face.ey * 0.94 + face.ez * 0.34                           # down the face and a little forward: the lip turns out as it comes down
     m.lip_down = m.lip_down / np.linalg.norm(m.lip_down)
     clear_labels(body, m, log)
@@ -1202,7 +1225,6 @@ def cut(v: np.ndarray, f: np.ndarray, body: Body, m: Mouth, log=print):
         for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
             if seam[a] and seam[b]:
                 edges.add((int(a), int(b)))
-    taper = 1.0 - np.clip((np.abs(u) - (span - 7.0)) / 7.0, 0.0, 1.0)        # no depth at the corners
     # Each lip's inner side, as rows of points behind its edge: half way in to the teeth and at the teeth (both at the
     # sheet's height there; the lower lip's on the space's floor), smoothed along the lip; then the fold where the lip's
     # lining turns onto the gum, FOLD_MM towards the roots, against the gum's face there. The rows at the lip go as
@@ -1227,16 +1249,20 @@ def cut(v: np.ndarray, f: np.ndarray, body: Body, m: Mouth, log=print):
     for top in (True, False):
         hard = (m.upper | m.teeth_upper) if top else (m.lower | m.teeth_lower)
         level = height + 1.0 if top else height - SPACE_MM - 1.0
-        deep = np.clip(to_teeth(hard, level) - 0.8, 3.0, 14.0)
-        deep = ndimage.gaussian_filter1d(deep, 2.5, mode="nearest") * taper[order]
-        fold_y = level + (FOLD_MM if top else -FOLD_MM) * taper[order]
-        fold_deep = np.clip(to_teeth(hard, fold_y) - 0.8, 2.0, 16.0)
-        fold_deep = ndimage.gaussian_filter1d(fold_deep, 2.5, mode="nearest") * taper[order]
+        # (At the mouth's corners the lips' inner sides keep their whole depth: there they are the cheek's inner side
+        # behind the corner, and close it. Thinned out to nothing there, they let the lips' muscle and fat be seen.)
+        deep = ndimage.gaussian_filter1d(np.clip(to_teeth(hard, level) - 0.8, 3.0, 14.0), 2.5, mode="nearest")
+        fold_y = level + (FOLD_MM if top else -FOLD_MM)
+        fold_deep = ndimage.gaussian_filter1d(np.clip(to_teeth(hard, fold_y) - 0.8, 2.0, 16.0), 2.5, mode="nearest")
         drop = np.minimum(SPACE_MM, SPACE_MM * deep / 5.0)
-        y = ndimage.gaussian_filter1d(height - (0.0 if top else drop), 2.5, mode="nearest")
-        for name, depth, y_row in (("half", deep * 0.5, y), ("teeth", deep, y), ("fold", fold_deep, np.where(taper[order] > 0, fold_y, y))):
+        y = height - (0.0 if top else drop)
+        for name, depth, y_row in (("half", deep * 0.5, y), ("teeth", deep, y), ("fold", fold_deep, fold_y)):
+            # Each row a smooth curve along the lip (the lip's edge is the skin mesh's own vertices, which zigzag
+            # in depth: carried into the rows they shaded the lip's inner side in streaks).
+            z_row = ndimage.gaussian_filter1d(edge_mm[:, 0] + depth, 3.0, mode="nearest")
+            y_smooth = ndimage.gaussian_filter1d(y_row, 3.0, mode="nearest")
             for k, i in enumerate(order):
-                p_mm = np.array([edge_mm[k, 0] + depth[k], y_row[k] if name == "fold" else edge_mm[k, 1] + (y_row[k] - edge_mm[k, 1]), edge_mm[k, 2]])
+                p_mm = np.array([z_row[k], y_smooth[k], edge_mm[k, 2]])
                 rows[(int(i), top, name)] = k0 + len(new_v)
                 new_v.append(to_gltf(body, p_mm))
                 new_side.append(1.0 if top else -1.0)
@@ -1252,6 +1278,10 @@ def cut(v: np.ndarray, f: np.ndarray, body: Body, m: Mouth, log=print):
     def at(index):
         return v[index] if index < k0 else grown[index - k0]
 
+    for i in (int(order[0]), int(order[-1])):                                # the two ends, behind the corners: closed (seen from either side)
+        ring = [rows[(i, True, "fold")], rows[(i, True, "teeth")], rows[(i, True, "half")], rows[(i, False, "half")], rows[(i, False, "teeth")], rows[(i, False, "fold")]]
+        for tri in ((ring[0], ring[1], ring[4]), (ring[0], ring[4], ring[5]), (ring[1], ring[2], ring[3]), (ring[1], ring[3], ring[4])):
+            new_f += [tri, tri[::-1]]
     for a, b in edges:
         for top in (True, False):
             a0, b0 = (a, b) if top else (int(copy_of[a]), int(copy_of[b]))
