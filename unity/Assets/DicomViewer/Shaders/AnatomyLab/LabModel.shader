@@ -30,6 +30,7 @@ Shader "DicomViewer/LabModel"
         [HideInInspector] _LidOpen ("Lids open (right, left) and their full turns (upper, lower)", Vector) = (0, 0, 0.8, 0.12)
         [HideInInspector] _JawHinge ("A point on the jaw's axis; w = the jaw's turn now, radians", Vector) = (0, 0, 0, 0)
         [HideInInspector] _JawAxis ("The jaw's axis", Vector) = (1, 0, 0, 0)
+        [HideInInspector] _LipPull ("The way the lower lip is drawn off the teeth; w = how far now, metres", Vector) = (0, -1, 0, 0)
     }
     SubShader
     {
@@ -86,7 +87,7 @@ Shader "DicomViewer/LabModel"
                 Varyings o;
                 float3 position = v.positionOS.xyz, normal = v.normalOS, unused = 0.0;
                 LabLid(v.uv3, _EyeR.xyz, _EyeL.xyz, _EyeFwd.xyz, _EyeUp.xyz, _LidOpen, position, normal, unused);   // an eyelid, where it is opened
-                LabJaw(v.uv4.x, _JawHinge, _JawAxis.xyz, position, normal, unused);                                  // what goes with the jaw, where the mouth is opened
+                LabJaw(v.uv4, _JawHinge, _JawAxis.xyz, _LipPull, position, normal, unused);                          // what goes with the jaw and the lower lip, where the mouth is opened
                 o.positionWS = TransformObjectToWorld(position);
                 o.positionCS = TransformWorldToHClip(o.positionWS);
                 o.normalWS = TransformObjectToWorldNormal(normal);
@@ -203,7 +204,7 @@ Shader "DicomViewer/LabModel"
             {
                 Varyings o;
                 float3 position = v.positionOS.xyz, normal = v.normalOS, unused = 0.0;
-                LabJaw(v.uv4.x, _JawHinge, _JawAxis.xyz, position, normal, unused);      // the open jaw casts the shadow it has
+                LabJaw(v.uv4, _JawHinge, _JawAxis.xyz, _LipPull, position, normal, unused);   // the open jaw casts the shadow it has
                 float3 positionWS = TransformObjectToWorld(position);
                 float3 normalWS = TransformObjectToWorldNormal(normal);
             #if _CASTING_PUNCTUAL_LIGHT_SHADOW

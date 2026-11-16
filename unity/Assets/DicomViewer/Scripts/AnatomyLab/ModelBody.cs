@@ -40,6 +40,8 @@ namespace DicomViewer.AnatomyLab
         public bool hasMouth;
         public Vector3 jawHinge, jawAxis = Vector3.right, mouthGrab;      // a point on the jaw's axis, the axis, a point on the lower lip
         public float jawDegrees = 18f;                                   // the jaw's full turn
+        public Vector3 lipDown = Vector3.down;                           // the way the lower lip is drawn off the teeth as the mouth is opened
+        public float lipPullMm = 10f;                                    // and how far, with the mouth fully open
         [Range(0f, 1f)] public float jaw;                                // how far the mouth is open
         [Tooltip("The renderers whose meshes carry jaw weights (TEXCOORD_3): only their materials are told of the jaw.")]
         public List<Renderer> jawRenderers = new List<Renderer>();
@@ -47,7 +49,7 @@ namespace DicomViewer.AnatomyLab
         /// <summary>A lid or the lower lip is in the hand: the camera does not turn meanwhile (ModelOrbit).</summary>
         public static bool Grabbing { get; private set; }
 
-        private static readonly int JawHingeId = Shader.PropertyToID("_JawHinge"), JawAxisId = Shader.PropertyToID("_JawAxis");
+        private static readonly int JawHingeId = Shader.PropertyToID("_JawHinge"), JawAxisId = Shader.PropertyToID("_JawAxis"), LipPullId = Shader.PropertyToID("_LipPull");
         private readonly List<Material> jawMaterials = new List<Material>();
         private float goalRight, goalLeft, goalJaw;
         private int grabbed = -1;                                        // 0 the right eye, 1 the left, 2 the mouth
@@ -119,16 +121,21 @@ namespace DicomViewer.AnatomyLab
             float angle = hasMouth ? jaw * jawDegrees * Mathf.Deg2Rad : 0f;
             var hinge = new Vector4(jawHinge.x, jawHinge.y, jawHinge.z, angle);
             Vector4 axis = jawAxis.normalized;
+            Vector3 down = lipDown.normalized;
+            var lip = new Vector4(down.x, down.y, down.z, hasMouth ? jaw * lipPullMm * 0.001f : 0f);
             foreach (Material m in jawMaterials)
             {
                 m.SetVector(JawHingeId, hinge);
                 m.SetVector(JawAxisId, axis);
+                m.SetVector(LipPullId, lip);
             }
         }
 
-        /// <summary>A point of the meshes' space that goes wholly with the jaw, where it is with the jaw open by `open`.</summary>
+        /// <summary>A point of the lower lip's edge (it goes wholly with the jaw and with the lip), where it is with the
+        /// mouth open by `open`: drawn down, then turned about the jaw's hinge, as the shader does.</summary>
         public Vector3 WithJaw(Vector3 point, float open)
         {
+            point += lipDown.normalized * (open * lipPullMm * 0.001f);
             return jawHinge + Quaternion.AngleAxis(open * jawDegrees, jawAxis.normalized) * (point - jawHinge);
         }
 

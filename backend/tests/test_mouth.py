@@ -87,3 +87,26 @@ def test_jaw_weights_survive_the_cache_and_the_glb(tmp_path):
     assert np.allclose(load_structures(tmp_path / "skin.npz")[0].data3, weights)
     write_glb(tmp_path / "a.glb", [s])
     assert np.allclose(read_glb(tmp_path / "a.glb")[0].data3, weights, atol=1e-6)
+
+
+def test_the_lower_lip_is_drawn_down_before_the_jaw_turns():
+    m = mouth.Mouth.__new__(mouth.Mouth)
+    m.hinge, m.axis = np.array([0.0, 0.8, 0.0]), np.array([1.0, 0.0, 0.0])
+    m.lip_down = np.array([0.0, -1.0, 0.0])
+    v = np.array([[0.0, 0.75, 0.11], [0.0, 0.75, 0.11]])
+    out = mouth.turned(m, v, np.array([0.0, 0.0]), 1.0, np.array([1.0, 0.0]))
+    assert out[0, 1] == pytest.approx(0.75 - mouth.LIP_PULL_MM * 0.001)     # the lip's own way down, the jaw not turned
+    assert np.allclose(out[1], v[1])                                        # what is not of the lip stays
+    half = mouth.turned(m, v, np.array([0.0, 0.0]), 0.5, np.array([1.0, 0.0]))
+    assert half[0, 1] == pytest.approx(0.75 - 0.5 * mouth.LIP_PULL_MM * 0.001)
+
+
+def test_a_rows_biting_edge_is_each_tooths_tip_over_its_whole_footprint():
+    # A lower tooth that leans: its tip (row 20) over one column, its root (top at row 12) under the next columns.
+    row = np.zeros((30, 24, 30), bool)
+    row[14, 10:21, 15] = True
+    row[15:19, 4:13, 15] = True
+    has, distance, edge = mouth.biting_edge(row, (0.66, 1.0, 0.66), upper=False)
+    assert has[14, 15] and has[17, 15] and not has[5, 5]
+    assert edge[17, 15] > 17.0                                              # under the root's columns the edge is still the tip's level (20), not the root's top (12)
+    assert distance[14, 15] == 0.0 and distance[14, 20] == pytest.approx(5 * 0.66)

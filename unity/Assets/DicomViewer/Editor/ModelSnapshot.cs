@@ -26,7 +26,7 @@ public static class ModelSnapshot
     [System.Serializable] private class Sides { public float[] right; public float[] left; }
     [System.Serializable] private class SideValues { public float right; public float left; }
     [System.Serializable] private class EyesInfo { public Sides centres; public SideValues radius; public float[] forward; public float[] up; public float upper_degrees; public float lower_degrees; }
-    [System.Serializable] private class MouthInfo { public float[] hinge; public float[] axis; public float[] grab; public float degrees; }
+    [System.Serializable] private class MouthInfo { public float[] hinge; public float[] axis; public float[] grab; public float degrees; public float[] lip_down; public float lip_pull_m; }
     [System.Serializable] private class AnatomyInfo { public EyesInfo eyes; public MouthInfo mouth; }
 
     // glTF's x runs the other way in the imported meshes.
@@ -59,6 +59,8 @@ public static class ModelSnapshot
         body.jawAxis = -MeshSpace(info.mouth.axis).normalized;      // an axis of turning: mirrored with the meshes, it points the other way
         body.mouthGrab = MeshSpace(info.mouth.grab);
         if (info.mouth.degrees > 0f) body.jawDegrees = info.mouth.degrees;
+        if (info.mouth.lip_down != null && info.mouth.lip_down.Length >= 3) body.lipDown = MeshSpace(info.mouth.lip_down).normalized;
+        body.lipPullMm = info.mouth.lip_pull_m * 1000f;
         Debug.Log($"ModelSnapshot: jaw hinge at {body.jawHinge}, axis {body.jawAxis} (mesh space), {body.jawDegrees} degrees; lower lip at {body.mouthGrab}");
     }
 
@@ -93,6 +95,11 @@ public static class ModelSnapshot
     private static readonly float[] OrganLook = { 0.45f, 0.75f, 0f, 0f, 0.9f, 0.85f };
     private static readonly float[] ClothLook = { 0f, 0.02f, 0f, 0.15f, 0.6f, 1f };
     private static readonly float[] FatLook = { 0.6f, 0.55f, 0f, 0f, 0.85f, 1f };
+    private static readonly float[] ToothLook = { 0.30f, 0.50f, 0f, 0f, 1f, 1f };          // enamel: smooth and wet
+    private static readonly float[] MouthLook = { 0.85f, 0.45f, 0f, 0f, 0.8f, 1.05f };     // the mouth's lining and the gums: wet skin without pores
+
+    private static bool IsTooth(string name) => name.Contains("incisor") || name.Contains("canine") || name.Contains("molar") || name.Contains("teeth");
+    private static bool IsMouthLining(string name) => name == "lining of the mouth" || name.EndsWith(" gum");
 
     private static Material LabMaterial(string name, float[] look, Texture tex, Color tint, Color cavity)
     {
@@ -152,7 +159,13 @@ public static class ModelSnapshot
                     continue;
                 }
                 bool cloth = r.name == "briefs";
-                Material m = LabMaterial(r.name, cloth ? ClothLook : look, null, Color.white, cloth ? new Color(0.7f, 0.7f, 0.72f) : cavity);
+                float[] own = cloth ? ClothLook : IsTooth(r.name) ? ToothLook : IsMouthLining(r.name) ? MouthLook : look;
+                Material m = LabMaterial(r.name, own, null, Color.white, cloth ? new Color(0.7f, 0.7f, 0.72f) : IsMouthLining(r.name) ? new Color(0.62f, 0.30f, 0.30f) : cavity);
+                if (m != null && r.name == "tongue")
+                {
+                    m.SetFloat("_SkinDetail", 0.8f);                 // its fine dots and mottle, as skin has pores (the papillae)
+                    m.SetFloat("_Gloss", 0.6f);
+                }
                 if (m != null) r.sharedMaterial = m;
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 structures++;

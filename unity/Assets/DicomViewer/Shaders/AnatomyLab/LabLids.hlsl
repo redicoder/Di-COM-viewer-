@@ -54,11 +54,16 @@ void LabLid(float2 lid, float3 eyeR, float3 eyeL, float3 fwd, float3 up, float4 
 // (here the vertex's colour), and a turn set for all meshes at once swung the skull by the blue of its bone.
 // _JawHinge: xyz a point on the axis, in the meshes' object space; w the jaw's turn now, radians.
 // _JawAxis: xyz the axis; turning by a positive angle about it carries the chin down and back.
-#define LAB_JAW_UNIFORMS float4 _JawHinge; float4 _JawAxis;
+// _LipPull: xyz the way the lower lip is drawn off the teeth (down the face, a little forward), w how far now, metres.
+// The second number of a vertex's pair (TEXCOORD_3.y) says how far it goes with the lip: 1 on the lower lip's edge and
+// its inner side, less down the chin and towards the mouth's corners. With the jaw only turned, the lower lip would
+// stay before the lower teeth as it lay; a lip taken in the fingers comes off them. It is drawn first, then turned.
+#define LAB_JAW_UNIFORMS float4 _JawHinge; float4 _JawAxis; float4 _LipPull;
 
-void LabJaw(float weight, float4 hinge, float3 axis, inout float3 position, inout float3 a, inout float3 b)
+void LabJaw(float2 jaw, float4 hinge, float3 axis, float4 lipPull, inout float3 position, inout float3 a, inout float3 b)
 {
-    float angle = hinge.w * weight;
+    position += lipPull.xyz * (jaw.y * lipPull.w);
+    float angle = hinge.w * jaw.x;
     if (abs(angle) < 1e-6) return;
     float s, c;
     sincos(angle, s, c);

@@ -31,12 +31,12 @@ namespace DicomViewer.Tests
         {
             ModelBody body = Body();
             Vector3 open = body.WithJaw(body.mouthGrab, 1f);
-            Assert.That(open.y, Is.LessThan(body.mouthGrab.y - 0.025f), "the lip goes down by centimetres");
+            Assert.That(open.y, Is.LessThan(body.mouthGrab.y - 0.035f), "the lip goes down by centimetres (the jaw's turn and the lip's own 10 mm)");
             Assert.That(open.z, Is.LessThan(body.mouthGrab.z), "and back");
             Assert.That(open.x, Is.EqualTo(body.mouthGrab.x).Within(1e-6f), "not sideways");
-            float before = Vector3.ProjectOnPlane(body.mouthGrab - body.jawHinge, body.jawAxis).magnitude;
+            float before = Vector3.ProjectOnPlane(body.mouthGrab + Vector3.down * 0.010f - body.jawHinge, body.jawAxis).magnitude;
             float after = Vector3.ProjectOnPlane(open - body.jawHinge, body.jawAxis).magnitude;
-            Assert.That(after, Is.EqualTo(before).Within(1e-5f), "it stays as far from the hinge as it was");
+            Assert.That(after, Is.EqualTo(before).Within(1e-5f), "drawn down first, it then stays as far from the hinge as it was");
             Object.DestroyImmediate(body.gameObject);
         }
 
@@ -56,6 +56,7 @@ namespace DicomViewer.Tests
             Vector4 hinge = chin.sharedMaterial.GetVector("_JawHinge");
             Assert.That(hinge.w, Is.EqualTo(9f * Mathf.Deg2Rad).Within(1e-5f));
             Assert.That((Vector3)hinge, Is.EqualTo(body.jawHinge));
+            Assert.That(chin.sharedMaterial.GetVector("_LipPull").w, Is.EqualTo(0.005f).Within(1e-6f), "half open: the lip half way down (10 mm in all)");
             Assert.That(skull.sharedMaterial.GetVector("_JawHinge").w, Is.EqualTo(0f), "a mesh without jaw weights is not turned");
             body.hasMouth = false;
             body.PushJaw();

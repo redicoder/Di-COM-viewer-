@@ -487,7 +487,8 @@ def build(body: Body, log=print) -> list[Structure]:
             mm[:, 1] = np.where(there, np.maximum(mm[:, 1], height + 0.5) if lip_side > 0 else np.minimum(mm[:, 1], height - 0.5), mm[:, 1])
             ring_s.v = mouth.to_gltf(body, mm).astype(np.float32)
             w = mouth.weight(body, m, ring_s.v, np.full(len(mm), lip_side))
-            ring_s.data3 = np.stack([w, np.zeros_like(w)], axis=1).astype(np.float32)
+            pull = mouth.lip_pull(body, m, ring_s.v, np.full(len(mm), lip_side)) if m.lip is not None else np.zeros_like(w)
+            ring_s.data3 = np.stack([w, pull], axis=1).astype(np.float32)
     head_layers.tuck_under_skin(body, out, least_mm=1.6, log=log)           # measured against the fine skin itself: nothing at or outside it
     log(f"face muscles: {len(out)} drawn on his skull and skin (generated), {sum(s.triangles for s in out)} triangles")
     body.face_muscles = out
