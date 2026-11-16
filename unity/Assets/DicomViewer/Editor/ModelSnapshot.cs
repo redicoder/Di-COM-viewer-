@@ -127,6 +127,8 @@ public static class ModelSnapshot
         body.credits = "Body: Visible Human Male, courtesy of the U.S. National Library of Medicine. Organs and torso: Segmented Internal Organs of the Visible Human Male, "
                        + "H\u00f6hne et al., University Medical Center Hamburg-Eppendorf, CC BY 4.0, doi:10.5281/zenodo.15882018. Bones: Visible-Human-3d-Models, Alavi and Asseln (BoneHub), "
                        + "CC BY 4.0, doi:10.57967/hf/10464, based on Andreassen et al., Sci Data 10, 34 (2023). Head and neck structures labelled with TotalSegmentator (Wasserthal et al. 2023). "
+                       + "Muscles of the hips and legs, knee ligaments and joint cartilage: Andreassen et al., Three Dimensional Lower Extremity Musculoskeletal Geometry of the "
+                       + "Visible Human Female and Male, Sci Data 10, 34 (2023), University of Denver, CC BY 4.0. "
                        + "The skull's bones outlined after BodyParts3D, \u00a9 The Database Center for Life Science licensed under CC Attribution 4.0 International. "
                        + "Changes were made. For education only.";
         var polish = model.AddComponent<ModelPolish>();

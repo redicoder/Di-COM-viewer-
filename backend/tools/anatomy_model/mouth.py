@@ -218,6 +218,7 @@ class Mouth:
     rgba_grid: Grid = None                         # the head's export: its grid and its colours (the photographs)
     rgba: np.ndarray = None
     hinge: np.ndarray | None = None                # glTF metres: a point on the jaw's axis
+    condyles: tuple | None = None                  # glTF metres: the heads of the mandible's two condyles (right, left), 3 mm under their crowns
     axis: np.ndarray | None = None                 # glTF: the axis' direction (to his left)
     weight_grid: Grid | None = None                # the jaw's weights (jaw_weights): their grid,
     weights: np.ndarray = None                     # as solved; `above` as seen from the upper side of the sheet, `below` from the lower
@@ -651,7 +652,9 @@ def teeth(body: Body, m: Mouth, log=print) -> list[Structure]:
         albedo = np.array(TOOTH, np.float64)[None, :] + (np.array(ROOT, np.float64) - np.array(TOOTH, np.float64))[None, :] * root[:, None]
         bake = np.tile(np.array([255, 255, 82, 185], np.uint8), (len(v), 1))
         bake[:, 0] = np.round(255 * np.clip(1.2 - 1.7 * crowded, 0.22, 1.0))
-        out.append(Structure(name, "skeleton", v, f, tuple(c / 255 for c in TOOTH), bake=bake, albedo=np.round(albedo).astype(np.uint8),
+        # (the lower row goes with the jaw wholly: its weights are set here, so they stay with its teeth when the row is split into them)
+        whole = np.stack([np.ones(len(v), np.float32), np.zeros(len(v), np.float32)], axis=1) if name.startswith("lower") and m.weight_grid is not None else None
+        out.append(Structure(name, "skeleton", v, f, tuple(c / 255 for c in TOOTH), bake=bake, albedo=np.round(albedo).astype(np.uint8), data3=whole,
                              info={"class": "bone", "source": "the frozen CT's bright voxels in TotalSegmentator's teeth labels"}))
     return out
 
@@ -728,6 +731,7 @@ def find_hinge(body: Body, m: Mouth):
     p = to_gltf(body, m.ct["to_body"].grid_points(np.array(heads)))
     right, left = (p[0], p[1]) if p[0][0] < p[1][0] else (p[1], p[0])
     axis = left - right
+    m.condyles = (right, left)
     return right, axis / np.linalg.norm(axis)
 
 

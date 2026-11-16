@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, face_muscles, head_layers, mouth, skull_bones
+from . import bonehub, eyes, face_muscles, face_vessels, head_layers, leg_muscles, mouth, skull_bones, teeth
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, surface
 from .palette import BONE, colour_of
 
@@ -89,10 +89,14 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]),
                              info={"label": int(o["index"]), "class": o["layer"]}))
     out += head_layers.structures(body, layer, log)        # the head and neck, named on his CT
+    out += leg_muscles.structures(body, layer, baker, occupancy, log)      # the hips' and legs' muscles, the knee's ligaments, the joints' cartilage
     m = getattr(body, "mouth", None)
     if m is not None and layer in ("skeleton", "organs"):  # the teeth and the tongue as the mouth has them (finer, and fitting its space)
         mine = [s for s in (mouth.teeth(body, m, log) if layer == "skeleton" else [mouth.tongue(body, m, log)]) if s is not None]
-        out = [s for s in out if s.name not in {x.name for x in mine}] + mine
+        out = [s for s in out if s.name not in {x.name for x in mine}]
+        if layer == "skeleton":
+            mine = teeth.split(body, m, mine, log)             # each tooth by its name (its place in the row)
+        out += mine
         if layer == "skeleton" and mine:
             for s in out:
                 if s.name in ("cranium and maxilla", "mandible"):
@@ -105,6 +109,7 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
             out = [s for s in out if s is not whole] + skull_bones.split(body, whole, log)
     if layer == "organs":
         skin_cache = body.export / "model" / "skin.npz"
+        out += face_vessels.build(body, log)                   # the face's vessels and nerves, drawn (generated)
         if skin_cache.exists():                                # the eyeballs sit behind the skin's lids
             whole = body.export / "model" / "skin_surface.npz"
             out += eyes.build(load_structures(skin_cache)[0], log, load_structures(whole)[0] if whole.exists() else None, body)
