@@ -46,8 +46,9 @@ void LabLid(float2 lid, float3 eyeR, float3 eyeL, float3 fwd, float3 up, float4 
 
 // The jaw (backend/tools/anatomy_model/mouth.py). Every vertex of every layer that the jaw moves carries how far
 // it goes with the mandible (TEXCOORD_3.x: 1 the mandible, the lower teeth, the chin; 0 the skull; between them
-// the cheeks, the neck under the chin, the tongue's root). A vertex turns about the jaw's hinge (the axis through
-// the two condyles) by its weight times the jaw's turn: the mouth opens, on every layer alike.
+// the cheeks, the neck under the chin, the tongue's root). A vertex turns about the jaw's axis (under the two
+// condyles: a jaw that opens wide turns and its condyles slide forward, which together is one turn about an axis
+// under the joints) by its weight times the jaw's turn: the mouth opens, on every layer alike.
 // The hinge and the turn are material properties like the lids' (LAB_JAW_UNIFORMS inside UnityPerMaterial, the
 // names in the Properties block), and ModelBody sets them only on the materials of meshes that carry jaw weights.
 // It has to be so: a mesh WITHOUT a TEXCOORD_3 is not handed zeros by Unity but an earlier channel in its place
@@ -58,11 +59,15 @@ void LabLid(float2 lid, float3 eyeR, float3 eyeL, float3 fwd, float3 up, float4 
 // The second number of a vertex's pair (TEXCOORD_3.y) says how far it goes with the lip: 1 on the lower lip's edge and
 // its inner side, less down the chin and towards the mouth's corners. With the jaw only turned, the lower lip would
 // stay before the lower teeth as it lay; a lip taken in the fingers comes off them. It is drawn first, then turned.
-#define LAB_JAW_UNIFORMS float4 _JawHinge; float4 _JawAxis; float4 _LipPull;
+// (The tongue carries the same number: it lies down by it as the mouth opens.)
+// _LipLift: the same for the upper lip, lifted off the upper teeth (up the face, a little forward): xyz the way, w how
+// far now, metres. A vertex of the upper lip carries how far it goes with it as a NEGATIVE TEXCOORD_3.y (no vertex is
+// of both lips).
+#define LAB_JAW_UNIFORMS float4 _JawHinge; float4 _JawAxis; float4 _LipPull; float4 _LipLift;
 
-void LabJaw(float2 jaw, float4 hinge, float3 axis, float4 lipPull, inout float3 position, inout float3 a, inout float3 b)
+void LabJaw(float2 jaw, float4 hinge, float3 axis, float4 lipPull, float4 lipLift, inout float3 position, inout float3 a, inout float3 b)
 {
-    position += lipPull.xyz * (jaw.y * lipPull.w);
+    position += lipPull.xyz * (max(jaw.y, 0.0) * lipPull.w) + lipLift.xyz * (max(-jaw.y, 0.0) * lipLift.w);
     float angle = hinge.w * jaw.x;
     if (abs(angle) < 1e-6) return;
     float s, c;

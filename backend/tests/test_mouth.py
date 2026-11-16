@@ -101,6 +101,21 @@ def test_the_lower_lip_is_drawn_down_before_the_jaw_turns():
     assert half[0, 1] == pytest.approx(0.75 - 0.5 * mouth.LIP_PULL_MM * 0.001)
 
 
+def test_the_upper_lip_is_lifted_by_itself_and_does_not_go_with_the_jaw():
+    m = mouth.Mouth.__new__(mouth.Mouth)
+    m.hinge, m.axis = np.array([0.0, 0.8, 0.0]), np.array([1.0, 0.0, 0.0])
+    m.lip_down, m.lip_up = np.array([0.0, -1.0, 0.0]), np.array([0.0, 1.0, 0.0])
+    v = np.array([[0.0, 0.76, 0.11], [0.0, 0.74, 0.11]])                    # a point of the upper lip, one of the lower
+    pull = np.array([-1.0, 1.0])                                            # (a negative number: the upper lip's)
+    out = mouth.turned(m, v, np.array([0.0, 0.0]), 1.0, pull)
+    assert out[0, 1] == pytest.approx(0.76 + mouth.LIP_LIFT_MM * 0.001)     # up its own way
+    assert out[1, 1] == pytest.approx(0.74 - mouth.LIP_PULL_MM * 0.001)     # the lower lip down its own
+    only_jaw = mouth.turned(m, v, np.array([0.0, 0.0]), 1.0, pull, lift=0.0)
+    assert np.allclose(only_jaw[0], v[0])                                   # the mouth opened, the upper lip not taken: it stays
+    half = mouth.turned(m, v, np.array([0.0, 0.0]), 0.0, pull, lift=0.5)
+    assert half[0, 1] == pytest.approx(0.76 + 0.5 * mouth.LIP_LIFT_MM * 0.001) and np.allclose(half[1], v[1])
+
+
 def test_a_rows_biting_edge_is_each_tooths_tip_over_its_whole_footprint():
     # A lower tooth that leans: its tip (row 20) over one column, its root (top at row 12) under the next columns.
     row = np.zeros((30, 24, 30), bool)

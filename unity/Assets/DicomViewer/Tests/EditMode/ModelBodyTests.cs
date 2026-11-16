@@ -41,6 +41,20 @@ namespace DicomViewer.Tests
         }
 
         [Test]
+        public void TheUpperLipIsLiftedByItselfUpTheFace()
+        {
+            ModelBody body = Body();
+            body.lipUp = new Vector3(0f, 0.9f, 0.44f);
+            Vector3 lip = body.mouthGrab + Vector3.up * 0.012f;
+            Assert.That(Vector3.Distance(body.WithLift(lip, 0f), lip), Is.LessThan(1e-7f));
+            Vector3 lifted = body.WithLift(lip, 1f);
+            Assert.That(Vector3.Distance(lifted, lip), Is.EqualTo(0.006f).Within(1e-6f), "6 mm in all");
+            Assert.That(lifted.y, Is.GreaterThan(lip.y + 0.005f), "up the face");
+            Assert.That(lifted.z, Is.GreaterThan(lip.z), "and a little forward, off the teeth");
+            Object.DestroyImmediate(body.gameObject);
+        }
+
+        [Test]
         public void OnlyTheMeshesWithJawWeightsAreHandedTheJawsTurn()
         {
             ModelBody body = Body();
@@ -57,6 +71,11 @@ namespace DicomViewer.Tests
             Assert.That(hinge.w, Is.EqualTo(9f * Mathf.Deg2Rad).Within(1e-5f));
             Assert.That((Vector3)hinge, Is.EqualTo(body.jawHinge));
             Assert.That(chin.sharedMaterial.GetVector("_LipPull").w, Is.EqualTo(0.005f).Within(1e-6f), "half open: the lip half way down (10 mm in all)");
+            Assert.That(chin.sharedMaterial.GetVector("_LipLift").w, Is.EqualTo(0f), "the upper lip is not lifted by the jaw");
+            body.upperLip = 0.5f;
+            body.PushJaw();
+            Assert.That(chin.sharedMaterial.GetVector("_LipLift").w, Is.EqualTo(0.003f).Within(1e-6f), "half lifted: 3 mm of its 6");
+            Assert.That(chin.sharedMaterial.GetVector("_JawHinge").w, Is.EqualTo(9f * Mathf.Deg2Rad).Within(1e-5f), "and the jaw stays where it was");
             Assert.That(skull.sharedMaterial.GetVector("_JawHinge").w, Is.EqualTo(0f), "a mesh without jaw weights is not turned");
             body.hasMouth = false;
             body.PushJaw();

@@ -13,7 +13,7 @@ import numpy as np
 from scipy import ndimage
 from skimage import measure
 
-from . import fine_skin, hair, lids, mouth, zones
+from . import fine_skin, hair, lids, mouth, throat, zones
 from .common import Baker, Body, Structure, decimate, decimate_regions, keep_big_pieces, load_structures, normals_of, outward, relax, save_structures, surface
 from .palette import BRIEFS
 
@@ -392,6 +392,12 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
             skin_info["mouth"] = m.info["unity"]
             mouth_lining = mouth.lining(body, m, log)
             mouth_gums = mouth.gums(body, m, log)
+            throat_lining = throat.lining(body, m, log)                      # behind the hard palate: the soft palate's under side and the throat
+            if throat_lining is not None:
+                mouth_gums.append(throat_lining)
+            mouth_bag = mouth.bag(body, m, log)                              # and one dark wall behind all of it
+            if mouth_bag is not None:
+                mouth_gums.append(mouth_bag)
     out = [Structure("skin", "skin", v, f, skin_colour, bake=bake, albedo=albedo, extra=hair_mask, data2=data2, data3=data3, info=skin_info)]
     if mouth_lining is not None:
         out.append(mouth_lining)

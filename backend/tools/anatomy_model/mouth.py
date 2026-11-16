@@ -24,7 +24,10 @@ The jaw's weights. One number per vertex, 0 with the skull, 1 with the mandible:
 equation in the head's and neck's soft tissue between the two (the skull, the spine and the neck's base held at
 0, the mandible at 1), with no flow across the sheet. So the lower lip, the chin and the tongue go with the jaw,
 the cheeks stretch between, the neck under the chin gives way gradually. Unity turns every vertex about the
-jaw's hinge (through the two condyles) by its weight times the opening (LabLids.hlsl, LabJaw).
+jaw's axis (under the two condyles: find_hinge) by its weight times the opening (LabLids.hlsl, LabJaw).
+
+Behind the hard palate the mouth passes into the throat (throat.py): the tongue's back, the soft palate that lay
+on it, and the throat as drawn.
 """
 from __future__ import annotations
 
@@ -35,7 +38,7 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage
 
-from . import ct_frame, fine_skin, head_layers
+from . import ct_frame, fine_skin, head_layers, throat
 from .common import Body, Structure, decimate, level_set, normals_of, surface
 from .zones import MM, Face
 
@@ -44,11 +47,13 @@ LOWER_GUM_MM = 2.0
 SPACE_MM = 3.0                  # the mouth's space under the sheet
 TOOTH_HU = 1400                 # brighter than this inside the teeth's label: tooth
 HALF_WIDTH = 27.0               # mm: half the mouth's width on the skin
-OPEN_DEGREES = 18.0             # the jaw's full turn about its hinge (about 35 mm more between the incisors)
+OPEN_DEGREES = 18.0             # the jaw's full turn about its axis (the lower incisors' edges go about 23 mm down and 11 mm back)
+AXIS_BELOW_MM = 30.0            # the axis lies this far under the condyles' heads: a jaw that opens wide turns AND its condyles slide forward
 FIRM_MM = 5.0                   # flesh this near the mandible goes with it wholly
 CROWN_MM = 8.0                  # a crown's height: this far from the tooth row's edge the bones' own teeth are taken out
 FOLD_MM = 10.0                  # from the teeth's edges towards their roots: where a lip's lining turns onto the gum
 LIP_PULL_MM = 10.0              # how far the lower lip is drawn down off the teeth when the mouth is fully open
+LIP_LIFT_MM = 6.0               # how far the upper lip is lifted off the upper teeth (by itself: it does not go with the jaw)
 GUM_FROM_MM = 7.0               # the gum's edge: this far from a row's biting edge (a little more at the front teeth, whose crowns are longer)
 GUM_DEEP_MM = 15.0              # and how far the gum is drawn from there towards the roots' tips
 RIM_MM = 3.0                    # towards the sheet's rim its two sides come to move alike, over this distance
@@ -231,9 +236,12 @@ class Mouth:
     below: np.ndarray = None
     rim: np.ndarray = None                         # (nz, nx) 0..1: how far the sheet's two sides part there (nothing at its rim and at the mouth's corners)
     rim_only: np.ndarray = None                    # (nz, nx) 0..1: the rim's share of that alone
-    lip: np.ndarray = None                         # (nz, ny, nx) 0..1: how far a point goes with the lower lip when it is drawn down (lip_field)
+    lip: np.ndarray = None                         # (nz, ny, nx) -1..1: how far a point goes with the lower lip when it is drawn down (lip_field); negative: with the upper lip when it is lifted
     lip_whole: np.ndarray = None                   # the same for points known to be the lower lip's (not asked which lip they are of)
+    lip_whole_up: np.ndarray = None                # and for points known to be the upper lip's: how far they go with it when it is lifted (0..1)
+    lip_up: np.ndarray | None = None               # glTF: the way the upper lip is lifted (up the face and a little forward)
     lip_down: np.ndarray | None = None             # glTF: the way the lower lip is drawn (down the face and a little forward)
+    throat: object = None                          # throat.Throat: what lies behind the hard palate (the tongue's back, the soft palate, the throat as drawn)
     info: dict = field(default_factory=dict)
 
 
@@ -291,7 +299,7 @@ def measure(body: Body, face: Face, skin_v: np.ndarray, ct_dir: Path | None = No
     stomion = face.origin + face.ey * (face.stomion_w * MM) + face.ez * (float(face.profile_d[k]) * MM)
     s = to_mm(body, stomion)
     lo = np.array([s[0] - 8.0, s[1] - 66.0, s[2] - 56.0])
-    hi = np.array([s[0] + 106.0, s[1] + 38.0, s[2] + 56.0])
+    hi = np.array([s[0] + 112.0, s[1] + 38.0, s[2] + 56.0])                  # (back to the spine's front: the throat's back wall)
     first = np.floor((lo - head_grid.origin) / head_grid.spacing).astype(int)
     shape = tuple(int(n) for n in np.ceil((hi - lo) / head_grid.spacing))
     grid = Grid(head_grid.origin + first * head_grid.spacing, head_grid.spacing.copy(), shape)
@@ -422,9 +430,13 @@ def measure(body: Body, face: Face, skin_v: np.ndarray, ct_dir: Path | None = No
             "tongue_cm3": round(float(tongue.sum()) * voxel, 1), "tongue_label_cm3": round(float(ct["tongue"].sum()) * voxel, 1),
             "teeth_upper_cm3": round(float(teeth_upper.sum()) * voxel, 1), "teeth_lower_cm3": round(float(teeth_lower.sum()) * voxel, 1)}
     log("mouth: " + json.dumps(info))
-    return Mouth(grid, face, w_of, sheet, domain, space, teeth_upper, teeth_lower, tongue, upper, lower, lips=lips, skin_front=skin_front, u_of_x=u_of_x,
-                 stomion_mm=s, depth=depth.astype(np.float32), tooth_fields={"upper teeth": field_upper, "lower teeth": field_lower}, ct=ct,
-                 rgba_grid=head_grid, rgba=rgba, info=info)
+    m = Mouth(grid, face, w_of, sheet, domain, space, teeth_upper, teeth_lower, tongue, upper, lower, lips=lips, skin_front=skin_front, u_of_x=u_of_x,
+              stomion_mm=s, depth=depth.astype(np.float32), tooth_fields={"upper teeth": field_upper, "lower teeth": field_lower}, ct=ct,
+              rgba_grid=head_grid, rgba=rgba, info=info)
+    # Behind the hard palate the tongue is not grown up to a roof (what lies on it there is the soft palate), and the
+    # mouth's space ends: the throat takes over (throat.py).
+    m.throat = throat.measure(body, m, log)
+    return m
 
 
 # ---- what is seen inside ---------------------------------------------------------------------------------------------
@@ -459,27 +471,37 @@ def photo_tone(m: Mouth, v_mm: np.ndarray, n: np.ndarray, depths=(0.8, 1.6, 2.4)
     return np.where(known, np.clip(light / np.median(light[known]), 0.6, 1.3), 1.0)
 
 
-def turned(m: Mouth, v: np.ndarray, w: np.ndarray, amount: float = 1.0, pull: np.ndarray | None = None) -> np.ndarray:
+def turned(m: Mouth, v: np.ndarray, w: np.ndarray, amount: float = 1.0, pull: np.ndarray | None = None, lift: float | None = None) -> np.ndarray:
     """Vertices (glTF metres) as they lie with the jaw open by `amount` of its full turn: what Unity's shader does
-    (LabLids.hlsl, LabJaw). `pull`: how far each goes with the lower lip, which is drawn down first."""
+    (LabLids.hlsl, LabJaw). `pull`: how far each goes with the lower lip, which is drawn down first; negative: with
+    the upper lip, lifted by `lift` of its whole way (as far as the jaw is open, where not said)."""
     angle = np.radians(OPEN_DEGREES) * amount * np.asarray(w, np.float64)
     v = np.asarray(v, np.float64)
     if pull is not None and m.lip_down is not None:
-        v = v + m.lip_down * (np.asarray(pull, np.float64) * (amount * LIP_PULL_MM * MM))[:, None]
+        pull = np.asarray(pull, np.float64)
+        v = v + m.lip_down * (np.clip(pull, 0.0, None) * (amount * LIP_PULL_MM * MM))[:, None]
+        up = getattr(m, "lip_up", None)
+        if up is not None:
+            v = v + up * (np.clip(-pull, 0.0, None) * ((amount if lift is None else lift) * LIP_LIFT_MM * MM))[:, None]
     x = v - m.hinge
     c, sn = np.cos(angle)[:, None], np.sin(angle)[:, None]
     return x * c + np.cross(m.axis, x) * sn + m.axis * (x @ m.axis)[:, None] * (1.0 - c) + m.hinge
 
 
 def with_the_tongue(m: Mouth, zyx_mm: np.ndarray, w: np.ndarray) -> np.ndarray:
-    """The jaw weights of points of the tongue (or of the lining on it). The tongue hangs on the mandible and the
-    hyoid, not on what lies round it: its front two thirds go with the jaw wholly, its root as the throat's tissue
-    does (the weight given), with a smooth step between."""
+    """The jaw weights of points of the tongue (or of the mouth's floor under it). The tongue hangs on the mandible
+    and the hyoid, not on what lies round it: its front two thirds go with the jaw wholly, its root as the throat's
+    tissue does (the weight given), with a smooth step between. With the throat drawn behind it, the root is held
+    to a fifth of the turn at most: turned further it would go back into the throat's wall (a living jaw slides
+    forward as it opens; this one only turns)."""
     zs = m.grid.axis(0)[m.tongue.any(axis=(1, 2))]
     if len(zs) == 0:
         return w
     t = np.clip(((zyx_mm[:, 0] - zs.min()) / max(1.0, zs.max() - zs.min()) - 0.6) / 0.35, 0.0, 1.0)
-    return np.maximum(w, 1.0 - t * t * (3.0 - 2.0 * t)).astype(np.float32)
+    step = 1.0 - t * t * (3.0 - 2.0 * t)
+    if m.throat is not None:
+        return np.maximum(np.minimum(w, 0.2 + 0.8 * step), step).astype(np.float32)
+    return np.maximum(w, step).astype(np.float32)
 
 
 def cheek_wall(body: Body, m: Mouth):
@@ -512,9 +534,12 @@ def cheek_wall(body: Body, m: Mouth):
     front = ndimage.binary_dilation(m.lips, iterations=3)[iz, ix] & (np.abs(m.u_of_x[ix]) < HALF_WIDTH - 9.0)      # (it reaches in behind the lips' ends: their own inner sides thin out there)
     if front.all() or not front.any():
         return None
+    # Nor behind the hard palate: there the throat's own lining is the wall (throat.lining: the folds from the cheeks
+    # to the throat's side walls are the walls the tongue's sides lay against).
+    behind = z_mm > (m.throat.z_end + 1.5) if m.throat is not None else np.zeros(len(z_mm), bool)
     first = int(np.nonzero(front & ~np.roll(front, -1))[0][0]) + 1            # the run that is not in front, taken once round
     order = (first + np.arange(len(front))) % len(front)
-    order = order[~front[order]]
+    order = order[~front[order] & ~behind[order]]
     z_mm, x_mm = z_mm[order], x_mm[order]
     y0 = np.zeros(len(z_mm))
     height, _ = sheet_at(m, np.stack([z_mm, y0, x_mm], axis=1))
@@ -554,16 +579,16 @@ def cheek_wall(body: Body, m: Mouth):
     return v, v_mm, f, w
 
 
-def lower_arch(m: Mouth):
-    """Seen from above: the inside of the lower row of teeth and what lies behind it (bool, (nz, nx)), and each
-    column's level of the lower row's biting edge (mm; its own tooth's, or the nearest tooth's)."""
+def lower_arch(m: Mouth, behind_mm: float = 26.0):
+    """Seen from above: the inside of the lower row of teeth and what lies behind it for `behind_mm` (bool, (nz, nx)),
+    and each column's level of the lower row's biting edge (mm; its own tooth's, or the nearest tooth's)."""
     from skimage.morphology import convex_hull_image
     g = m.grid
     row = m.teeth_lower
     has = row.any(axis=1)
     hull = convex_hull_image(has)
     behind = hull.copy()
-    for step in range(1, int(26.0 / g.spacing[0])):                          # and on behind the last teeth, over the tongue's root
+    for step in range(1, int(behind_mm / g.spacing[0])):                     # and on behind the last teeth, over the tongue's root
         behind[step:] |= hull[:-step]
     edge = g.origin[1] + (biting_edge(row, g.spacing, False)[2] + 1.0) * g.spacing[1]
     return behind, has, edge
@@ -626,8 +651,17 @@ def lining(body: Body, m: Mouth, log=print) -> Structure | None:
     # (Where the space is thinner than the test's step, neither holds: there the wall's own facing tells, up or down.)
     faces_up, faces_down = wall & (n[:, 1] > 0.5), wall & (n[:, 1] < -0.5)
     roof, floor = roof | faces_up, floor | faces_down
+    # (And what has the upper jaw's gum and bone behind it is the roof however steep it stands: the slope from the
+    # palate down to the upper teeth's necks. Taken for a wall at the slit, it was left out, and a dark band ran
+    # along the inner side of the upper teeth.)
+    roof |= (g.sample((m.upper & ~m.teeth_upper).astype(np.float32), beyond) > 0.5) & ~floor
     wall = ~roof & ~floor
     in_slit = wall & (v_mm[:, 1] < height + 0.6) & (v_mm[:, 1] > height - SPACE_MM - 0.6)
+    if m.lip_whole_up is not None:
+        # Between the upper lip and the upper teeth and gum nothing of the lining is kept: the lip's own inner side
+        # is the skin's (mouth.cut), which is lifted with the lip, and the gum's face is the gum's own mesh. The
+        # lining there stayed behind as a rag before the upper teeth, or went part of the lip's way over the gum.
+        gone |= np.maximum(g.sample(m.lip_whole_up, v_mm + _zyx(n) * 1.0, order=1, cval=0.0), g.sample(m.lip_whole_up, v_mm - _zyx(n) * 0.7, order=1, cval=0.0)) > 0.08
     side = np.where(roof, 1.0, np.where(floor, -1.0, np.where(v_mm[:, 1] > height - SPACE_MM / 2, 1.0, -1.0)))
     keep = ~(gone[f].sum(axis=1) >= 2) & ~(in_slit[f].sum(axis=1) >= 2)
     # Of the space's wall only the ROOF is kept (the palate, the upper gum's inner side, the upper lip's): it does not
@@ -677,7 +711,7 @@ def lining(body: Body, m: Mouth, log=print) -> Structure | None:
     front = float(np.nanmin(m.skin_front))
 
     def light(mm):                                                           # the light fails towards the throat
-        return 1.0 - 0.6 * np.clip((mm[:, 0] - front) / 80.0, 0.0, 1.0)
+        return 1.0 - DIM_BACK * np.clip((mm[:, 0] - front) / 80.0, 0.0, 1.0)
 
     bake = np.tile(np.array([255, 255, 82, 225], np.uint8), (len(v), 1))
     bake[:, 0] = np.round(255 * light(v_mm))
@@ -710,6 +744,84 @@ def lining(body: Body, m: Mouth, log=print) -> Structure | None:
     return out
 
 
+DIM_BACK = 0.35                 # how much darker the mouth's surfaces are baked 8 cm behind the lips (the light fails towards the throat, but it is there to be looked into)
+BAG_MM = 2.5                    # the bag lies this far outside the mouth's and the throat's lining
+BAG_SHADE = 0.9                 # and is this much darker than the lining (little: where the lining has a gap, the bag is what is seen for it)
+
+
+def bag(body: Body, m: Mouth, log=print) -> Structure | None:
+    """The mouth's bag: one closed wall round the whole of the mouth and the throat, BAG_MM outside everything that
+    lines them, seen from inside only. The lining, the gums, the teeth and the throat are many meshes that part and
+    are drawn out as the mouth opens; wherever a gap is left between them (behind the last back teeth, between two
+    teeth, at a fold's foot) the eye would go through to the layers behind or to nothing. With the bag it meets a
+    shaded wall of the lining's colour, as it does in a mouth. It goes as the flesh it lies in goes: its upper half
+    stays with the skull, its lower goes with the jaw, between them (the cheeks' inner sides) it is drawn out; round
+    the throat it stays. It is open at the lips."""
+    g = m.grid
+    t = m.throat
+    # (The teeth are taken into it: the bag goes round the rows of teeth on the cheeks' side, not through the crowns,
+    # where its upper and lower halves were joined tooth to tooth and hung between the rows as the mouth opened.)
+    room = m.space | m.tongue | m.teeth_upper | m.teeth_lower
+    if t is not None:
+        room = room | t.hollow | t.uvula | t.tonsils
+    xs = g.axis(2)
+    solid = near(room, g.spacing, BAG_MM) & (m.depth > 3.0)
+    got = _mesh(body, g, solid, 1.2)
+    if got is None:
+        return None
+    v, v_mm, f, n = got
+    # Open at the lips: nothing of it between them, nor within the lips' own thickness behind their skin.
+    at = np.stack([(v_mm[:, 0] - g.origin[0]) / g.spacing[0] - 0.5, (v_mm[:, 2] - g.origin[2]) / g.spacing[2] - 0.5], axis=0)
+    wide = ndimage.binary_dilation(m.lips, iterations=int(round(4.0 / g.spacing[0])))
+    in_lips = ndimage.map_coordinates(wide.astype(np.float32), at, order=0, mode="constant", cval=0.0) > 0.5
+    front = v_mm[:, 0] - np.interp(v_mm[:, 2], xs, m.skin_front)
+    gone = (in_lips & (front < 15.0)) | (g.sample(m.depth, v_mm) < 4.0)
+    f = f[~gone[f].any(axis=1)][:, ::-1]                                     # seen from inside
+    used = np.unique(f)
+    remap = np.full(len(v), -1, np.int64)
+    remap[used] = np.arange(len(used))
+    v, v_mm, f = v[used], v_mm[used], remap[f]
+    # Its weights: by height alone. It is the upper jaw's above the level where the jaws meet (the sheet), the
+    # lower jaw's 11 mm under it, and drawn out evenly between (the cheeks' inner sides, the folds from the cheeks to
+    # the throat, a gap where teeth are missing); less and less of that towards the throat, and nothing near what is
+    # held with the skull (the soft palate, the throat's wall). It goes round the rows of teeth on the cheeks' side,
+    # so a part of it that goes less far than a tooth does not come before the tooth. (Weights read from the teeth
+    # and gums it lies against stepped where a tooth stands alone, and drew single triangles out into spikes across
+    # the opened mouth.) What is still drawn out to more than four times its length is taken out.
+    w = np.zeros(len(v), np.float32)
+    if m.weight_grid is not None:
+        height, _ = sheet_at(m, v_mm)
+        share = np.clip((height + 3.0 - v_mm[:, 1]) / 14.0, 0.0, 1.0)
+        w = share * share * (3.0 - 2.0 * share)
+        if t is not None:
+            back = np.clip((v_mm[:, 0] - (t.z_end + 2.0)) / max(4.0, t.sink_from[1] - 8.0 - t.z_end), 0.0, 1.0)
+            off = np.clip((g.sample(ndimage.distance_transform_edt(~t.held, sampling=g.spacing).astype(np.float32), v_mm) - 1.5) / 4.5, 0.0, 1.0)
+            w = w * (1.0 - back * back * (3.0 - 2.0 * back)) * (off * off * (3.0 - 2.0 * off))
+        w = w.astype(np.float32)
+        there = turned(m, v, w, 1.0)
+
+        def longest(q):
+            return np.max([np.linalg.norm(q[f[:, i]] - q[f[:, j]], axis=1) for i, j in ((0, 1), (1, 2), (2, 0))], axis=0)
+
+        after = longest(there)
+        threads = (after > 4.0 * np.maximum(longest(np.asarray(v, np.float64)), 2e-4)) & (after > 0.004)
+        f = f[~threads]
+        log(f"mouth: bag: {int(threads.sum())} triangles that would be drawn out into threads taken out")
+    front_mm = float(np.nanmin(m.skin_front))
+    light = 1.0 - DIM_BACK * np.clip((v_mm[:, 0] - front_mm) / 80.0, 0.0, 1.0)
+    colour = np.tile(np.array(MUCOSA, np.float64) * BAG_SHADE, (len(v), 1))
+    bake = np.tile(np.array([230, 255, 82, 215], np.uint8), (len(v), 1))
+    bake[:, 0] = np.round(230 * light)
+    log(f"mouth: bag {len(f)} triangles")
+    out = Structure("wall of the mouth", "skin", v.astype(np.float32), f.astype(np.uint32), tuple(c / 255 * BAG_SHADE for c in MUCOSA), bake=bake,
+                    albedo=np.round(np.clip(colour, 0, 255)).astype(np.uint8),
+                    info={"class": "skin", "generated": "a closed dark wall behind the mouth's and the throat's lining, so that no gap between their parts shows what lies outside",
+                          "source": "the mouth's space, the tongue's place and the throat, 2.5 mm outwards (mouth.py)"})
+    if m.weight_grid is not None:
+        out.data3 = np.stack([w, np.zeros(len(v), np.float32)], axis=1).astype(np.float32)
+    return out
+
+
 def biting_edge(row: np.ndarray, spacing, upper: bool):
     """Seen along the teeth: which columns hold a tooth of the row, how far every column lies from one (mm), and the
     level (a row index, float) of the row's biting edge there. The edge is each tooth's tip, carried over the tooth's
@@ -739,7 +851,11 @@ def gums(body: Body, m: Mouth, log=print) -> list[Structure]:
         rows = np.arange(row.shape[1])[None, :, None]
         away = ((rows - edge[:, None, :]) if upper else (edge[:, None, :] - rows)) * sy       # mm from the biting edge towards the roots
         start = GUM_FROM_MM + 0.7 * np.clip(1.0 - np.abs(m.u_of_x) / 14.0, 0.0, 1.0)[None, None, :]
-        solid = (hard | near(row, g.spacing, 1.8)) & (distance[:, None, :] <= 4.0) & (away >= start) & (away <= start + GUM_DEEP_MM) & (m.depth > 1.0)
+        # (Within 4 mm of the row on its inner side, 7 mm on the lips' and cheeks' side: there the bone under the roots
+        # swells forward, and below a gum cut off at 4 mm it showed white between the gum and the lip's inner side.)
+        from skimage.morphology import convex_hull_image
+        reach = np.where(convex_hull_image(has), 4.0, 7.0)
+        solid = (hard | near(row, g.spacing, 1.8)) & (distance[:, None, :] <= reach[:, None, :]) & (away >= start) & (away <= start + GUM_DEEP_MM) & (m.depth > 1.0)
         # Between two teeth the gum rises to where their crowns touch (its points between the teeth): the gaps between
         # neighbouring teeth, up to 3 mm wide, are closed for 3.5 mm above the gum's edge.
         span = 2 * int(round(1.6 / sz)) + 1
@@ -751,7 +867,7 @@ def gums(body: Body, m: Mouth, log=print) -> list[Structure]:
         v, v_mm, f, n = got
         # Its cut ends (towards the roots' tips, and 4 mm from the row) lie inside the flesh and are left open.
         deep = g.sample(away.astype(np.float32), v_mm) > (g.sample(np.broadcast_to(start, away.shape).astype(np.float32), v_mm) + GUM_DEEP_MM - 1.2)
-        aside = ndimage.map_coordinates(distance.astype(np.float32), np.stack([(v_mm[:, 0] - g.origin[0]) / sz - 0.5, (v_mm[:, 2] - g.origin[2]) / sx - 0.5]), order=1, mode="nearest") > 3.4
+        aside = ndimage.map_coordinates((distance - reach).astype(np.float32), np.stack([(v_mm[:, 0] - g.origin[0]) / sz - 0.5, (v_mm[:, 2] - g.origin[2]) / sx - 0.5]), order=1, mode="nearest") > -0.6
         f = f[~(deep | aside)[f].all(axis=1)]
         used = np.unique(f)
         remap = np.full(len(v), -1, np.int64)
@@ -783,14 +899,17 @@ def teeth(body: Body, m: Mouth, log=print) -> list[Structure]:
         # outside each vertex darkens it; the roots (more than 9 mm from the row's edge) are dentine's yellow.
         n = normals_of(v, f)
         at = to_mm(body, v)
-        hard = ndimage.gaussian_filter((m.teeth_upper | m.teeth_lower | m.ct["skull"] | m.ct["mandible"]).astype(np.float32), [1.3 / sp for sp in m.grid.spacing])
+        # (Its own row and its own jaw only: with the other row counted too, the faces the back teeth bite with were
+        # baked black, and stayed black in the opened mouth.)
+        own = (m.teeth_upper | m.ct["skull"]) if name.startswith("upper") else (m.teeth_lower | m.ct["mandible"])
+        hard = ndimage.gaussian_filter(own.astype(np.float32), [1.3 / sp for sp in m.grid.spacing])
         crowded = m.grid.sample(hard, at + _zyx(n) * 1.4)
         ys = at[:, 1]
         edge = np.percentile(ys, 2) if name.startswith("upper") else np.percentile(ys, 98)
         root = np.clip((np.abs(ys - edge) - 9.5) / 3.0, 0.0, 1.0)
         albedo = np.array(TOOTH, np.float64)[None, :] + (np.array(ROOT, np.float64) - np.array(TOOTH, np.float64))[None, :] * root[:, None]
         bake = np.tile(np.array([255, 255, 82, 185], np.uint8), (len(v), 1))
-        bake[:, 0] = np.round(255 * np.clip(1.2 - 1.7 * crowded, 0.22, 1.0))
+        bake[:, 0] = np.round(255 * np.clip(1.2 - 1.7 * crowded, 0.3, 1.0))
         # (the lower row goes with the jaw wholly: its weights are set here, so they stay with its teeth when the row is split into them)
         whole = np.stack([np.ones(len(v), np.float32), np.zeros(len(v), np.float32)], axis=1) if name.startswith("lower") and m.weight_grid is not None else None
         out.append(Structure(name, "skeleton", v, f, tuple(c / 255 for c in TOOTH), bake=bake, albedo=np.round(albedo).astype(np.uint8), data3=whole,
@@ -843,7 +962,7 @@ def tongue(body: Body, m: Mouth, log=print) -> Structure | None:
     if m.teeth_lower.any():
         # As it lay, its tip reached over the lower front teeth to the lips. A tongue at rest in an opened mouth lies
         # within the lower row of teeth: what of it lay over the row or before it is left off (a little of its tip).
-        inside, has, _ = lower_arch(m)
+        inside, has, _ = lower_arch(m, 44.0)                                 # (to the tongue's root, whole)
         clear = inside & ~ndimage.binary_dilation(has, iterations=int(round(1.4 / g.spacing[0])))
         mask = ndimage.binary_opening(mask & clear[:, None, :], iterations=1)
     got = _mesh(body, g, mask, 1.1)
@@ -868,7 +987,7 @@ def tongue(body: Body, m: Mouth, log=print) -> Structure | None:
     colour *= photo_tone(m, v_mm, -n)[:, None] ** 0.5
     back = np.clip((v_mm[:, 0] - float(np.nanmin(m.skin_front))) / 80.0, 0.0, 1.0)
     bake = np.tile(np.array([255, 255, 82, 225], np.uint8), (len(v), 1))
-    bake[:, 0] = np.round(255 * (1.0 - 0.5 * back))
+    bake[:, 0] = np.round(255 * (1.0 - DIM_BACK * back))
     return Structure("tongue", "organs", v.astype(np.float32), f.astype(np.uint32), tuple(c / 255 for c in TONGUE), bake=bake,
                      albedo=np.round(np.clip(colour, 0, 255)).astype(np.uint8),
                      info={"class": "organ", "cm3": m.info.get("tongue_cm3"), "source": "TotalSegmentator's tongue label on the frozen CT, grown up to the palate"})
@@ -876,8 +995,12 @@ def tongue(body: Body, m: Mouth, log=print) -> Structure | None:
 
 # ---- how the jaw opens -----------------------------------------------------------------------------------------------
 def find_hinge(body: Body, m: Mouth):
-    """The jaw's axis: through the heads of the two condyles (the mandible's hindmost tops), 3 mm under their crowns.
-    Returns a point on it and its direction (towards his left), in glTF metres, or None."""
+    """The jaw's axis. A jaw that opens wide does two things: it turns in its joints, and the condyles' heads slide
+    forward out of their sockets onto the bone before them (about a centimetre). The two together are one turn about
+    an axis UNDER the joints, near the middle of the jaw's upright part (where the nerve enters it): AXIS_BELOW_MM
+    under the heads of the two condyles (the mandible's hindmost tops, 3 mm under their crowns: m.condyles).
+    Turned about the joints themselves, everything under them (the back teeth, the tongue's root) swung backwards
+    into the throat. Returns a point on the axis and its direction (towards his left), in glTF metres, or None."""
     data, names = m.ct["raw"]["craniofacial_structures"]
     value = next((k for k, n in names.items() if n == "mandible"), None)
     if value is None:
@@ -897,7 +1020,9 @@ def find_hinge(body: Body, m: Mouth):
     right, left = (p[0], p[1]) if p[0][0] < p[1][0] else (p[1], p[0])
     axis = left - right
     m.condyles = (right, left)
-    return right, axis / np.linalg.norm(axis)
+    axis = axis / np.linalg.norm(axis)
+    down = np.array([0.0, -1.0, 0.0]) - axis * (-axis[1])                     # straight down the body, square to the axis
+    return right + down / np.linalg.norm(down) * (AXIS_BELOW_MM * MM), axis
 
 
 def solve_weights(node: np.ndarray, zero: np.ndarray, one: np.ndarray, side: np.ndarray, log=print) -> np.ndarray:
@@ -991,6 +1116,15 @@ def jaw_weights(body: Body, m: Mouth, voxel_mm: float = 2.0, log=print) -> None:
     height, there = sheet_at(m, np.stack([np.repeat(grid.axis(0), shape[2]), np.zeros(shape[0] * shape[2]), np.tile(grid.axis(2), shape[0])], axis=1))
     height, there = height.reshape(shape[0], shape[2]), there.reshape(shape[0], shape[2])
     side = np.where(there[:, None, :], np.where(grid.axis(1)[None, :, None] > height[:, None, :], 1, -1), 0).astype(np.int8)
+    held = np.zeros(shape, bool)
+    if m.throat is not None:
+        # Behind the hard palate there is no sheet: the tongue is the lower side, what lies on and behind it (the soft
+        # palate, the throat's wall) the upper, held with the skull.
+        held = throat.on_grid(m, grid, m.throat.held) & inside
+        tongue = throat.on_grid(m, grid, m.tongue)
+        side = np.where((grid.axis(0) > m.throat.z_end)[:, None, None], 0, side).astype(np.int8)
+        side[tongue & (grid.axis(0) > m.throat.z_end - 6.0)[:, None, None]] = -1
+        side[held] = 1
     # What sits on a bone goes with it: the flesh within 5 mm of the mandible (gum, the chin's pad, the muscles'
     # attachments) is held at 1, within 3 mm of the skull at 0; where the two meet (the joint) each keeps the nearer.
     to_jaw = ndimage.distance_transform_edt(~mandible, sampling=grid.spacing)
@@ -998,6 +1132,7 @@ def jaw_weights(body: Body, m: Mouth, voxel_mm: float = 2.0, log=print) -> None:
     one = (to_jaw <= FIRM_MM) & (to_jaw <= to_skull) & (side != 1) & inside | mandible
     # The skull, the spine and the shoulder girdle hold still; the hyoid hangs between and goes as the tissue takes it.
     zero = ((to_skull <= 3.0) & (to_skull < to_jaw) & (side != -1) & inside) | skull | (bone & (to_jaw > FIRM_MM + 2.0) & ~near(hyoid, grid.spacing, 3.0))
+    zero |= held
     zero &= ~mandible
     zero[:, :2, :] = True                                                     # the neck's base
     zero[-2:, :, :] = True                                                    # the nape
@@ -1057,39 +1192,47 @@ def weight(body: Body, m: Mouth, v_gltf: np.ndarray, side: np.ndarray | None = N
 
 
 def lip_field(body: Body, m: Mouth):
-    """How far each voxel of the mouth's grid goes with the lower lip when it is drawn down off the teeth (0..1).
+    """How far each voxel of the mouth's grid goes with a lip taken in the fingers and drawn off the teeth.
     With the jaw only turned, the lower lip stays before the lower teeth as it lay (their edges are 3 to 5 mm
-    under the lip line) and nothing of them is seen. A lip taken in the fingers and drawn towards the chin comes
-    off the teeth: so all the flesh of the lower lip that lies in front of the lower jaw's hard parts (teeth, gum,
-    bone) goes down with it: wholly from the lip's edge to 12 mm under the lip line, less and less to nothing at
-    32 mm (the chin), and less towards the mouth's corners, where the lips are one."""
+    under the lip line) and nothing of them is seen. A lip drawn towards the chin comes off the teeth: so all the
+    flesh of the lower lip that lies in front of the lower jaw's hard parts (teeth, gum, bone) goes down with it:
+    wholly from the lip's edge to 12 mm under the lip line, less and less to nothing at 32 mm (the chin), and less
+    towards the mouth's corners, where the lips are one. The upper lip the same way, lifted towards the nose: the
+    flesh in front of the upper jaw's hard parts, wholly to 6 mm over the lip line, nothing at 16 mm (the nose's foot).
+    Returns the field with a sign (0..1 the lower lip's, 0..-1 the upper lip's) and the two lips' own (0..1)."""
     g, face = m.grid, m.face
     zs, ys = g.axis(0), g.axis(1)
     lip_y = np.array([to_mm(body, face.origin + face.ex * (u * MM) + face.ey * (float(m.lip_w(u)) * MM))[1] for u in m.u_of_x])
     lens = np.clip(1.0 - (np.abs(m.u_of_x) / (HALF_WIDTH - 1.0)) ** 3, 0.0, 1.0)
     under = lip_y[None, None, :] - ys[None, :, None]                         # mm under the lip line
     down = np.clip(1.0 - (under - 12.0) / 20.0, 0.0, 1.0)
+    up = np.clip(1.0 - (-under - 6.0) / 10.0, 0.0, 1.0)
     lower_side = np.where(m.domain[:, None, :], ys[None, :, None] < m.sheet[:, None, :] - 0.2, under > 0.0)
-    hard = m.lower | m.teeth_lower
-    first = np.where(hard.any(axis=0), np.argmax(hard, axis=0), hard.shape[0])          # per (y, x): the first hard voxel from the front
-    in_front = np.arange(hard.shape[0])[:, None, None] < first[None, :, :]
     lip_thick = (zs[:, None, None] - m.skin_front[None, None, :]) < 16.0
-    whole = (lens[None, None, :] * down * in_front * lip_thick).astype(np.float32)
-    # (`whole`: without the question of which lip a point is of, for points that are known to be the lower lip's: read
-    # across the line between the lips, the answer stepped with the voxels' rows and notched the lip's edge.)
-    return (whole * lower_side).astype(np.float32), whole
+
+    def before(hard):                                                        # per (y, x): in front of the first hard voxel from the front
+        first = np.where(hard.any(axis=0), np.argmax(hard, axis=0), hard.shape[0])
+        return np.arange(hard.shape[0])[:, None, None] < first[None, :, :]
+
+    # (`lower`, `upper`: without the question of which lip a point is of, for points that are known to be that lip's:
+    # read across the line between the lips, the answer stepped with the voxels' rows and notched the lip's edge.)
+    lower = (lens[None, None, :] * down * before(m.lower | m.teeth_lower) * lip_thick).astype(np.float32)
+    upper = (lens[None, None, :] * up * before(m.upper | m.teeth_upper) * lip_thick).astype(np.float32)
+    return np.where(lower_side, lower, -upper).astype(np.float32), lower, upper
 
 
 def lip_pull(body: Body, m: Mouth, v_gltf: np.ndarray, side: np.ndarray | None = None) -> np.ndarray:
-    """How far points go with the lower lip when it is drawn down (0..1). `side`, where it is known: +1 = of the upper
-    jaw's side (the upper lip, the roof: 0 whatever lies near), -1 = of the lower (read a little under the point, clear
-    of the line between the lips)."""
+    """How far points go with the lower lip when it is drawn down (0..1), or with the upper lip when it is lifted
+    (0..-1). `side`, where it is known: +1 = of the upper jaw's side (the upper lip, the roof), -1 = of the lower:
+    each read from its own lip's field, clear of the line between the lips."""
     p = to_mm(body, v_gltf)
     if side is None:
         return m.grid.sample(m.lip, p, order=1, cval=0.0).astype(np.float32)
     given = np.asarray(side, np.float64)
     out = np.where(given < 0, m.grid.sample(m.lip_whole, p, order=1, cval=0.0), m.grid.sample(m.lip, p, order=1, cval=0.0))
-    return np.where(given > 0, 0.0, out).astype(np.float32)
+    if m.lip_whole_up is None:
+        return np.where(given > 0, 0.0, out).astype(np.float32)
+    return np.where(given > 0, -m.grid.sample(m.lip_whole_up, p, order=1, cval=0.0), out).astype(np.float32)
 
 
 def clear_labels(body: Body, m: Mouth, log=print) -> int:
@@ -1104,9 +1247,14 @@ def clear_labels(body: Body, m: Mouth, log=print) -> int:
     hi = np.minimum(np.ceil((g.origin + np.array(g.shape) * g.spacing) / spacing).astype(int), np.array(lab.shape))
     block = Grid(lo * spacing, spacing, tuple(int(x) for x in hi - lo))
     flat = block.points().reshape(-1, 3)
-    wide = near(m.space, g.spacing, 1.6).astype(np.float32)
+    room = m.space if m.throat is None else m.space | m.throat.hollow | m.throat.uvula | m.throat.tonsils
+    wide = near(room, g.spacing, 1.6 if m.throat is None else BAG_MM + 0.7).astype(np.float32)      # (to behind the mouth's bag)
     space = g.sample(wide, flat, order=1, cval=0.0).reshape(block.shape) > 0.3
     tongue = g.sample(m.tongue.astype(np.float32), flat, order=1, cval=0.0).reshape(block.shape) > 0.5
+    if m.throat is not None:
+        # The soft palate lies ON the tongue: its unnamed muscle must end clear of the lining drawn between them.
+        back = near(m.tongue & (g.axis(0) > m.throat.z_end - 2.0)[:, None, None], g.spacing, BAG_MM + 0.7).astype(np.float32)
+        space |= g.sample(back, flat, order=1, cval=0.0).reshape(block.shape) > 0.3
     view = lab[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
     hit = (space & np.isin(view, loose)) | (tongue & np.isin(view, muscle))
     # Between the lips the space thins to nothing at the skin, but what the labels have there must be parted too.
@@ -1160,15 +1308,19 @@ def prepare(body: Body, face: Face, skin_v: np.ndarray, ct_dir: Path | None = No
         return None
     m.hinge, m.axis = hinge
     jaw_weights(body, m, log=log)
-    m.lip, m.lip_whole = lip_field(body, m)
+    m.lip, m.lip_whole, m.lip_whole_up = lip_field(body, m)
     m.lip_down = -face.ey * 0.94 + face.ez * 0.34                           # down the face and a little forward: the lip turns out as it comes down
     m.lip_down = m.lip_down / np.linalg.norm(m.lip_down)
+    m.lip_up = face.ey * 0.90 + face.ez * 0.44                              # up the face and forward: the upper lip turns out as it is lifted
+    m.lip_up = m.lip_up / np.linalg.norm(m.lip_up)
     clear_labels(body, m, log)
     grab = to_gltf(body, m.stomion_mm) - face.ey * 0.006                    # on the lower lip
     reach = float(np.linalg.norm(np.cross(grab - m.hinge, m.axis)))
     m.info["unity"] = {"hinge": [float(x) for x in m.hinge], "axis": [float(x) for x in m.axis], "degrees": OPEN_DEGREES,
                        "grab": [float(x) for x in grab], "travel_m": reach * float(np.radians(OPEN_DEGREES)),
-                       "lip_down": [float(x) for x in m.lip_down], "lip_pull_m": LIP_PULL_MM * MM}
+                       "lip_down": [float(x) for x in m.lip_down], "lip_pull_m": LIP_PULL_MM * MM,
+                       "lip_up": [float(x) for x in m.lip_up], "lip_lift_m": LIP_LIFT_MM * MM,
+                       "grab_upper": [float(x) for x in to_gltf(body, m.stomion_mm) + face.ey * 0.007]}
     log(f"mouth: hinge at {np.round(m.hinge * 1000, 1)} mm, axis {np.round(m.axis, 3)}; the lower lip lies {reach * 1000:.0f} mm from it "
         f"and travels {reach * np.radians(OPEN_DEGREES) * 1000:.0f} mm")
     return m
@@ -1270,7 +1422,9 @@ def cut(v: np.ndarray, f: np.ndarray, body: Body, m: Mouth, log=print):
                 new_margin.append(True)
                 if name == "fold":
                     new_anchor.append(-1)
-                    fixed[k0 + len(new_v) - 1] = (0.0 if top else 1.0, 0.0)
+                    # (the lower lip's fold is the gum's and stays; the upper lip's comes 0.6 of the lip's way with it:
+                    # lying against the gum's face, the lifted lip's lining cut through the swellings over the roots)
+                    fixed[k0 + len(new_v) - 1] = (0.0, -0.6) if top else (1.0, 0.0)
                 else:
                     new_anchor.append(int(i) if top else int(copy_of[i]))
     grown = np.array(new_v)
@@ -1373,6 +1527,8 @@ def assign(structures: list[Structure], body: Body, m: Mouth, log=print) -> int:
             f = np.asarray(s.f, np.int64)
             hard = s.layer == "skeleton" or s.name == "tongue"             # bone, cartilage and the tongue are not the lip's flesh
             pull = np.zeros_like(w) if hard else lip_pull(body, m, v)
+            if s.name == "tongue" and m.throat is not None:
+                pull = throat.sink(body, m, v)                              # it lies down as the mouth opens (else it hides the throat)
             there = turned(m, v, w, 1.0, pull)
 
             def longest(p):

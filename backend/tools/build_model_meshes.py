@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import bonehub, fine_skin, head_layers, leg_muscles, mouth, skull_bones  # noqa: E402
+from anatomy_model import bonehub, fine_skin, head_layers, leg_muscles, mouth, skull_bones, throat  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
@@ -109,6 +109,7 @@ def main() -> int:
             print(f"{layer}: {len(built)} structures from the cache")
         structures += built
     if getattr(body, "mouth", None) is not None:                   # every structure's share in the jaw's turn
+        throat.tuck(structures, body, body.mouth)                  # (first: nothing of the layers under the skin stands in the throat as drawn)
         moved = mouth.assign(structures, body, body.mouth)
         print(f"mouth: {moved} structures go with the jaw, wholly or in part")
     if args.out:

@@ -43,16 +43,20 @@ namespace DicomViewer.AnatomyLab
         public Vector3 lipDown = Vector3.down;                           // the way the lower lip is drawn off the teeth as the mouth is opened
         public float lipPullMm = 10f;                                    // and how far, with the mouth fully open
         [Range(0f, 1f)] public float jaw;                                // how far the mouth is open
+        public Vector3 lipUp = Vector3.up, upperLipGrab;                 // the way the upper lip is lifted off the upper teeth; a point on it
+        public float lipLiftMm = 6f;                                     // and how far, lifted fully
+        [Range(0f, 1f)] public float upperLip;                           // how far the upper lip is lifted
         [Tooltip("The renderers whose meshes carry jaw weights (TEXCOORD_3): only their materials are told of the jaw.")]
         public List<Renderer> jawRenderers = new List<Renderer>();
 
-        /// <summary>A lid or the lower lip is in the hand: the camera does not turn meanwhile (ModelOrbit).</summary>
+        /// <summary>A lid or a lip is in the hand: the camera does not turn meanwhile (ModelOrbit).</summary>
         public static bool Grabbing { get; private set; }
 
-        private static readonly int JawHingeId = Shader.PropertyToID("_JawHinge"), JawAxisId = Shader.PropertyToID("_JawAxis"), LipPullId = Shader.PropertyToID("_LipPull");
+        private static readonly int JawHingeId = Shader.PropertyToID("_JawHinge"), JawAxisId = Shader.PropertyToID("_JawAxis"), LipPullId = Shader.PropertyToID("_LipPull"),
+                                    LipLiftId = Shader.PropertyToID("_LipLift");
         private readonly List<Material> jawMaterials = new List<Material>();
-        private float goalRight, goalLeft, goalJaw;
-        private int grabbed = -1;                                        // 0 the right eye, 1 the left, 2 the mouth
+        private float goalRight, goalLeft, goalJaw, goalUpper;
+        private int grabbed = -1;                                        // 0 the right eye, 1 the left, 2 the lower lip (the jaw), 3 the upper lip
         private Transform meshSpace;                                     // any of the body's meshes: they share one object space
         private Vector2 lastPointer;
         private readonly List<Material> lidMaterials = new List<Material>();
@@ -107,6 +111,7 @@ namespace DicomViewer.AnatomyLab
             goalRight = lidRight;
             goalLeft = lidLeft;
             goalJaw = jaw;
+            goalUpper = upperLip;
             PushLids();
             PushJaw();
         }
@@ -123,13 +128,20 @@ namespace DicomViewer.AnatomyLab
             Vector4 axis = jawAxis.normalized;
             Vector3 down = lipDown.normalized;
             var lip = new Vector4(down.x, down.y, down.z, hasMouth ? jaw * lipPullMm * 0.001f : 0f);
+            Vector3 up = lipUp.normalized;
+            var lift = new Vector4(up.x, up.y, up.z, hasMouth ? upperLip * lipLiftMm * 0.001f : 0f);
             foreach (Material m in jawMaterials)
             {
                 m.SetVector(JawHingeId, hinge);
                 m.SetVector(JawAxisId, axis);
                 m.SetVector(LipPullId, lip);
+                m.SetVector(LipLiftId, lift);
             }
         }
+
+        /// <summary>A point of the upper lip's edge, where it is with the lip lifted by `lifted` (the upper lip does not
+        /// go with the jaw).</summary>
+        public Vector3 WithLift(Vector3 point, float lifted) => point + lipUp.normalized * (lifted * lipLiftMm * 0.001f);
 
         /// <summary>A point of the lower lip's edge (it goes wholly with the jaw and with the lip), where it is with the
         /// mouth open by `open`: drawn down, then turned about the jaw's hinge, as the shader does.</summary>
@@ -173,7 +185,8 @@ namespace DicomViewer.AnatomyLab
         // A lid is taken with the pointer on the eye and drawn towards the brow to open it, back to close it; it
         // stays where it is left, as a dead man's lid does. The Open eyes button does both at once.
         // The mouth the same way: the lower lip is taken and drawn towards the chin, and the jaw goes with it (on
-        // whatever layer is shown: the jaw is the same jaw under the skin).
+        // whatever layer is shown: the jaw is the same jaw under the skin). The upper lip is taken by itself and
+        // drawn towards the nose: it comes off the upper teeth and the jaw stays.
         private void Update()
         {
             if (!hasEyes && !hasMouth) return;
@@ -197,7 +210,13 @@ namespace DicomViewer.AnatomyLab
                     {
                         Vector3 world = space.TransformPoint(WithJaw(mouthGrab, jaw));
                         Vector3 screen = cam.WorldToScreenPoint(world);
-                        if (screen.z > 0f && Vector2.Distance(screen, pointer) < Mathf.Max(40f * s, PixelsPerMetre(cam, world) * 0.022f)) grabbed = 2;
+                        float lower = Vector2.Distance(screen, pointer);
+                        if (screen.z > 0f && lower < Mathf.Max(40f * s, PixelsPerMetre(cam, world) * 0.022f)) grabbed = 2;
+                        // The upper lip, where the pointer is nearer it than the lower (the two lie a centimetre apart).
+                        Vector3 upperWorld = space.TransformPoint(WithLift(upperLipGrab, upperLip));
+                        Vector3 upperScreen = cam.WorldToScreenPoint(upperWorld);
+                        float upper = Vector2.Distance(upperScreen, pointer);
+                        if (upperLipGrab != Vector3.zero && upperScreen.z > 0f && upper < Mathf.Max(34f * s, PixelsPerMetre(cam, upperWorld) * 0.016f) && (grabbed != 2 || upper < lower)) grabbed = 3;
                     }
                     lastPointer = pointer;
                 }
@@ -210,6 +229,15 @@ namespace DicomViewer.AnatomyLab
                     Vector2 towardsChin = b - a;
                     if (towardsChin.sqrMagnitude > 0.01f)
                         goalJaw = jaw = Mathf.Clamp01(jaw + 0.1f * Vector2.Dot(pointer - lastPointer, towardsChin) / towardsChin.sqrMagnitude);
+                    lastPointer = pointer;
+                }
+                else if (grabbed == 3 && Input.GetMouseButton(0))
+                {
+                    Vector2 a = cam.WorldToScreenPoint(space.TransformPoint(WithLift(upperLipGrab, 0f)));
+                    Vector2 b = cam.WorldToScreenPoint(space.TransformPoint(WithLift(upperLipGrab, 1f)));
+                    Vector2 towardsNose = b - a;                                  // the lip's whole way on the screen
+                    if (towardsNose.sqrMagnitude > 0.01f)
+                        goalUpper = upperLip = Mathf.Clamp01(upperLip + Vector2.Dot(pointer - lastPointer, towardsNose) / towardsNose.sqrMagnitude);
                     lastPointer = pointer;
                 }
                 else if (grabbed >= 0 && grabbed < 2 && skinOn && Input.GetMouseButton(0))
@@ -233,6 +261,7 @@ namespace DicomViewer.AnatomyLab
             lidRight = Mathf.MoveTowards(lidRight, goalRight, step);
             lidLeft = Mathf.MoveTowards(lidLeft, goalLeft, step);
             jaw = Mathf.MoveTowards(jaw, goalJaw, Time.deltaTime * 1.2f);
+            upperLip = Mathf.MoveTowards(upperLip, goalUpper, Time.deltaTime * 1.6f);
             PushLids();
             PushJaw();
         }
@@ -266,7 +295,7 @@ namespace DicomViewer.AnatomyLab
             if (hasMouth && visible != null)
             {
                 bool open = goalJaw > 0.5f;
-                if (GUI.Button(new Rect(x, y, w + 20f * s, h), open ? "Close mouth" : "Open mouth")) goalJaw = open ? 0f : 1f;
+                if (GUI.Button(new Rect(x, y, w + 20f * s, h), open ? "Close mouth" : "Open mouth")) goalJaw = goalUpper = open ? 0f : 1f;      // both lips part
             }
             if (!string.IsNullOrEmpty(credits))
             {

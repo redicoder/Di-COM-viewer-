@@ -26,7 +26,7 @@ public static class ModelSnapshot
     [System.Serializable] private class Sides { public float[] right; public float[] left; }
     [System.Serializable] private class SideValues { public float right; public float left; }
     [System.Serializable] private class EyesInfo { public Sides centres; public SideValues radius; public float[] forward; public float[] up; public float upper_degrees; public float lower_degrees; }
-    [System.Serializable] private class MouthInfo { public float[] hinge; public float[] axis; public float[] grab; public float degrees; public float[] lip_down; public float lip_pull_m; }
+    [System.Serializable] private class MouthInfo { public float[] hinge; public float[] axis; public float[] grab; public float degrees; public float[] lip_down; public float lip_pull_m; public float[] lip_up; public float lip_lift_m; public float[] grab_upper; }
     [System.Serializable] private class AnatomyInfo { public EyesInfo eyes; public MouthInfo mouth; }
 
     // glTF's x runs the other way in the imported meshes.
@@ -61,6 +61,13 @@ public static class ModelSnapshot
         if (info.mouth.degrees > 0f) body.jawDegrees = info.mouth.degrees;
         if (info.mouth.lip_down != null && info.mouth.lip_down.Length >= 3) body.lipDown = MeshSpace(info.mouth.lip_down).normalized;
         body.lipPullMm = info.mouth.lip_pull_m * 1000f;
+        if (info.mouth.lip_up != null && info.mouth.lip_up.Length >= 3 && info.mouth.lip_lift_m > 0f)
+        {
+            body.lipUp = MeshSpace(info.mouth.lip_up).normalized;
+            body.lipLiftMm = info.mouth.lip_lift_m * 1000f;
+            if (info.mouth.grab_upper != null && info.mouth.grab_upper.Length >= 3) body.upperLipGrab = MeshSpace(info.mouth.grab_upper);
+        }
+        else body.lipLiftMm = 0f;                                   // a model built before the upper lip was given its lift
         Debug.Log($"ModelSnapshot: jaw hinge at {body.jawHinge}, axis {body.jawAxis} (mesh space), {body.jawDegrees} degrees; lower lip at {body.mouthGrab}");
     }
 
@@ -99,7 +106,7 @@ public static class ModelSnapshot
     private static readonly float[] MouthLook = { 0.85f, 0.45f, 0f, 0f, 0.8f, 1.05f };     // the mouth's lining and the gums: wet skin without pores
 
     private static bool IsTooth(string name) => name.Contains("incisor") || name.Contains("canine") || name.Contains("molar") || name.Contains("teeth");
-    private static bool IsMouthLining(string name) => name == "lining of the mouth" || name.EndsWith(" gum");
+    private static bool IsMouthLining(string name) => name == "lining of the mouth" || name == "lining of the throat" || name == "wall of the mouth" || name.EndsWith(" gum");
 
     private static Material LabMaterial(string name, float[] look, Texture tex, Color tint, Color cavity)
     {
@@ -159,8 +166,9 @@ public static class ModelSnapshot
                     continue;
                 }
                 bool cloth = r.name == "briefs";
-                float[] own = cloth ? ClothLook : IsTooth(r.name) ? ToothLook : IsMouthLining(r.name) ? MouthLook : look;
-                Material m = LabMaterial(r.name, own, null, Color.white, cloth ? new Color(0.7f, 0.7f, 0.72f) : IsMouthLining(r.name) ? new Color(0.62f, 0.30f, 0.30f) : cavity);
+                bool mouth = IsMouthLining(r.name) || r.name == "tongue";      // the tongue is lit as the lining round it is (as an organ it stood dark and dull in the mouth)
+                float[] own = cloth ? ClothLook : IsTooth(r.name) ? ToothLook : mouth ? MouthLook : look;
+                Material m = LabMaterial(r.name, own, null, Color.white, cloth ? new Color(0.7f, 0.7f, 0.72f) : mouth ? new Color(0.62f, 0.30f, 0.30f) : cavity);
                 if (m != null && r.name == "tongue")
                 {
                     m.SetFloat("_SkinDetail", 0.8f);                 // its fine dots and mottle, as skin has pores (the papillae)
@@ -188,7 +196,7 @@ public static class ModelSnapshot
         foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
             if (mf.sharedMesh != null && mf.sharedMesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord3) && mf.GetComponent<Renderer>() != null)
                 body.jawRenderers.Add(mf.GetComponent<Renderer>());
-        body.jaw = 0f;
+        body.jaw = body.upperLip = 0f;
         body.PushJaw();
         Debug.Log($"ModelSnapshot: {body.jawRenderers.Count} meshes carry jaw weights");
         foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
@@ -363,7 +371,7 @@ public static class ModelSnapshot
         Vector3 face = mouth + up * 0.03f - forward * 0.02f, inside = mouth - up * 0.012f - forward * 0.02f;
         foreach (float open in new[] { 0f, 0.5f, 1f })
         {
-            body.jaw = open;
+            body.jaw = body.upperLip = open;                         // both lips part, as with the Open mouth button
             body.PushJaw();
             string tag = $"open{Mathf.RoundToInt(open * 100):000}";
             Shot(tag + "_front", front, face);
@@ -373,6 +381,8 @@ public static class ModelSnapshot
             {
                 Shot(tag + "_close", (forward * 0.95f - up * 0.3f).normalized * 0.15f, inside);
                 Shot(tag + "_above", (forward * 0.8f + up * 0.6f).normalized * 0.2f, inside);
+                // Into the throat: from a little under the lips' level, as one looks past the tongue at the uvula.
+                Shot(tag + "_throat", (forward * 0.97f - up * 0.24f).normalized * 0.13f, inside - forward * 0.025f);
             }
         }
         foreach (string layer in new[] { "fat", "muscles", "skeleton" })
@@ -381,7 +391,7 @@ public static class ModelSnapshot
             Shot("open100_" + layer, (forward * 0.9f + across * 0.45f).normalized * 0.34f, face);
         }
         body.LookAt("skin");
-        body.jaw = 0f;
+        body.jaw = body.upperLip = 0f;
         body.PushJaw();
         Debug.Log("ModelSnapshot: mouth done");
     }
@@ -467,7 +477,7 @@ public static class ModelSnapshot
             // The mouth: half open and open, on the skin; open on the layers under it.
             foreach ((string name, float open) in new[] { ("half", 0.5f), ("open", 1f) })
             {
-                body.jaw = open;
+                body.jaw = body.upperLip = open;
                 body.PushJaw();
                 View(-90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f));
                 Shot($"mouth_{name}.png");
@@ -482,7 +492,7 @@ public static class ModelSnapshot
                 Shot($"mouth_open_{layer.name}.png");
             }
             body.LookAt(body.layers[0].name);
-            body.jaw = 0f;
+            body.jaw = body.upperLip = 0f;
             body.PushJaw();
         }
         body.GetComponent<ModelPolish>().Restore();
