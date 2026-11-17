@@ -882,6 +882,46 @@ def bag(body: Body, m: Mouth, log=print) -> Structure | None:
     return out
 
 
+GUM_CLEAR_MM = 3.0              # a drawn muscle keeps this far off a jaw's tooth-bearing ridge, where the gum covers it
+
+
+def gum_ridges(m: Mouth) -> np.ndarray:
+    """Each jaw's tooth-bearing ridge where the gum covers it and the lips uncover it (bool, the mouth's grid): its
+    teeth, its bone as the CT has it and as it is drawn, from the row's biting edge to where the gum is drawn to,
+    within 9 mm of the row, behind the lips (the mouth's width and 3 mm: the cheeks' muscle does lie on the ridge
+    beside the back teeth, and is not uncovered)."""
+    g = m.grid
+    out = np.zeros(g.shape, bool)
+    for upper, row, hard, drawn in ((True, m.teeth_upper, m.upper, m.drawn_upper), (False, m.teeth_lower, m.lower, m.drawn_lower)):
+        if not row.any():
+            continue
+        _, distance, edge = biting_edge(row, g.spacing, upper)
+        rows = np.arange(row.shape[1])[None, :, None]
+        away = ((rows - edge[:, None, :]) if upper else (edge[:, None, :] - rows)) * g.spacing[1]        # mm from the biting edge towards the roots
+        solid = hard | row
+        if drawn is not None and drawn.any():
+            solid = solid | near(drawn, g.spacing, 1.8)
+        out |= solid & (away >= 0.0) & (away <= GUM_FROM_MM + GUM_DEEP_MM) & (distance[:, None, :] <= 9.0)
+    if m.u_of_x is not None:
+        out &= (np.abs(m.u_of_x) < HALF_WIDTH + 3.0)[None, None, :]
+    return out
+
+
+def clear_of_the_gums(body: Body, m: Mouth, structures: list[Structure], log=print) -> int:
+    """Moves drawn structures off the gums: every vertex nearer a gum-covered ridge (gum_ridges) than GUM_CLEAR_MM
+    is moved straight out to that distance, into the lip before it. A muscle does not arise from the ridge the gum
+    covers; one drawn there (the chin's, seated on the bone under the lower front teeth) stood between the gum and
+    the lip's inner side, and before the gum's face when the lip was drawn down. (Moved, not cut: cut, the chin's
+    muscles ended in rags on the muscles' own layer.) Returns how many structures were touched."""
+    ridges = gum_ridges(m)
+    if not ridges.any():
+        return 0
+    touched = throat._move_out(structures, body, m, ridges, GUM_CLEAR_MM, lambda s: True)
+    if touched:
+        log("mouth: moved off the gums (vertices): " + "; ".join(touched))
+    return len(touched)
+
+
 def biting_edge(row: np.ndarray, spacing, upper: bool):
     """Seen along the teeth: which columns hold a tooth of the row, how far every column lies from one (mm), and the
     level (a row index, float) of the row's biting edge there. The edge is each tooth's tip, carried over the tooth's

@@ -19,16 +19,9 @@ sure are muscle, and of those they are sure are fat, in that photograph. A photo
 missing (three of them at the chest) is found by its tissue's area against its neighbours' and takes the nearest
 whole one's place.
 
-And they do not lie on one another. NOTHING IN THIS PROJECT REGISTERS THE PHOTOGRAPHS TO EACH OTHER, and they come
-in runs that are shifted sideways against each other by whole pixels: six times between the hips and the head the
-picture jumps by 6 to 14 pixels (2 to 4.6 mm) from one photograph to the next (measured by phase correlation,
-`shift_between`; at fine slices 1149, 1462, 1488, 1518, 1626 and 1648). The export, the labels and the skin have
-those steps in them too, softened by their coarseness and their smoothing; on a muscle contoured at 0.66 mm each
-was a ledge right round the arm and the chest. Registering the stack would move everything built on it. Here the
-steps are only SPREAD: every photograph's muscle is slid sideways by the difference between where its run lies
-and where the runs lie on average over the 25 photographs either way (`run_offsets`, `spread`), so a step becomes
-a slope over five centimetres and, away from a step, nothing moves. (To do properly, once: register the
-photographs in prepare_photo_volume.py and build everything on that.)
+(The photographs also come in runs that are shifted sideways against each other, 2 to 4.6 mm, six times between
+the hips and the head: found here, because on a muscle contoured at 0.66 mm each was a ledge right round the body.
+That is put right where the photographs are read: tools/register_photos.py, prepare_photo_volume.read_photo.)
 
     fine = extract(body, photos_dir)      # about six minutes; cached as <export>/model/muscle_fine.npy + .json
     fine = load(body)                     # fine_skin.FineOutline or None (memory-mapped)
@@ -60,11 +53,6 @@ RAMP = (0.17, 0.83)             # between a photograph's own muscle and fat ligh
                                 # from the one to the other, wholly not from the second (muscle 49, fat 172: 70 and 151)
 SURE = 2                        # coarse voxels inside its class's labels a voxel must lie to count as surely muscle, or surely fat
 PARTIAL = 0.025                 # a photograph whose tissue area is off its neighbours' by more than this share is not whole
-JUMP_PX, QUIET_PX, PEAK = 5.0, 2.5, 0.1     # a run begins where a photograph lies at least the first off the one before it, its neighbours
-                                # no more than the second off theirs (a part that slants through the stack, a foot, the skull's top, drifts
-                                # by a pixel or two from every photograph to the next), and the correlation's peak is at least the third
-SPREAD = 10.0                   # photographs: a run's step is spread over a Gaussian of this width (a slope over about 5 cm; at the
-                                # shoulder three runs of 26 and 30 photographs lie one on another: narrower, they stayed as ripples)
 BAND_MM = 4.0                   # an object's fine outline may lie this far outside its coarse voxels (three of them)
 WHOLE = "muscles"               # the unnamed mass; the labels' other unnamed masses are meshed with it as one surface:
 MASSES = ("muscles of the left arm", "muscles of the right arm")      # they are one flesh, and meshed apart each was closed where the
@@ -93,7 +81,7 @@ def extract(body: Body, photos_dir: Path, log=print) -> fine_skin.FineOutline:
     folder = body.export / "model"
     folder.mkdir(parents=True, exist_ok=True)
     cover = np.lib.format.open_memmap(folder / CACHE, mode="w+", dtype=np.uint8, shape=(fz, n_slices, fx))
-    missing, shifts, last = [], [], None
+    missing = []
     for k in range(n_slices):
         number = bottom - k
         path = files.get(number)
@@ -104,17 +92,9 @@ def extract(body: Body, photos_dir: Path, log=print) -> fine_skin.FineOutline:
         if rgb is None or tissue.sum() < 2000:                   # a blank or missing photograph (a joint between the specimen's blocks)
             cover[:, k, :] = 0
             missing.append(k)
-            shifts.append([0.0, 0.0, -1.0])
             continue
         light = rgb.astype(np.float32).mean(axis=-1)
         light = np.maximum(light, 1.0) * tissue                  # 0: no tissue
-        # How the picture lies against the last one (the grey bar and the number card at its top are not him).
-        h, w = (light.shape[0] // 2) * 2, (light.shape[1] // 2) * 2
-        small = light[:h, :w].copy()
-        small[:80] = 0.0
-        small = small.reshape(h // 2, 2, w // 2, 2).mean(axis=(1, 3))        # at half the photographs' size
-        shifts.append([0.0, 0.0, -1.0] if last is None else [float(x) for x in shift_between(last, small, 2.0)])
-        last = small
         counts = tissue.reshape(fz, FACTOR, fx, FACTOR).sum(axis=(1, 3))
         mean = light.reshape(fz, FACTOR, fx, FACTOR).sum(axis=(1, 3)) / np.maximum(counts, 1)
         mean[counts < FACTOR * FACTOR // 2] = 0.0                # less than half tissue: none
@@ -124,8 +104,7 @@ def extract(body: Body, photos_dir: Path, log=print) -> fine_skin.FineOutline:
     cover.flush()
     spacing = (ppv.PIXEL_MM * FACTOR, ppv.SLICE_MM, ppv.PIXEL_MM * FACTOR)
     origin = (0.0, (every - ppv.SLICE_MM) / 2.0, 0.0)            # as the fine skin's (fine_skin.extract)
-    (folder / (CACHE + ".json")).write_text(json.dumps({"spacing_mm": spacing, "origin_mm": origin, "fallback": missing, "slices": [top, bottom], "factor": FACTOR,
-                                                         "shift_px": shifts}))
+    (folder / (CACHE + ".json")).write_text(json.dumps({"spacing_mm": spacing, "origin_mm": origin, "fallback": missing, "slices": [top, bottom], "factor": FACTOR}))
     log(f"fine muscle outline: {cover.shape} voxels at {spacing} mm, {len(missing)} photographs blank or missing")
     del cover
     return load(body)
@@ -140,50 +119,7 @@ def load(body: Body) -> fine_skin.FineOutline | None:
     cover = np.load(path, mmap_mode="r")
     fallback = np.zeros(cover.shape[1], bool)
     fallback[info["fallback"]] = True
-    fine = fine_skin.FineOutline(cover, tuple(info["spacing_mm"]), tuple(info["origin_mm"]), fallback)
-    if info.get("shift_px"):
-        fine.offsets = run_offsets(np.array(info["shift_px"], np.float64))
-        fine.slide = spread(fine.offsets)
-    return fine
-
-
-def shift_between(before: np.ndarray, after: np.ndarray, px: float = 1.0):
-    """How far the second picture's content lies from the first's, by phase correlation: (rows, columns) in pixels
-    times `px` (the pictures' own pixel in photograph pixels), and the correlation's peak (0..1: 1 the same picture
-    moved, near 0 no likeness)."""
-    from scipy import fft
-    shape = [fft.next_fast_len(int(n), real=True) for n in before.shape]     # (501 x 873 has the primes 167 and 97 in it: forty times slower)
-    fa, fb = fft.rfft2(before - before.mean(), s=shape), fft.rfft2(after - after.mean(), s=shape)
-    cross = fb * np.conj(fa)
-    corr = fft.irfft2(cross / np.maximum(np.abs(cross), 1e-9), s=shape)
-    i = np.unravel_index(int(np.argmax(corr)), corr.shape)
-    rows, cols = [float(x if x < n // 2 else x - n) * px for x, n in zip(i, shape)]
-    return rows, cols, float(corr[i])
-
-
-def run_offsets(shifts: np.ndarray) -> np.ndarray:
-    """Where every photograph's picture lies (rows, columns in photograph pixels, against the first run's): the sum
-    of the jumps up to it. `shifts`: per photograph its shift against the one before and the correlation's peak
-    (shift_between; peak < 0: blank). A jump is a shift of JUMP_PX or more that stands alone: the photographs on
-    either side of it lie within QUIET_PX of their own neighbours."""
-    shifts = np.asarray(shifts, np.float64)
-    size = np.hypot(shifts[:, 0], shifts[:, 1])
-    known = shifts[:, 2] >= 0
-    out = np.zeros((len(shifts), 2))
-    at = np.zeros(2)
-    for k in range(len(shifts)):
-        quiet = all(not known[j] or size[j] <= QUIET_PX for j in (k - 2, k - 1, k + 1, k + 2) if 0 <= j < len(shifts))
-        if known[k] and size[k] >= JUMP_PX and shifts[k, 2] >= PEAK and quiet:
-            at = at + shifts[k, :2]
-        out[k] = at
-    return out
-
-
-def spread(offsets: np.ndarray, width: float = SPREAD) -> np.ndarray:
-    """How far every photograph's content is slid (rows, columns, photograph pixels) so that the runs' steps become
-    slopes: to the offsets' Gaussian mean over its neighbours, from where its own run lies."""
-    offsets = np.asarray(offsets, np.float64)
-    return ndimage.gaussian_filter1d(offsets, width, axis=0, mode="nearest") - offsets
+    return fine_skin.FineOutline(cover, tuple(info["spacing_mm"]), tuple(info["origin_mm"]), fallback)
 
 
 def running_median(x: np.ndarray, window: int) -> np.ndarray:
@@ -277,7 +213,6 @@ def _slab(fine: fine_skin.FineOutline, a: int, b: int) -> np.ndarray:
     muscle and fat (calibrate; MUSCLE_L and FAT_L without it). A blank photograph, or one that is not whole, takes
     the nearest good one's."""
     lower, upper = getattr(fine, "lower", None), getattr(fine, "upper", None)
-    slide = getattr(fine, "slide", None)
     good = np.nonzero(~fine.fallback)[0]
     block = np.empty((fine.cover.shape[0], b - a, fine.cover.shape[2]), np.float32)
     for k in range(a, b):
@@ -286,10 +221,7 @@ def _slab(fine: fine_skin.FineOutline, a: int, b: int) -> np.ndarray:
             source = int(good[np.argmin(np.abs(good - k))])
         light = np.asarray(fine.cover[:, source, :], np.float32)
         lo, hi = (MUSCLE_L, FAT_L) if lower is None else (float(lower[source]), float(upper[source]))
-        share = np.clip((hi - light) / (hi - lo), 0.0, 1.0) * (light > 0)
-        if slide is not None and np.abs(slide[source]).max() > 0.05:        # a run's step, spread: this photograph's share of the slope
-            share = ndimage.shift(share, slide[source] / FACTOR, order=1, mode="constant", cval=0.0)
-        block[:, k - a, :] = share
+        block[:, k - a, :] = np.clip((hi - light) / (hi - lo), 0.0, 1.0) * (light > 0)
     return block
 
 

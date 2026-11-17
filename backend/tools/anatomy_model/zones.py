@@ -117,14 +117,15 @@ class Face:
             return None
         depth = np.interp(ws, ws[good], depth[good])
         dip = ndimage.gaussian_filter1d(depth, 1.0) - ndimage.gaussian_filter1d(depth, 7.0)
-        # Of the furrows in that stretch, the one nearest to where lids meet on a globe (about 5 mm below its middle).
+        # Of the furrows in that stretch, the lids' line is the deep one; among furrows about as deep (within a fifth
+        # of the deepest), the one nearest to where lids meet on a globe (about 5 mm below its middle). (Nearest alone
+        # took a shallow crease 2.5 mm over the right eye's lid line, a fifth as deep, when the skin's outline was
+        # read again: -4.0 for the right eye and -6.5 for the left.)
         furrows = [k for k in range(1, len(ws) - 1) if wanted[k] and dip[k] < -0.04 and dip[k] <= dip[k - 1] and dip[k] <= dip[k + 1]]
         self.furrows = getattr(self, "furrows", {})
         self.furrows[side] = [(round(float(ws[k] - we), 1), round(float(dip[k]), 2)) for k in furrows]
-        if not furrows:
-            return None
-        k = min(furrows, key=lambda k: abs(ws[k] - (we - 5.0)))
-        return float(ws[k])
+        k = deepest_furrow([(float(ws[k] - we), float(dip[k])) for k in furrows])
+        return None if k is None else float(ws[furrows[k]])
 
     def describe(self) -> str:
         return (f"face: eyes {2 * self.half_ipd:.0f} mm apart, nose tip {self.nose_tip_w:.0f} mm below them and {self.nose_tip_d:.0f} forward, "
@@ -153,6 +154,16 @@ def spread(values: np.ndarray, known: np.ndarray, f: np.ndarray, rounds: int = 4
     for _ in range(smooth_rounds):
         out = 0.5 * out + 0.5 * (adj @ out) / degree[:, None]
     return out
+
+
+def deepest_furrow(furrows: list, about: float = -5.0, as_deep: float = 0.8) -> int | None:
+    """Which of the furrows (each: mm above the eye's level, depth as a negative number) is the closed lids' line:
+    the deepest, or among those at least `as_deep` times as deep the one nearest `about`. None for none."""
+    if not furrows:
+        return None
+    most = min(d for _, d in furrows)
+    deep = [k for k, (_, d) in enumerate(furrows) if d <= as_deep * most]
+    return min(deep, key=lambda k: abs(furrows[k][0] - about))
 
 
 def measure_globes(body: Body, name: str = "head") -> list[dict] | None:

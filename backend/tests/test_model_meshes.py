@@ -113,3 +113,69 @@ def test_preview_draws_the_structures(tmp_path):
     image = render(organs, (20, 10, 0.07, tuple(organs[0].v.mean(axis=0))), size=(320, 240), out=tmp_path / "liver.png")
     drawn = (image != np.array([38, 40, 44], np.uint8)).any(axis=2)
     assert 0.02 < drawn.mean() < 0.9 and (tmp_path / "liver.png").exists()
+
+
+def test_every_layer_has_its_triangles():
+    """(The skin has its own number and no share in the others' budget: asked for its share, the build of a whole
+    model stopped at its first layer.)"""
+    import build_model_meshes as build
+    assert build.triangles_for("skin", 1_400_000, 900_000, True) == 900_000
+    for layer in build.LAYERS:
+        assert build.triangles_for(layer, 1_400_000, 900_000, False) > 0
+    plain, fine = build.triangles_for("muscles", 1_000_000, 0, False), build.triangles_for("muscles", 1_000_000, 0, True)
+    assert fine == pytest.approx(plain * build.FINE_MUSCLES) and build.triangles_for("fat", 1_000_000, 0, True) == build.triangles_for("fat", 1_000_000, 0, False)
+
+
+def test_the_space_cleared_round_the_eyes_is_not_a_hole_in_him():
+    """(The skin's fine outline is guided by where he is: the labels, with the eyes' cleared space put back.)"""
+    from anatomy_model import fine_skin
+
+    class Him:
+        labels = np.ones((12, 10, 14), np.uint8)
+        eye_pits = []
+
+    pit = np.zeros((4, 3, 5), bool)
+    pit[:2, 1, 1:4] = True                                              # cleared from the front (z runs back) inwards
+    Him.labels[0:4, 5:8, 2:7][pit] = 0
+    Him.eye_pits = [((0, 5, 2), pit)]
+    assert not (Him.labels > 0).all()
+    assert fine_skin.whole_body(Him).all()
+    Him.eye_pits = []
+    assert not fine_skin.whole_body(Him).all()                          # without the record of it, a hole stays a hole
+
+
+def test_the_closed_lids_line_is_the_deep_furrow_not_the_nearest_crease():
+    from anatomy_model import zones
+    assert zones.deepest_furrow([(-6.5, -0.53), (-4.0, -0.21)]) == 0     # (the right eye, as measured: the crease over the line is a fifth as deep)
+    assert zones.deepest_furrow([(-6.5, -0.59)]) == 0
+    assert zones.deepest_furrow([(-8.5, -0.50), (-5.5, -0.47)]) == 1     # two about as deep: the one where lids meet on a globe
+    assert zones.deepest_furrow([]) is None
+
+
+def test_a_bone_laid_aside_is_moved_onto_the_bodys_own_bone():
+    """(BoneHub's skull against his own: the move that puts most of its surface on the bone of the labels.)"""
+    from scipy import ndimage
+    from anatomy_model import bonehub
+    spacing = np.array((1.32, 2.0, 1.32))
+    own = np.zeros((60, 40, 60), bool)
+    z, y, x = np.mgrid[0:60, 0:40, 0:60]
+    centre = np.array([30.0, 20.0, 30.0])
+    r = np.sqrt((((z - centre[0]) * spacing[0]) / 22.0) ** 2 + (((y - centre[1]) * spacing[1]) / 26.0) ** 2 + (((x - centre[2]) * spacing[2]) / 18.0) ** 2)
+    own[(r < 1.0) & (r > 0.9)] = True                                   # a hollow shell 2 mm thick: a skull of sorts
+    away = ndimage.distance_transform_edt(~own, sampling=spacing).astype(np.float32)
+    shell = (np.argwhere((r < 0.97) & (r > 0.93)) + 0.5) * spacing      # points in the shell's middle, in millimetres
+    laid = shell - np.array([3.0, 4.0, -5.0])                           # the same bone, laid 3 mm before, 4 mm under and 5 mm beside it
+    move, before, after = bonehub.best_move(away, spacing, np.zeros(3, int), laid)
+    assert move == pytest.approx((3.0, 4.0, -5.0), abs=0.5)
+    assert after > 0.95 and before < 0.6
+    move, before, after = bonehub.best_move(away, spacing, np.zeros(3, int), shell)
+    assert move == (0.0, 0.0, 0.0) and before == after                  # one that lies right stays
+
+
+def test_the_heads_bones_are_drawn_out_in_the_plane_and_not_along_the_body():
+    from anatomy_model import bonehub
+    v = np.array([[100.0, 1700.0, 300.0], [190.0, 1750.0, 300.0], [100.0, 1700.0, 225.0]])
+    out = bonehub.widened(v, (100.0, 300.0), 0.968)
+    assert np.allclose(out[0], v[0])                                    # the middle stays
+    assert out[1, 0] == pytest.approx(100.0 + 90.0 / 0.968) and out[1, 1] == 1750.0       # 90 mm before the middle: 3 mm further
+    assert out[2, 2] == pytest.approx(300.0 - 75.0 / 0.968) and out[2, 0] == 100.0

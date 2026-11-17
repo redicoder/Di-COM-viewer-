@@ -190,23 +190,134 @@ def register(body: Body, union: np.ndarray, log=print) -> tuple[Fit, float]:
     return current, score
 
 
+HEAD = ("cranium and maxilla", "mandible")          # the head's bones: settled as one, by the skull's own best place
+SETTLE_REACH, SETTLE_ALONG = 9.0, 6.0               # mm searched front to back and sideways, and along the body
+SETTLE_GAIN = 0.08                                  # it is moved only if this much more of its surface then lies on the body's own bone
+PLANE_SCALE = 0.968                                 # the CT's millimetres on the photographs' nominal ones, in the plane (ct_frame.SCALE)
+
+
+def on_bone(away: np.ndarray, spacing, origin, v_mm: np.ndarray, move, within: float = 1.5) -> float:
+    """The share of points (the body's millimetres, z, y, x) that, moved by `move`, lie within `within` mm of the
+    body's own bone: `away` is the distance to it on a block of the body's grid whose first voxel is `origin`."""
+    index = np.round((v_mm + np.asarray(move, np.float64)) / np.asarray(spacing) - 0.5).astype(np.int64) - np.asarray(origin)
+    inside = ((index >= 0) & (index < np.array(away.shape))).all(axis=1)
+    index = index[inside]
+    return float((away[index[:, 0], index[:, 1], index[:, 2]] <= within).sum()) / max(1, len(v_mm))
+
+
+def off_bone(away: np.ndarray, spacing, origin, v_mm: np.ndarray, move, most: float = 4.0) -> float:
+    """How far the points, moved by `move`, lie from the body's own bone on average (mm; no point counted as more
+    than `most`, nor one that falls outside the block as less)."""
+    index = np.round((v_mm + np.asarray(move, np.float64)) / np.asarray(spacing) - 0.5).astype(np.int64) - np.asarray(origin)
+    inside = ((index >= 0) & (index < np.array(away.shape))).all(axis=1)
+    index = index[inside]
+    return (float(np.minimum(away[index[:, 0], index[:, 1], index[:, 2]], most).sum()) + most * float((~inside).sum())) / max(1, len(v_mm))
+
+
+def best_move(away: np.ndarray, spacing, origin, v_mm: np.ndarray, reach: float = SETTLE_REACH, along: float = SETTLE_ALONG):
+    """The move (z front to back, y along the body, x sideways; mm) that brings the points nearest the body's own
+    bone (their mean distance from it, off_bone: a share within a tolerance has a flat top wherever the bone is
+    thicker than the tolerance, and the first place on it is not its middle), searched coarsely and then to half a
+    millimetre in the plane (the body's grid is 2 mm along it); and the shares of the points on the bone as they
+    lie and so moved."""
+    step_y = float(spacing[1])
+    best = (off_bone(away, spacing, origin, v_mm, (0.0, 0.0, 0.0)), 0.0, 0.0, 0.0)
+    for dy in np.arange(-along, along + 1e-6, step_y):
+        for dz in np.arange(-reach, reach + 1e-6, 1.5):
+            for dx in np.arange(-reach, reach + 1e-6, 1.5):
+                far = off_bone(away, spacing, origin, v_mm, (dz, dy, dx))
+                if far < best[0] - 1e-9:
+                    best = (far, float(dz), float(dy), float(dx))
+    _, cz, cy, cx = best
+    for dz in np.arange(cz - 1.5, cz + 1.5 + 1e-6, 0.5):
+        for dx in np.arange(cx - 1.5, cx + 1.5 + 1e-6, 0.5):
+            far = off_bone(away, spacing, origin, v_mm, (dz, cy, dx))
+            if far < best[0] - 1e-9:
+                best = (far, float(dz), float(cy), float(dx))
+    return best[1:], on_bone(away, spacing, origin, v_mm, (0.0, 0.0, 0.0)), on_bone(away, spacing, origin, v_mm, best[1:])
+
+
+def widened(v_mm: np.ndarray, centre_zx, scale: float = PLANE_SCALE) -> np.ndarray:
+    """Points (z, y, x; mm) drawn out in the plane from a centre (z, x) by 1 / scale; along the body they stay."""
+    out = np.asarray(v_mm, np.float64).copy()
+    out[:, 0] = centre_zx[0] + (out[:, 0] - centre_zx[0]) / scale
+    out[:, 2] = centre_zx[1] + (out[:, 2] - centre_zx[1]) / scale
+    return out
+
+
+def settle(body: Body, placed: list, log=print):
+    """The head's bones put where the body's own skull is, at the photographs' size. BoneHub's bones are laid on him by ONE shift for the whole
+    skeleton (register); his head does not lie to his trunk quite as BoneHub's does (measured: with the trunk's
+    vertebrae within a millimetre of his own from the sacrum to T1, BoneHub's skull lay 5.5 mm to one side of his,
+    3.5 mm before it and 4 mm under it; before the photographs were lined up it was the chest that lay 4 mm aside,
+    and the head 1.5). His own skull is in the labels: the CT's bone, matched slice by slice to the photographs.
+    The skull's best move onto it (best_move) is given to the skull and the jaw together, so their joint stays as
+    BoneHub has it.
+
+    Then their SIZE. BoneHub's bones are the CT's, and the CT's millimetres are 0.968 of the photographs' nominal
+    ones in the plane (ct_frame: everything else brought from the CT, the teeth, the head's and neck's named
+    structures, is drawn out by that from the middle of the body's outline; the labels' own bone, like BoneHub's, is
+    not). A skull 3 % small and laid by its middle has its face 3 mm behind his face: his teeth stood before
+    their sockets. So the head's bones are drawn out in the plane by 1 / 0.968 from the middle of his head's outline
+    (widened). The rest of BoneHub's skeleton is still the CT's size: to be done for all of it one day.
+    Returns the bones and what was done (None: nothing)."""
+    by_name = {name: k for k, (_, name, _, _) in enumerate(placed)}
+    if HEAD[0] not in by_name:
+        return placed, None
+    skull = np.asarray(placed[by_name[HEAD[0]]][2], np.float64)
+    spacing = np.array(body.spacing)
+    margin = np.array([SETTLE_REACH, SETTLE_ALONG, SETTLE_REACH]) + 6.0
+    lo = np.maximum(np.floor((skull.min(axis=0) - margin) / spacing).astype(int), 0)
+    hi = np.minimum(np.ceil((skull.max(axis=0) + margin) / spacing).astype(int), np.array(body.dims))
+    ours = np.isin(body.labels[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]], [o["index"] for o in body.objects if o["layer"] == "bone"])
+    if ours.sum() < 2000:
+        return placed, None
+    away = ndimage.distance_transform_edt(~ours, sampling=spacing).astype(np.float32)
+    move, before, after = best_move(away, spacing, lo, skull[::3])
+    done = {"bones": [n for n in HEAD if n in by_name], "move_mm": [float(x) for x in move], "on_his_own_bone_before": round(before, 3), "on_his_own_bone_after": round(after, 3)}
+    if after < before + SETTLE_GAIN:
+        log(f"bonehub: the head's bones lie as well as they can ({before * 100:.0f} % of the skull's surface on his own skull): not moved")
+        return placed, dict(done, move_mm=[0.0, 0.0, 0.0])
+    # The middle of his head's outline over the skull's height (the labels' voxels there), in millimetres (z, x).
+    y0, y1 = (int(np.clip(round(float(q) / spacing[1]), lo[1], hi[1])) - lo[1] for q in (skull[:, 1].min() + move[1], skull[:, 1].max() + move[1]))
+    him = body.labels[lo[0]:hi[0], lo[1] + y0:lo[1] + max(y1, y0 + 1), lo[2]:hi[2]] > 0
+    zs, _, xs = np.nonzero(him)
+    centre = ((float(zs.mean()) + lo[0] + 0.5) * spacing[0], (float(xs.mean()) + lo[2] + 0.5) * spacing[2])
+    out = list(placed)
+    for name in done["bones"]:
+        code, _, v, f = placed[by_name[name]]
+        out[by_name[name]] = (code, name, widened(np.asarray(v, np.float64) + np.array(move), centre).astype(np.float32), f)
+    done.update({"plane_scale": PLANE_SCALE, "about_zx_mm": [round(c, 1) for c in centre]})
+    log(f"bonehub: the head's bones moved {move[0]:+.1f} mm front to back, {move[1]:+.1f} along the body, {move[2]:+.1f} sideways onto his own skull "
+        f"({before * 100:.0f} % of the skull's surface lay on it, {after * 100:.0f} % then), and drawn out in the plane by 1 / {PLANE_SCALE} from his head's middle")
+    return out, done
+
+
 def cache_path(body: Body) -> Path:
     return body.export / "model" / "bonehub.npz"
 
 
 def load_or_build(body: Body, folder: Path, log=print):
-    """[(code, name, vertices in the body's millimetres (z, y, x), faces)] and the fit; cached beside the export."""
+    """[(code, name, vertices in the body's millimetres (z, y, x), faces)] and the fit; cached beside the export.
+    (After the one shift for the whole skeleton, the head's bones are settled on his own skull: settle.)"""
     path = cache_path(body)
     if path.exists():
         with np.load(path, allow_pickle=False) as z:
             table = json.loads(str(z["table"]))
-            return [(e["code"], e["name"], z[f"v{k}"], z[f"f{k}"]) for k, e in enumerate(table["bones"])], Fit.from_json(table["fit"]), table["score"]
-    bones, union = read(folder, log)
-    fit, score = register(body, union, log)
-    placed = [(code, name, fit.apply(v).astype(np.float32), f.astype(np.uint32)) for code, name, v, f in bones]
+            placed = [(e["code"], e["name"], z[f"v{k}"], z[f"f{k}"]) for k, e in enumerate(table["bones"])]
+        fit, score = Fit.from_json(table["fit"]), table["score"]
+        if "settled" in table:
+            return placed, fit, score
+        log("bonehub: the bones kept were laid by the one shift alone: the head's are settled now")       # (a cache of before 2026-11-17)
+    else:
+        bones, union = read(folder, log)
+        fit, score = register(body, union, log)
+        placed = [(code, name, fit.apply(v).astype(np.float32), f.astype(np.uint32)) for code, name, v, f in bones]
+    placed, settled = settle(body, placed, log)
     arrays = {}
     for k, (_, _, v, f) in enumerate(placed):
         arrays[f"v{k}"], arrays[f"f{k}"] = v, f
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, table=np.array(json.dumps({"bones": [{"code": c, "name": n} for c, n, _, _ in placed], "fit": fit.to_json(), "score": score})), **arrays)
+    np.savez_compressed(path, table=np.array(json.dumps({"bones": [{"code": c, "name": n} for c, n, _, _ in placed], "fit": fit.to_json(), "score": score,
+                                                           "settled": settled or {}})), **arrays)
     return placed, fit, score

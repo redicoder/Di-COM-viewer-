@@ -101,9 +101,19 @@ def native(ct_dir: Path, first: int, last: int, x_mm: tuple, y_mm: tuple, cache:
     {"hu" int16 (slices, rows, columns), "first", "px", "x0", "y0" (the window's corner in the scanner's mm)}.
     Read once from `ct_dir` and kept in `cache`; None when neither is there. Only as many slices from `first` on as
     share its pixel size and corner are read (len(hu) says how many)."""
+    kept = None
     if cache.exists():
         with np.load(cache) as z:
-            return {k: (z[k] if k == "hu" else float(z[k])) for k in ("hu", "first", "px", "x0", "y0")}
+            kept = {k: (z[k] if k == "hu" else float(z[k])) for k in ("hu", "first", "px", "x0", "y0")}
+        # The window kept is the one asked for when it was read. Asked for a wider one since (the mouth's grid was
+        # carried back to the spine), what lies outside it would be read as its edge's values, drawn out.
+        x1, y1 = kept["x0"] + kept["hu"].shape[2] * kept["px"], kept["y0"] + kept["hu"].shape[1] * kept["px"]
+        covers = kept["x0"] <= x_mm[0] + 1.0 and x1 >= x_mm[1] - 1.0 and kept["y0"] <= y_mm[0] + 1.0 and y1 >= y_mm[1] - 1.0 and kept["first"] <= first + 1
+        if covers or ct_dir is None or not Path(ct_dir).exists():
+            if not covers:
+                log(f"ct: the window kept in {cache.name} is smaller than the one asked for, and the CT's folder is not at hand to read it again "
+                    f"(give --head-ct): what lies outside it is read as its edge")
+            return kept
     if ct_dir is None or not Path(ct_dir).exists():
         return None
     import pydicom

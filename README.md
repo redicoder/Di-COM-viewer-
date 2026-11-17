@@ -42,11 +42,19 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
 - **Build the Anatomy Lab body** (Visible Human male, colour photographs; same credit):
   ```powershell
   .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_head_photos --first 1001 --last 1225
+  .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_photos --first 1001 --last 2878
+  # FIRST line the photographs up with each other (about 20 minutes, once): they come in runs that are shifted sideways against each
+  # other by 2 to 4 mm, six times between the hips and the head. Writes registration.json into both folders; every tool below reads
+  # the photographs through it. Without it the body has a step round it at each of those places (prepare_photo_volume.py warns).
+  .\.venv-seg\Scripts\python.exe tools\register_photos.py data\vhp_male_photos --also data\vhp_male_head_photos
   .\.venv-seg\Scripts\python.exe tools\prepare_photo_volume.py data\vhp_male_head_photos out\photo_head --first 1001 --last 1225 --unity --eye-slice 1095
+  # (NOTE: the head export this project's model is built on was made on 2026-10-22 with the tool as it was at commit 65ce774, before it
+  #  learnt to equalise each photograph's exposure. Made with the tool as it is now, the head comes out a little other in its colours and the
+  #  eyes are measured elsewhere (docs/SPEC_NOTES.md). The export on disk was therefore kept and only moved to its place among the lined-up
+  #  photographs:  .\.venv-seg\Scripts\python.exe tools\register_photos.py data\vhp_male_photos --export out\photo_head )
   ```
   The whole body (all 1,878 photos, ~14 GB) at 1.3 x 2 mm (460 MB of texture), for the lab's **Body: whole** button:
   ```powershell
-  .\.venv-seg\Scripts\python.exe tools\download_visible_human.py photos data\vhp_male_photos --first 1001 --last 2878
   .\.venv-seg\Scripts\python.exe tools\prepare_photo_volume.py data\vhp_male_photos out\photo_body --first 1001 --last 2878 --factor 4 --every 2 --unity
   ```
   The skin as a mesh over each export (the lab draws it when present):
@@ -62,6 +70,8 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   # Bone from his frozen CT (data\vhp_male_frozen, same slice numbers), registered slice by slice: the skull, the arm and leg bones
   .\.venv\Scripts\python.exe tools\import_ct_bone.py data\vhp_male_frozen out\photo_body
   .\.venv\Scripts\python.exe tools\import_ct_bone.py data\vhp_male_frozen out\photo_head
+  # The eyes found on the head export, and the head as a finer region of the whole body
+  .\.venv-seg\Scripts\python.exe tools\transfer_eyes.py out\photo_head out\photo_body
   ```
   In the app choose **Anatomy lab** on the start screen.
 - **The anatomy model** (the Model Lab's body: every labelled structure as its own mesh, layers that fit inside one another), built from the labelled export and then laid on the table by the menu below:

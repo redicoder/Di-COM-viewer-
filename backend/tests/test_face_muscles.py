@@ -68,3 +68,22 @@ def test_bone_far_under_the_skin_is_not_a_muscles_bed():
     v, _, along, _ = face_muscles.band(maps, [point(maps, 0, 0, SKIN), point(maps, 20, 0, SKIN)], (4.0, 4.0), 1.5, (None, 3.0))
     r = np.linalg.norm(v.astype(np.float64) - maps.centre, axis=1) * 1000.0
     assert r.min() > SKIN - 6.0                                         # it stays under the skin and does not dive for the bone
+
+
+def test_a_muscle_keeps_nothing_under_skin_that_moves_with_a_lid():
+    from anatomy_model.common import Structure
+    # A strip of muscle 40 mm long under a strip of skin whose middle 10 mm moves with the lid.
+    xs = np.linspace(0.0, 0.040, 41)
+    v = np.array([[x, y, 0.0] for x in xs for y in (0.0, 0.004)], np.float32)
+    f = np.array([[2 * k, 2 * k + 2, 2 * k + 1] for k in range(40)] + [[2 * k + 1, 2 * k + 2, 2 * k + 3] for k in range(40)], np.uint32)
+    muscle = Structure("left orbicularis oculi", "muscles", v, f, (0.5, 0.2, 0.2))
+    skin_v = np.array([[x, 0.002, 0.002] for x in xs], np.float64)
+    moves = (xs > 0.0145) & (xs < 0.0255)
+    out = face_muscles.without_moving_skin(muscle, skin_v, moves, log=lambda *_: None)
+    kept = np.unique(np.asarray(out.f))
+    assert 0 < len(out.f) < 80
+    assert not ((v[kept, 0] > 0.0145) & (v[kept, 0] < 0.0255)).any()       # nothing of it under the moving skin
+    assert (v[kept, 0] < 0.012).any() and (v[kept, 0] > 0.028).any()       # and it stays on either side
+    # Skin that is far away says nothing about it.
+    far = Structure("x orbicularis oculi", "muscles", v.copy(), f.copy(), (0.5, 0.2, 0.2))
+    assert len(face_muscles.without_moving_skin(far, skin_v + np.array([0.0, 0.0, 0.05]), moves, log=lambda *_: None).f) == 80

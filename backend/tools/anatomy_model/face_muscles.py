@@ -329,6 +329,52 @@ def prepare(body: Body, log=print):
     return body.face_maps
 
 
+LID_REACH_MM = 9.0              # a muscle's point belongs to the skin's nearest vertex within this
+
+
+def lid_skin(body: Body):
+    """The skin's vertices that move when a lid is opened (glTF metres) and all the skin's vertices near the eyes with
+    whether they move: (vertices, moves), from the skin as last built; None before there is one."""
+    path = body.export / "model" / "skin.npz"
+    if not path.exists():
+        return None
+    skin = next((s for s in load_structures(path) if s.name == "skin"), None)
+    if skin is None or skin.data2 is None:
+        return None
+    moves = np.abs(np.asarray(skin.data2)[:, 0]) > 0.02               # the lid's weight (lids.py): the lids and the fold over the upper one
+    if not moves.any():
+        return None
+    v = np.asarray(skin.v, np.float64)
+    lo, hi = v[moves].min(axis=0) - 0.03, v[moves].max(axis=0) + 0.03
+    near = ((v > lo) & (v < hi)).all(axis=1)
+    return v[near], moves[near]
+
+
+def _big_pieces(n_vertices: int, f: np.ndarray, min_share: float) -> np.ndarray:
+    """The triangles of the mesh's connected pieces that are at least `min_share` of the biggest (by triangles)."""
+    from .common import components
+    piece = components(f, n_vertices)[f[:, 0]]
+    counts = np.bincount(piece)
+    return f[(counts >= min_share * counts.max())[piece]]
+
+
+def without_moving_skin(s: Structure, skin_v: np.ndarray, moves: np.ndarray, log=print) -> Structure:
+    """A structure without the triangles that lie under skin which moves with a lid (each vertex judged by the skin's
+    nearest vertex, within LID_REACH_MM)."""
+    from scipy.spatial import cKDTree
+    distance, index = cKDTree(skin_v).query(np.asarray(s.v, np.float64))
+    under = moves[index] & (distance < LID_REACH_MM * MM)
+    f = np.asarray(s.f)
+    gone = under[f].any(axis=1)
+    if gone.any() and not gone.all():
+        kept = f[~gone]
+        # (and the scraps the cut leaves, slivers that hang on by nothing: only what is at least a fifth of the biggest piece stays)
+        kept = _big_pieces(len(s.v), kept, 0.2)
+        s.f = kept
+        log(f"face muscles: {s.name}: {len(f) - len(kept)} triangles under the lids' moving skin taken out")
+    return s
+
+
 def clear_scraps(body: Body, log=print) -> int:
     """Takes the labels' unnamed muscle off the face: what lies within 30 mm of the skin in front (in the cheeks,
     round the eyes, in the nose's opening) is, on the labels' voxels, scraps of the very muscles that are drawn
@@ -490,7 +536,16 @@ def build(body: Body, log=print) -> list[Structure]:
             w = mouth.weight(body, m, ring_s.v, np.full(len(mm), lip_side))
             pull = mouth.lip_pull(body, m, ring_s.v, np.full(len(mm), lip_side)) if m.lip is not None else np.zeros_like(w)
             ring_s.data3 = np.stack([w, pull], axis=1).astype(np.float32)
+    if m is not None and m.weight_grid is not None:                          # none of them on a gum (mouth.gum_ridges): moved off it, into the lip
+        mouth.clear_of_the_gums(body, m, out, log)
     head_layers.tuck_under_skin(body, out, least_mm=1.6, log=log)           # measured against the fine skin itself: nothing at or outside it
+    # Round the eyes, nothing of them under the skin that moves when a lid is opened (the lid turns up into the orbit and
+    # the skin over it lifts: the ring under them stayed, and stood over the opened eye as a red band).
+    moving = lid_skin(body)
+    if moving is not None:
+        for k, s in enumerate(out):
+            if s.name.endswith("orbicularis oculi"):
+                out[k] = without_moving_skin(s, *moving, log=log)
     log(f"face muscles: {len(out)} drawn on his skull and skin (generated), {sum(s.triangles for s in out)} triangles")
     body.face_muscles = out
     return out

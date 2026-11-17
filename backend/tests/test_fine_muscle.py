@@ -93,36 +93,3 @@ def test_a_photograph_with_a_part_missing_is_found_and_a_growing_part_is_not():
     slope = np.linspace(5000.0, 60000.0, 40)                            # a shoulder coming in: larger from photograph to photograph
     assert fine_muscle.partial(tissue).nonzero()[0].tolist() == [20]
     assert not fine_muscle.partial(slope).any()
-
-
-def test_a_picture_moved_sideways_is_measured():
-    rng = np.random.default_rng(3)
-    a = ndimage_blur(rng.random((64, 96)))
-    b = np.roll(a, (0, -6), axis=(0, 1))                                # its content six pixels to the left
-    rows, cols, peak = fine_muscle.shift_between(a, b)
-    assert (rows, cols) == (0.0, -6.0) and peak > 0.5
-    rows, cols, _ = fine_muscle.shift_between(a, b, 2.0)                # pictures at half the photographs' size
-    assert cols == -12.0
-
-
-def ndimage_blur(a):
-    from scipy import ndimage
-    return ndimage.gaussian_filter(a, 1.5)
-
-
-def test_runs_are_found_by_their_lone_jumps_and_a_slanting_part_is_not_one():
-    shifts = np.zeros((120, 3))
-    shifts[:, 2] = 0.3
-    shifts[40] = (0.0, -12.0, 0.3)                                      # a run begins: the picture jumps 12 pixels
-    shifts[70] = (0.0, 12.0, 0.3)                                       # and back
-    shifts[90:110, 0] = -4.0                                            # a foot slanting through the stack: every photograph a little
-    shifts[20] = (8.0, 0.0, 0.02)                                       # no likeness at all (a broken photograph)
-    shifts[5, 2] = -1.0                                                 # a blank one
-    off = fine_muscle.run_offsets(shifts)
-    assert off[39].tolist() == [0.0, 0.0] and off[40].tolist() == [0.0, -12.0] and off[69].tolist() == [0.0, -12.0]
-    assert off[70].tolist() == [0.0, 0.0] and np.abs(off[85:]).max() == 0.0
-    slide = fine_muscle.spread(off, 6.0)
-    assert np.abs(slide[:15]).max() < 0.05 and np.abs(slide[52:58]).max() < 0.6     # away from a step nothing moves
-    assert -7.0 < slide[39, 1] < -4.5 and 4.5 < slide[40, 1] < 7.0                  # at the step, each side comes half way
-    moved = off + slide
-    assert np.abs(np.diff(moved[:, 1])).max() < 1.0                                 # what was a jump of 12 pixels is a slope

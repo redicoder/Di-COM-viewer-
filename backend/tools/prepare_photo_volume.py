@@ -15,7 +15,8 @@ Output (x = patient left, rows = front to back, slices = bottom to top; the CT's
     --unity      body.raw / body.json in the Unity viewer's layout (x left, y up, z back) for the Anatomy Lab;
                  with --eye-slice also the eye positions and an eyelid map (lids.raw)
 
-Steps: rows flipped (the photo's rows run back to front); a coarse pass finds the body's 3D box; each slice is
+Steps: every photo is moved to lie on the others (register_photos.py: the photographs come in runs that are shifted
+sideways against each other); rows flipped (the photo's rows run back to front); a coarse pass finds the body's 3D box; each slice is
 cropped and averaged down by --factor (2 -> 0.66 mm); tissue = not blue and not the black frame, the largest 3D
 piece, holes filled slice by slice; blue gelatin inside the body (sinuses, airways, bowel) is air in life and stays
 empty; gelatin voxels take the colour of the nearest tissue, so filtering at the surface does not pull in blue.
@@ -66,9 +67,46 @@ def index_slices(folder: Path) -> dict[int, Path]:
     return out
 
 
-def read_photo(path: Path) -> np.ndarray:
-    """RGB with rows running front to back, like the CT (the photo's own rows run back to front)."""
-    return pydicom.dcmread(path).pixel_array[::-1]
+REGISTRATION = "registration.json"       # in the photographs' folder: how far each picture is to be moved (tools/register_photos.py)
+_registrations: dict = {}
+
+
+def registration(folder: Path) -> dict | None:
+    """A folder's registration: slice number -> (rows, columns), the whole pixels its picture is to be moved by so
+    that all photographs lie on one another; None when the folder has none (the photographs are then read as they
+    come, with a step round the body wherever a run of them begins)."""
+    folder = Path(folder).resolve()
+    if folder not in _registrations:
+        path = folder / REGISTRATION
+        table = None
+        if path.exists():
+            table = {int(k): (int(v[0]), int(v[1])) for k, v in json.loads(path.read_text())["move_px_by_slice"].items()}
+        _registrations[folder] = table
+    return _registrations[folder]
+
+
+def moved(image: np.ndarray, rows: int, cols: int) -> np.ndarray:
+    """The picture moved by whole pixels (rows down, columns to the right); what comes in at its edges is black."""
+    if rows == 0 and cols == 0:
+        return image
+    out = np.zeros_like(image)
+    h, w = image.shape[:2]
+    if abs(rows) >= h or abs(cols) >= w:
+        return out
+    out[max(0, rows):h + min(0, rows), max(0, cols):w + min(0, cols)] = image[max(0, -rows):h + min(0, -rows), max(0, -cols):w + min(0, -cols)]
+    return out
+
+
+def read_photo(path: Path, registered: bool = True) -> np.ndarray:
+    """RGB with rows running front to back, like the CT (the photo's own rows run back to front), moved to lie on
+    the other photographs where its folder has a registration (register_photos.py)."""
+    ds = pydicom.dcmread(path)
+    image = ds.pixel_array[::-1]
+    table = registration(Path(path).parent) if registered else None
+    if table:
+        rows, cols = table.get(int(round(float(ds.SliceLocation))), (0, 0))
+        image = moved(image, rows, cols)
+    return image
 
 
 def largest_piece(mask: np.ndarray, keep_fraction: float = 0.02) -> np.ndarray:
@@ -398,6 +436,10 @@ def main() -> None:
     args = ap.parse_args()
 
     found = index_slices(Path(args.photos))
+    lined_up = registration(Path(args.photos)) is not None
+    if not lined_up:
+        print(f"WARNING: {args.photos} has no {REGISTRATION}: the photographs are stacked as they come, and the body will have a step round it "
+              f"wherever a run of them begins (2 to 4.6 mm, six times in the male). Run tools/register_photos.py on the folder first.")
     locs = list(range(args.last, args.first - 1, -1))[::args.every]  # bottom to top
     missing = [loc for loc in locs if loc not in found]
     if missing:
@@ -406,7 +448,8 @@ def main() -> None:
     lo, hi = meta.pop("kept_files")
     meta.update({"slices": [locs[hi - 1], locs[lo]], "layout": "RGBA uint8, x = patient left (fastest), "
                  "rows = front to back, slices = bottom to top", "credit": CREDIT, "licence": LICENCE,
-                 "source": "NLM Visible Human male, colour cryosection photographs (NCI Imaging Data Commons)"})
+                 "source": "NLM Visible Human male, colour cryosection photographs (NCI Imaging Data Commons)",
+                 "registered": lined_up})
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     vol.tofile(out / "photo.raw")

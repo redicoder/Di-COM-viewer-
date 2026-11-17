@@ -33,6 +33,14 @@ PREVIEWS = {"skin": ["front", "face", "face_left", "eyes", "mouth", "ear_left", 
             "skeleton": ["front", "face", "chest", "hands"], "organs": ["chest", "abdomen"]}
 
 
+def triangles_for(layer: str, triangles: int, skin_triangles: int, fine_muscles: bool) -> int:
+    """A layer's triangles: the skin has its own number; the others their share of `triangles`, the muscles FINE_MUSCLES
+    times theirs when their surfaces come from the photographs."""
+    if layer == "skin":
+        return int(skin_triangles)
+    return int(triangles * BUDGET[layer] * (FINE_MUSCLES if layer == "muscles" and fine_muscles else 1.0))
+
+
 def build_layer(body: Body, layer: str, triangles: int, reuse_surface: bool = False):
     if layer == "skin":
         return skin.build(body, triangles, reuse_surface=reuse_surface)
@@ -104,8 +112,7 @@ def main() -> int:
     for layer in LAYERS:
         path = cache / f"{layer}.npz"
         if layer in chosen or not path.exists():
-            budget = args.triangles * BUDGET[layer] * (FINE_MUSCLES if layer == "muscles" and fine_muscle.load(body) is not None else 1.0)
-            built = build_layer(body, layer, args.skin_triangles if layer == "skin" else int(budget), args.skin_reuse)
+            built = build_layer(body, layer, triangles_for(layer, args.triangles, args.skin_triangles, fine_muscle.load(body) is not None), args.skin_reuse)
             save_structures(path, built)
             if args.preview:
                 from anatomy_model.preview import render

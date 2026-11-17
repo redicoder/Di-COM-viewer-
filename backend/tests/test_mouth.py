@@ -125,3 +125,35 @@ def test_a_rows_biting_edge_is_each_tooths_tip_over_its_whole_footprint():
     assert has[14, 15] and has[17, 15] and not has[5, 5]
     assert edge[17, 15] > 17.0                                              # under the root's columns the edge is still the tip's level (20), not the root's top (12)
     assert distance[14, 15] == 0.0 and distance[14, 20] == pytest.approx(5 * 0.66)
+
+
+def test_a_drawn_muscle_is_moved_off_the_gum_and_into_the_lip():
+    # A lower row of teeth (their edge at row 20) on a ridge of bone; a muscle sheet standing 1 mm before the ridge.
+    m = mouth.Mouth.__new__(mouth.Mouth)
+    m.grid = mouth.Grid(np.zeros(3), np.ones(3), (30, 40, 30))
+    row = np.zeros(m.grid.shape, bool)
+    row[10:13, 12:21, 4:26] = True
+    bone = np.zeros(m.grid.shape, bool)
+    bone[10:14, 0:14, 4:26] = True
+    m.teeth_lower, m.lower = row, bone | row
+    m.teeth_upper, m.upper = np.zeros(m.grid.shape, bool), np.zeros(m.grid.shape, bool)
+    m.drawn_lower = m.drawn_upper = None
+    m.u_of_x = m.grid.axis(2) - 15.0                                    # the mouth's middle is the grid's
+    ridges = mouth.gum_ridges(m)
+    assert ridges[11, 10, 15] and not ridges[11, 30, 15]                # the ridge under the teeth's edge; not over it
+    m.u_of_x = m.grid.axis(2) + 20.0                                    # (a mouth that lies beside this ridge: the cheek's, left alone)
+    assert not mouth.gum_ridges(m)[11, 10, 15]
+    m.u_of_x = m.grid.axis(2) - 15.0
+
+    class Him:
+        size_mm = (0.0, 0.0, 0.0)
+
+    ys = np.arange(4.0, 17.0, 1.0)
+    v_mm = np.array([[9.0, y, x] for y in ys for x in (13.0, 17.0)])    # the sheet, 1 mm before the ridge's face (z = 10), in millimetres (z, y, x)
+    f = np.array([[2 * k, 2 * k + 2, 2 * k + 1] for k in range(len(ys) - 1)], np.uint32)
+    sheet = Structure("mentalis", "muscles", mouth.to_gltf(Him, v_mm).astype(np.float32), f, (0.5, 0.2, 0.2))
+    assert mouth.clear_of_the_gums(Him, m, [sheet], log=lambda *_: None) == 1
+    after = mouth.to_mm(Him, sheet.v)
+    assert len(sheet.f) == len(f)                                       # nothing cut
+    assert after[:, 0].max() < 8.0 and after[:, 0].min() > 5.5          # every point about 3 mm before the ridge now (its face lies at z = 10)
+    assert np.abs(after[:, 1] - v_mm[:, 1]).max() < 1.0                 # moved straight out, not along the jaw

@@ -65,6 +65,18 @@ def ring_coverage(rgb: np.ndarray) -> np.ndarray:
     return np.clip((d - GEL) / (TISSUE - GEL), 0.0, 1.0)
 
 
+def whole_body(body: Body) -> np.ndarray:
+    """Where he is, on the export's grid (bool, z, y, x): every labelled voxel, AND the space round the eyes that the
+    labels were cleared of for the layers under the skin (Body.eye_pits: the globes and what lies before them are
+    left to the eyeballs and the lids). That space is open to the front; taken for a hole in him, the skin's
+    outline ran into the orbits and the face had two pits for eyes (seen when the outline was read again after the
+    pits had come into the labels: it had first been read before there were any)."""
+    guide = body.labels > 0
+    for (z0, y0, x0), pit in getattr(body, "eye_pits", None) or []:
+        guide[z0:z0 + pit.shape[0], y0:y0 + pit.shape[1], x0:x0 + pit.shape[2]] |= pit
+    return guide
+
+
 def extract(body: Body, photos_dir: Path, log=print) -> FineOutline:
     ppv = _photo_tools()
     photo = json.loads((body.export / "photo.json").read_text())
@@ -76,7 +88,7 @@ def extract(body: Body, photos_dir: Path, log=print) -> FineOutline:
     top, bottom = photo["slices"]                               # slice numbers: the head's end, the feet's end
     files = ppv.index_slices(Path(photos_dir))
     # The coarse guide: the body's own voxels, holes filled slice by slice (the outer envelope).
-    guide = body.labels > 0                                    # (z, y, x)
+    guide = whole_body(body)                                   # (z, y, x)
     nz, ny, nx = guide.shape
     fz, fx = (rows.stop - rows.start) // FACTOR, (cols.stop - cols.start) // FACTOR
     n_slices = bottom - top + 1
