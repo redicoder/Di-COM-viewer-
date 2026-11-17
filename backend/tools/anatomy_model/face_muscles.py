@@ -358,6 +358,22 @@ def _big_pieces(n_vertices: int, f: np.ndarray, min_share: float) -> np.ndarray:
     return f[(counts >= min_share * counts.max())[piece]]
 
 
+def closed_on_mesh(marked: np.ndarray, f: np.ndarray, out: int = 3, back: int = 2) -> np.ndarray:
+    """A set of a mesh's vertices closed along the mesh: grown by `out` rings of neighbours, then shrunk by `back`
+    (never below what it was). Narrow tongues of unmarked vertices reaching into it, and islands in it, join it."""
+    from scipy import sparse
+    n = len(marked)
+    edges = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]]).astype(np.int64)
+    joined = sparse.coo_matrix((np.ones(len(edges), np.float32), (edges[:, 0], edges[:, 1])), shape=(n, n)).tocsr()
+    joined = joined + joined.T
+    grown = marked.astype(bool).copy()
+    for _ in range(out):
+        grown = grown | (joined @ grown.astype(np.float32) > 0)
+    for _ in range(back):
+        grown = grown & ~(joined @ (~grown).astype(np.float32) > 0)
+    return grown | marked.astype(bool)
+
+
 def without_moving_skin(s: Structure, skin_v: np.ndarray, moves: np.ndarray, log=print) -> Structure:
     """A structure without the triangles that lie under skin which moves with a lid (each vertex judged by the skin's
     nearest vertex, within LID_REACH_MM)."""
@@ -365,6 +381,7 @@ def without_moving_skin(s: Structure, skin_v: np.ndarray, moves: np.ndarray, log
     distance, index = cKDTree(skin_v).query(np.asarray(s.v, np.float64))
     under = moves[index] & (distance < LID_REACH_MM * MM)
     f = np.asarray(s.f)
+    under = closed_on_mesh(under, f)                                         # (an even edge: no slivers left standing in what is taken out)
     gone = under[f].any(axis=1)
     if gone.any() and not gone.all():
         kept = f[~gone]

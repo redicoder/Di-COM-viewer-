@@ -87,3 +87,15 @@ def test_a_muscle_keeps_nothing_under_skin_that_moves_with_a_lid():
     # Skin that is far away says nothing about it.
     far = Structure("x orbicularis oculi", "muscles", v.copy(), f.copy(), (0.5, 0.2, 0.2))
     assert len(face_muscles.without_moving_skin(far, skin_v + np.array([0.0, 0.0, 0.05]), moves, log=lambda *_: None).f) == 80
+
+
+def test_a_set_of_vertices_is_closed_along_the_mesh():
+    # A strip of 30 vertices in a row (each joined to the next): marked 5..9 and 12..20, a gap of two between.
+    f = np.array([[k, k + 1, k + 1] for k in range(29)], np.int64)
+    marked = np.zeros(30, bool)
+    marked[5:10] = True
+    marked[12:21] = True
+    out = face_muscles.closed_on_mesh(marked, f)
+    assert out[5:21].all()                                              # the gap of two between them is closed
+    assert out[4] and not out[2] and not out[23]                        # grown by three rings and shrunk by two: one ring more at each end, no further
+    assert face_muscles.closed_on_mesh(np.zeros(30, bool), f).sum() == 0
