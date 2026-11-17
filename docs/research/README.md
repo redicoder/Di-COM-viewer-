@@ -16,6 +16,7 @@ again before shipping anything new.
 | `face_head_assets.md` | Template heads and their licences (ICT-FaceKit, MIT), how to fit one to a scanned head, face detail assets | step 2 of the head (separate lids, eyeballs, mouth) |
 | `head_anatomy_data.md` | Data for the head's layers: what exists for skull bones, facial muscles, eyes, teeth, vessels, nerves, brain; numbers for what must be generated | step 3 of the head |
 | `head_data.md` | What our own photographs and CT hold for the head at full resolution, with measurements | step 1 of the head (done) |
+| `muscle_surface.md` | (2026-11-17) Colours of muscle and fat in the photographs; runs of photographs with darker fat; photographs that are not whole; **the photographs are not registered to each other** (six sideways jumps of 2 to 4.6 mm, measured) | the muscles' surfaces (`fine_muscle.py`); the registration still to be done |
 | `throat.md` | (2026-11-16) What the photographs and the CT hold behind the mouth: soft palate, uvula, tonsils, back wall, with measurements; what cannot be read; why the jaw's axis lies under its joints | the throat (`throat.py`), the jaw's axis, the mouth's bag |
 
 The pictures and working files of the research (crops of the photographs, downloaded reference images) stay in

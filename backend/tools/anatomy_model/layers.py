@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, face_muscles, face_vessels, head_layers, leg_muscles, mouth, skull_bones, teeth
-from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, surface
+from . import bonehub, eyes, face_muscles, face_vessels, fine_muscle, head_layers, leg_muscles, mouth, skull_bones, teeth
+from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, surface
 from .palette import BONE, colour_of
 
 SKIP = ("marker", "penis", "scrotum", "trachea lumen")      # markers are not anatomy; the outer genitals are skin
@@ -47,7 +47,17 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
     boxes = ndimage.find_objects(lab.astype(np.int32), max_label=255)
     baker = Baker(body)
     raw = []
+    fine = set()
+    muscle_outline = fine_muscle.load(body) if layer == "muscles" else None
+    if muscle_outline is not None:
+        # The muscles' own surfaces from the photographs (fine_muscle.py): each labelled muscle keeps its place and
+        # its name and takes the muscle-coloured voxels there at 0.66 mm. One that comes out empty keeps its labels'.
+        raw = fine_muscle.surfaces(body, muscle_outline, objs, getattr(body, "original_labels", None), log=log)
+        fine = {int(o["index"]) for o, _, _ in raw}
+        log(f"fine muscles: {len(raw)} of {len(objs)} muscle objects from the photographs, {sum(len(f) for _, _, f in raw)} triangles before decimation")
     for o in objs:
+        if int(o["index"]) in fine:
+            continue
         box = boxes[o["index"] - 1]
         if box is None:
             continue
@@ -84,10 +94,14 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         v, f = body.to_gltf(v, f)
         out.append(Structure(name, layer, v, f, BONE, bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), info={"source": "BoneHub", "code": code, "class": "bone"}))
     for o, v, f in raw:
-        v, f = decimate(v, f, max(MIN_TRIANGLES, len(f) * min(1.0, share)))
-        v, f = body.to_gltf(v, f)
-        out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]),
-                             info={"label": int(o["index"]), "class": o["layer"]}))
+        v_mm, f = decimate(v, f, max(MIN_TRIANGLES, len(f) * min(1.0, share)))
+        v, f = body.to_gltf(v_mm, f)
+        albedo, info = None, {"label": int(o["index"]), "class": o["layer"]}
+        if int(o.get("index", 0)) in fine:                     # lighter and darker as the photographs are under its surface, pale where a tendon or fascia lies
+            n = normals_of(v, f)
+            albedo = fine_muscle.tone(body, v_mm, np.stack([-n[:, 2], n[:, 1], n[:, 0]], axis=1), colour_of(o["name"], o["layer"]), f)
+            info["source"] = "the labels' object; its surface from the photographs' muscle-coloured voxels at 0.66 mm (fine_muscle.py)"
+        out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), albedo=albedo, info=info))
     out += head_layers.structures(body, layer, log)        # the head and neck, named on his CT
     out += leg_muscles.structures(body, layer, baker, occupancy, log)      # the hips' and legs' muscles, the knee's ligaments, the joints' cartilage
     m = getattr(body, "mouth", None)

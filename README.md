@@ -74,6 +74,8 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --head-ct data\vhp_male_frozen --layers fat,muscles,skeleton,organs
   # the hips' and legs' named muscles, knee ligaments and joint cartilage (University of Denver's STL models in data\du_visible_human, see LICENSES.md; once, a minute)
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --legs data\du_visible_human\Final_3D_STL_Models --layers muscles,skeleton
+  # the muscles' own surfaces from the photographs (reads them all again, about 6 minutes; kept in out\photo_body\model\muscle_fine.npy):
+  .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --skin-reuse --muscle-photos data\vhp_male_photos --layers muscles
   # the skull as its named bones (BodyParts3D 4.0 from the LSDB Archive in data\bodyparts3d, see LICENSES.md; once, half a minute)
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --atlas data\bodyparts3d --layers skeleton
   # afterwards; --layers skin rebuilds one layer, --preview <folder> renders pictures without Unity

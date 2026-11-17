@@ -21,13 +21,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import bonehub, fine_skin, head_layers, leg_muscles, mouth, skull_bones, throat  # noqa: E402
+from anatomy_model import bonehub, fine_muscle, fine_skin, head_layers, leg_muscles, mouth, skull_bones, throat  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
 from anatomy_model.glb import write_glb  # noqa: E402
 
 BUDGET = {"fat": 0.14, "muscles": 0.30, "skeleton": 0.31, "organs": 0.25}      # shares of --triangles; the skin has its own
+FINE_MUSCLES = 2.4              # times the muscles' share when their surfaces come from the photographs (their relief needs the triangles)
 PREVIEWS = {"skin": ["front", "face", "face_left", "eyes", "mouth", "ear_left", "profile_left", "chest", "hands", "feet"], "fat": ["front", "chest"], "muscles": ["front", "chest", "legs"],
             "skeleton": ["front", "face", "chest", "hands"], "organs": ["chest", "abdomen"]}
 
@@ -45,6 +46,8 @@ def main() -> int:
     ap.add_argument("--triangles", type=int, default=1_400_000, help="about this many for fat, muscles, skeleton and organs together")
     ap.add_argument("--skin-triangles", type=int, default=900_000, help="the skin's surface (the hair comes on top)")
     ap.add_argument("--photos", type=Path, help="the photographs' folder: (re)reads the fine skin outline from them first (about 12 minutes)")
+    ap.add_argument("--muscle-photos", type=Path, help="the photographs' folder: (re)reads the muscles' fine outline from them first (about 14 minutes); "
+                                                       "the muscles layer is then meshed from it")
     ap.add_argument("--bones", type=Path, help="BoneHub's folder of .seg.nrrd files: reads and fits the 142 named bones first (about 4 minutes)")
     ap.add_argument("--atlas", type=Path, help="BodyParts3D's folder (its .obj files and isa_element_parts.txt): fits its skull bones to his skull first, "
                                                "so the skull is built as its named bones (once; about half a minute)")
@@ -62,6 +65,9 @@ def main() -> int:
     fine = fine_skin.load(body)
     if fine is not None:
         body.keep_inside(fine_skin.inside_export(body, fine))      # nothing under the skin may reach outside it
+    if args.muscle_photos:
+        fine_muscle.extract(body, args.muscle_photos)
+    body.original_labels = body.labels.copy()                      # before the named structures are taken out of the unnamed masses (fine_muscle.surfaces)
     if args.head_ct:
         head_layers.segment(body, args.head_ct)
     head_layers.carve(body)                                        # the named head and neck structures out of the unnamed mass
@@ -98,7 +104,8 @@ def main() -> int:
     for layer in LAYERS:
         path = cache / f"{layer}.npz"
         if layer in chosen or not path.exists():
-            built = build_layer(body, layer, args.skin_triangles if layer == "skin" else int(args.triangles * BUDGET[layer]), args.skin_reuse)
+            budget = args.triangles * BUDGET[layer] * (FINE_MUSCLES if layer == "muscles" and fine_muscle.load(body) is not None else 1.0)
+            built = build_layer(body, layer, args.skin_triangles if layer == "skin" else int(budget), args.skin_reuse)
             save_structures(path, built)
             if args.preview:
                 from anatomy_model.preview import render
