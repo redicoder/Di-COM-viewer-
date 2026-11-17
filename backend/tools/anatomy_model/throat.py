@@ -275,10 +275,8 @@ def tuck(structures: list[Structure], body: Body, m, log=print) -> int:
     a few millimetres off the walls drawn here: the vertebrae and the throat's muscles stood before the back wall,
     white and red in the opened mouth, and the jaws' bone showed at the gums' edges. In the throat every vertex
     nearer its space than the mouth's bag lies (and a little more) is moved out to that distance; in the mouth
-    itself the bones only, to 1.2 mm from its space. (BoneHub's mandible still comes through the lower gum's face
-    in three small places under the front teeth, where no space lies before it: drawing its surface in under the
-    gum, along the CT's bone or along its own normals, stood single triangles out further, and was taken out again.)
-    Returns how many structures were touched."""
+    itself the bones only, to 1.2 mm from its space. (Under the gums the bone is not moved: the gums are made to
+    cover it as it is drawn, mouth.drawn_bones.) Returns how many structures were touched."""
     from . import mouth
     t = getattr(m, "throat", None)
     if t is None:
