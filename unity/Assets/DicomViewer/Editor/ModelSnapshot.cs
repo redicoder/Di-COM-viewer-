@@ -454,6 +454,12 @@ public static class ModelSnapshot
             Shot($"{layer.name}_face.png");
             View(0f, 40f, dist * 0.2f, new Vector3(b.min.x + 1.25f, b.size.y * 0.5f, 0f));
             Shot($"{layer.name}_legs.png");
+            // The feet: from the foot of the table (the toes towards the viewer), and from his left side.
+            Vector3 feet = new Vector3(b.max.x - 0.07f, b.size.y * 0.55f, 0f);
+            View(-90f, 28f, dist * 0.2f, feet);
+            Shot($"{layer.name}_feet.png");
+            View(-40f, 38f, dist * 0.2f, feet);
+            Shot($"{layer.name}_feet_side.png");
         }
         body.LookAt(body.layers[0].name);
         if (body.hasEyes)

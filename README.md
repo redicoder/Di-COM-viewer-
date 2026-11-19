@@ -88,6 +88,7 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --skin-reuse --muscle-photos data\vhp_male_photos --layers muscles
   # the skull as its named bones (BodyParts3D 4.0 from the LSDB Archive in data\bodyparts3d, see LICENSES.md; once, half a minute)
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb --atlas data\bodyparts3d --layers skeleton
+  # (the feet's outline alone can be read again in two minutes: anatomy_model.fine_skin.extract(body, photos, only=(0, 215)), then build without --skin-reuse)
   # afterwards; --layers skin rebuilds one layer, --preview <folder> renders pictures without Unity
   # (the mouth is measured on every run, about a minute: it needs out\photo_head, the head CT's labels and the skin of an earlier build;
   #  with --head-ct its teeth come from the CT's own 0.5 mm pixels, kept afterwards in out\photo_body\model\ct_mouth.npz)

@@ -86,9 +86,12 @@ def detail_bubbles(marks: dict) -> list[tuple]:
     return out
 
 
+TOES_REACH = 0.062              # metres up from a foot's lowest point: its toes and the ball of the foot, meshed finest
+
+
 def detail_regions(v: np.ndarray, marks: dict, triangles: int) -> tuple[np.ndarray, list[float]]:
     """A region number per vertex (coarse to fine) and the edge length wanted in each, millimetres: 0 the body,
-    1 the feet, 2 the hands, 3 the head and neck, 4 the face and ears. The body's edge length is what the
+    1 the feet, 2 the hands, 3 the head and neck, 4 the face and ears, 5 the toes. The body's edge length is what the
     triangle budget leaves."""
     v = np.asarray(v, np.float64)
     region = np.zeros(len(v), np.int8)
@@ -96,9 +99,13 @@ def detail_regions(v: np.ndarray, marks: dict, triangles: int) -> tuple[np.ndarr
     def within(centre, radius):
         return np.linalg.norm(v - np.asarray(centre), axis=1) < radius
 
+    toes = np.zeros(len(v), bool)
     for key in ("foot_left", "foot_right"):
         if key in marks:
-            region[within(marks[key], 0.15)] = 1
+            foot = within(marks[key], 0.15)
+            region[foot] = 1
+            if foot.any():                                               # the toes and the ball of the foot: its lowest TOES_REACH
+                toes |= foot & (v[:, 1] < v[foot, 1].min() + TOES_REACH)
     for key in ("hand_left", "hand_right"):
         if key in marks:
             region[within(marks[key], 0.105)] = 2
@@ -109,13 +116,14 @@ def detail_regions(v: np.ndarray, marks: dict, triangles: int) -> tuple[np.ndarr
         region[within(face, 0.082)] = 4
         for side in (-1.0, 1.0):                                         # the ears, either side and behind the face
             region[within(face + np.array([side * 0.082, 0.02, -0.085]), 0.05)] = 4
-    edges = [3.0, 1.8, 1.4, 1.8, 0.8]
+    region[toes] = 5                                                     # (the clefts between the toes are a millimetre and a half wide)
+    edges = [3.0, 1.8, 1.4, 1.8, 0.8, 0.9]
     # The body's edge from what is left of the budget.
     fine_triangles = 0.0
     # Rough areas: the regions' share of the vertices times the whole surface (the vertices are evenly spread before decimation).
-    share = np.bincount(region, minlength=5) / max(1, len(v))
+    share = np.bincount(region, minlength=len(edges)) / max(1, len(v))
     surface_mm2 = 2.13e6
-    for r in range(1, 5):
+    for r in range(1, len(edges)):
         fine_triangles += share[r] * surface_mm2 / (0.433 * edges[r] ** 2)
     left = max(triangles - fine_triangles, 150_000)
     edges[0] = float(np.clip(np.sqrt(share[0] * surface_mm2 / (0.433 * left)), 2.0, 4.0))

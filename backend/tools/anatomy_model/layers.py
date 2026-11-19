@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, face_muscles, face_vessels, fine_muscle, head_layers, leg_muscles, mouth, skull_bones, teeth
+from . import bonehub, eyes, face_muscles, face_vessels, feet, fine_muscle, head_layers, leg_muscles, mouth, skull_bones, teeth
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, surface
 from .palette import BONE, colour_of
 
@@ -93,6 +93,13 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         v, f = decimate(v, f, max(MIN_TRIANGLES, len(f) * min(1.0, share)))
         v, f = body.to_gltf(v, f)
         out.append(Structure(name, layer, v, f, BONE, bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), info={"source": "BoneHub", "code": code, "class": "bone"}))
+    if named:
+        # No bone at the skin or outside it. The bones are placed from the CT, where a finger or a toe does not lie
+        # just where the photographs have it: a few of their vertices stood out of the skin (a little finger's by
+        # 5 mm, the toes' and the left ankle's by 1). The skull is measured on and split afterwards: left as it is.
+        # The feet's own bones are seen to with the feet (feet.under, below: a toe's bones are not to be drawn in
+        # along the way the depth grows).
+        head_layers.each_under_skin(body, [s for s in out if s.name not in (skull_bones.WHOLE, "mandible") and not feet.wholly_in(body, s)], log=log)
     for o, v, f in raw:
         v_mm, f = decimate(v, f, max(MIN_TRIANGLES, len(f) * min(1.0, share)))
         v, f = body.to_gltf(v_mm, f)
@@ -102,6 +109,8 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
             albedo = fine_muscle.tone(body, v_mm, np.stack([-n[:, 2], n[:, 1], n[:, 0]], axis=1), colour_of(o["name"], o["layer"]), f)
             info["source"] = "the labels' object; its surface from the photographs' muscle-coloured voxels at 0.66 mm (fine_muscle.py)"
         out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), albedo=albedo, info=info))
+    if layer == "fat":                                     # in the feet the fat's surface is the skin's own, moved in (feet.py)
+        feet.fat(body, out, baker, occupancy, GLOSS[layer], log)
     out += head_layers.structures(body, layer, log)        # the head and neck, named on his CT
     out += leg_muscles.structures(body, layer, baker, occupancy, log)      # the hips' and legs' muscles, the knee's ligaments, the joints' cartilage
     m = getattr(body, "mouth", None)
@@ -127,5 +136,7 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         if skin_cache.exists():                                # the eyeballs sit behind the skin's lids
             whole = body.export / "model" / "skin_surface.npz"
             out += eyes.build(load_structures(skin_cache)[0], log, load_structures(whole)[0] if whole.exists() else None, body)
+    if layer in ("muscles", "skeleton"):                   # and nothing of these stands above it there
+        feet.under(body, out, log)
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")
     return out

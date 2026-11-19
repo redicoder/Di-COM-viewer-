@@ -280,3 +280,29 @@ def tuck_under_skin(body: Body, structures: list[Structure], least_mm: float = 1
     if moved:
         log("head layers: drawn under the skin (vertices): " + "; ".join(names))
     return moved
+
+
+def each_under_skin(body: Body, structures: list[Structure], least_mm: float = 1.2, log=print) -> int:
+    """tuck_under_skin for structures from anywhere in the body (the bones): each is measured by itself
+    (fine_skin.drawn_under), at the outline's own fineness, and what stands outside the skin comes in as well.
+    Returns how many vertices moved."""
+    fine = fine_skin.load(body)
+    if fine is None:
+        return 0
+    size = np.array([body.size_mm[2], body.size_mm[1], body.size_mm[0]])       # z, y, x
+    moved, names = 0, []
+    for s in structures:
+        if len(s.v) == 0:
+            continue
+        p = np.asarray(s.v, np.float64) * 1000.0
+        mm = np.stack([-p[:, 2], p[:, 1], p[:, 0]], axis=1) + size / 2
+        new = fine_skin.drawn_under(fine, mm, least_mm)
+        far = np.linalg.norm(new - mm, axis=1)
+        if (far > 0.05).any():
+            q = new - size / 2
+            s.v = (np.stack([q[:, 2], q[:, 1], -q[:, 0]], axis=1) / 1000.0).astype(np.float32)
+            moved += int((far > 0.05).sum())
+            names.append(f"{s.name} {int((far > 0.05).sum())} (by up to {far.max():.1f} mm)")
+    if moved:
+        log(f"drawn under the skin, {moved} vertices: " + "; ".join(names))
+    return moved

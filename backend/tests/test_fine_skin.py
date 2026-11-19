@@ -1,0 +1,156 @@
+"""The feet's outline from made-up photographs: toes that lie side by side stay separate toes, what is not him is
+left out, and one photograph's flaw is taken out by its neighbours.
+Needs scipy and scikit-image (backend/.venv-seg); skipped without them."""
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+pytest.importorskip("skimage")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+
+from scipy import ndimage  # noqa: E402
+
+from anatomy_model import fine_skin  # noqa: E402
+
+GELATIN, SKIN, TEAL_LINE, DARK = (20, 50, 110), (230, 200, 150), (150, 195, 180), (30, 12, 10)
+
+
+def photograph(shape=(300, 700)):
+    rgb = np.zeros(shape + (3,), np.uint8)
+    rgb[...] = GELATIN
+    return rgb, np.mgrid[0:shape[0], 0:shape[1]]
+
+
+def disc(rgb, grid, centre, radius, colour):
+    yy, xx = grid
+    rgb[(yy - centre[0]) ** 2 + (xx - centre[1]) ** 2 < radius ** 2] = colour
+
+
+def test_two_toes_side_by_side_stay_two_toes():
+    rgb, grid = photograph()
+    disc(rgb, grid, (150, 100), 17, SKIN)
+    disc(rgb, grid, (150, 131), 17, SKIN)                               # pressed together: without a line between them, one piece
+    assert ndimage.label(fine_skin.toes_outline(rgb.copy())[0])[1] == 1
+    rgb[130:171, 115:116] = TEAL_LINE                                   # a line of gelatin one pixel wide between them, mixed with the skin beside it
+    body, carved = fine_skin.toes_outline(rgb)
+    assert ndimage.label(body)[1] == 2
+    gap = np.flatnonzero(~body[150, 100:131])
+    assert 4 <= len(gap) <= 7                                           # widened to about a millimetre and a half (0.33 mm pixels)
+    assert carved.any() and not (carved & body).any()
+    # Above the toes no cleft is looked for, and nothing is carved.
+    body, carved = fine_skin.toes_outline(rgb, clefts=False)
+    assert not carved.any()
+
+
+def test_a_hole_that_is_not_gelatin_is_filled_and_gelatin_between_touching_toes_stays():
+    rgb, grid = photograph()
+    disc(rgb, grid, (150, 300), 40, SKIN)
+    disc(rgb, grid, (150, 300), 6, DARK)                                # dark marrow, a vessel: not tissue by its colour, but his
+    disc(rgb, grid, (150, 320), 5, GELATIN)                             # gelatin enclosed by him in this photograph: between two toes that touch
+    body, _ = fine_skin.toes_outline(rgb)
+    assert body[150, 300] and not body[150, 320]
+    body, _ = fine_skin.toes_outline(rgb, clefts=False)                 # above the toes a foot has no hollows: every hole is filled
+    assert body[150, 300] and body[150, 320]
+
+
+def test_what_is_greener_than_red_or_too_small_is_not_him():
+    rgb, grid = photograph()
+    disc(rgb, grid, (150, 300), 40, SKIN)
+    disc(rgb, grid, (150, 365), 5, (120, 150, 130))                     # a greenish tube lying against his skin
+    disc(rgb, grid, (60, 500), 3, SKIN)                                 # a scrap of something tissue-coloured, 3 mm2
+    body, _ = fine_skin.toes_outline(rgb)
+    assert body[150, 300] and not body[150, 365] and not body[60, 500]
+    allowed = np.zeros(body.shape, bool)
+    allowed[:, :310] = True
+    assert not fine_skin.toes_outline(rgb, allowed)[0][150, 320]        # and nothing outside where he may be
+
+
+def test_one_photographs_flaw_is_taken_out_by_its_neighbours():
+    cover = np.zeros((20, 12, 20), np.uint8)
+    cover[5:15, :, 5:15] = 255
+    cover[5:9, 6, 5:15] = 0                                             # a dent on one photograph, and
+    cover[5:9, 7, 5:15] = 0                                             # on the next: a slit two photographs thick
+    cover[2:5, 3, 5:15] = 255                                           # a bump on one
+    fine_skin.steady(cover, 0, 11)
+    assert (cover[5:15, :, 5:15] == 255).all() and not cover[2:5].any()
+    # What is three photographs thick is his: it stays.
+    cover[0:5, 4:7, 5:15] = 255
+    before = cover.copy()
+    fine_skin.steady(cover, 0, 11)
+    assert (cover == before).all()
+
+
+def test_between_two_outlines_the_edge_moves_little_by_little():
+    yy, xx = np.mgrid[0:200, 0:200]
+    far = np.hypot(yy - 100, xx - 100)
+    tight, wide = far < 40, far < 46                                    # the same leg read by two rules, 6 pixels apart
+    shares = tight.astype(np.float32), wide.astype(np.float32)
+    radii = [np.sqrt(fine_skin.passed_over(tight, wide, *shares, w).sum() / np.pi) for w in (0.0, 0.25, 0.5, 0.75, 1.0)]
+    assert np.allclose(radii, [40.0, 41.5, 43.0, 44.5, 46.0], atol=0.8)
+    assert (np.diff(radii) > 0.8).all()                                 # step by step, not all at once in the middle
+    # Where the two agree, a pixel keeps the share measured for it.
+    half = np.full(tight.shape, 0.5, np.float32)
+    out = fine_skin.passed_over(tight, tight, half, half, 0.3)
+    assert np.allclose(out, 0.5)
+
+
+def test_a_step_between_two_photographs_is_found_and_becomes_a_slope():
+    yy, xx = np.mgrid[0:160, 0:160]
+    far = np.hypot(yy - 80, xx - 80)
+    radius = [30.0 + 0.3 * k + (4.0 if k >= 20 else 0.0) for k in range(40)]       # a limb widening evenly, and a step of 2.6 mm
+    cover = np.stack([(far < r).astype(np.uint8) * 255 for r in radius], axis=1)
+    assert fine_skin.seams(cover, 5, 35, 0.66) == [(20, 20)]
+    fine_skin.bridge(cover, 20 - 1 - fine_skin.SEAM_REACH, 20 + fine_skin.SEAM_REACH)
+    assert fine_skin.seams(cover, 5, 35, 0.66) == []
+    widths = np.sqrt((cover > 127).sum(axis=(0, 2)) / np.pi)
+    assert np.abs(np.diff(widths)).max() < 1.5                           # (it was 4.3 at the step) a voxel or so from each slice to the next
+    assert abs(widths[10] - radius[10]) < 0.3 and abs(widths[30] - radius[30]) < 0.3      # away from the seam nothing changed
+
+
+def test_under_the_skin_means_along_the_body_too():
+    from types import SimpleNamespace
+    cover = np.zeros((40, 200, 40), np.uint8)
+    cover[8:32, 160:190, 8:32] = 255                                    # a block of him that ends flat below and above (a fingertip)
+    cover[8:32, 10:40, 8:32] = 255                                      # and one in the feet (a toe's pad)
+    fine = fine_skin.FineOutline(cover, (0.66, 1.0, 0.66), (0.0, 0.5, 0.0), np.zeros(200, bool))
+    body = SimpleNamespace(dims=(20, 100, 20), spacing=(1.32, 2.0, 1.32))
+    inside = fine_skin.inside_export(body, fine)
+    assert inside[10, 81:94, 10].all()                                  # the middle of the first
+    assert not inside[10, 80, 10] and not inside[10, 94, 10]            # its first and last slice: the skin of the end faces
+    assert not inside[4, 87, 10] and inside[5, 87, 10]                  # and one voxel in from its sides, as before
+    assert inside[10, 6:19, 10].all() and not inside[10, 5, 10] and not inside[10, 19, 10]      # the same in the feet
+
+
+def test_what_lies_at_the_skin_or_outside_it_is_drawn_in_and_what_lies_deep_stays():
+    cover = np.zeros((80, 40, 80), np.uint8)
+    cover[20:60, :, 20:60] = 255                                        # a limb: 13.2 to 39.6 mm across, either way
+    fine = fine_skin.FineOutline(cover, (0.66, 1.0, 0.66), (0.0, 0.5, 0.0), np.zeros(40, bool))
+    points = np.array([[26.4, 20.0, 26.4],                              # deep inside
+                       [13.6, 20.0, 26.4],                              # under the skin by less than half a millimetre
+                       [10.2, 21.0, 30.0],                              # 3 mm outside it
+                       [1.2, 19.0, 28.0]])                              # 12 mm outside: further than anything is moved
+    moved = fine_skin.drawn_under(fine, points, least_mm=1.2, most_mm=8.0)
+    assert np.allclose(moved[0], points[0])
+    for k in (1, 2):
+        assert 14.1 < moved[k, 0] < 15.6                                # a millimetre and more under the skin now, and no further
+        assert np.abs(moved[k, 1:] - points[k, 1:]).max() < 0.2         # straight in
+    far = np.linalg.norm(moved[3] - points[3])
+    assert 7.9 < far <= 8.0 + 1e-6 and moved[3, 0] > points[3, 0]
+    # Nothing shallow: nothing changes.
+    deep = np.array([[26.4, 20.0, 26.4], [30.0, 10.0, 22.0]])
+    assert np.allclose(fine_skin.drawn_under(fine, deep), deep)
+    # The least depth may be given point by point: where none is asked, a point under the skin stays.
+    two = np.array([[13.6, 20.0, 26.4], [13.6, 24.0, 30.0]])
+    moved = fine_skin.drawn_under(fine, two, least_mm=np.array([2.0, 0.0]))
+    assert moved[0, 0] > 14.9 and np.allclose(moved[1], two[1])
+
+
+def test_a_piece_that_does_not_hang_together_with_him_is_dropped():
+    cover = np.zeros((30, 20, 30), np.uint8)
+    cover[10:20, 4:, 10:20] = 255                                       # a toe, reaching the top of the slices
+    cover[2:5, 2:8, 2:5] = 255                                          # a scrap beside it that ends before the top
+    assert fine_skin.clean_toes(cover, 20, log=lambda *_: None) > 0
+    assert not cover[2:5, 2:8, 2:5].any() and (cover[10:20, 4:, 10:20] == 255).all()
+    assert fine_skin.clean_toes(cover, 20, log=lambda *_: None) == 0
