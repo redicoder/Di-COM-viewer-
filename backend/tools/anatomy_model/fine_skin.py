@@ -61,6 +61,12 @@ PIECE_PX = 60                   # (toes) a piece of tissue smaller than this man
 CLEFT_PX = 4                    # (toes) a channel of gelatin between two parts of him narrower than 2 x this + 1 pixels is a cleft
 CLEFT_MIN_PX = 24               # ... if it has at least this many pixels (smaller: a speck, filled)
 CLEFT_NARROW_PX, CLEFT_WIDEN_PX = 2, 2      # a cleft no wider than 2 x the first is widened by the second on either side
+LEGS_MM = 776.0                 # above the feet and up to here (where the thighs come to lie against each other) the legs'
+                                # rule reads the photographs (legs_outline)
+LEGS_BLEND = 60                 # the last of those photographs pass over to the rule for the rest of him (2 mm apart)
+FROST = (4, 8, 2)               # (legs) frost on skin: green more than this above red, and red above blue by less than
+                                # the second + the third x (green - red)
+VEIN_PX = 8                     # (legs) a notch in the outline no wider than twice this many pixels is closed, if not gelatin
 CACHE = "skin_fine.npy"
 
 
@@ -129,6 +135,43 @@ def toes_outline(rgb: np.ndarray, allowed: np.ndarray | None = None, clefts: boo
         box = (slice(r0, r1), slice(c0, c1))
         body[box], carved[box] = _with_clefts(body[box], gelatin[box])
     return body, carved
+
+
+def legs_outline(rgb: np.ndarray, guide: np.ndarray) -> np.ndarray:
+    """A photograph through the legs and the export's mask there (bool, the photograph's pixels) -> what is him.
+
+    The rule for the rest of him takes for body whatever lies BAND inside the mask, whatever its colour. The mask
+    has the frost round him as body, 3 to 4 mm of it on the legs, so that core reaches past his skin: measured on
+    every 25th photograph from the ankles to the hips, the outline stood 1.8 to 2.3 mm outside the skin all round,
+    with the frost's lumps and the tube on the left shin as warts. Here only the tissue counts, as in the feet:
+
+    - redder than blue, and not frost: frost on skin is pale and greenish, greener than red while only weakly redder
+      than blue (FROST). The feet's plain 'greener than red' will not do above them: the fat under the skin is pale
+      and on many photographs a little greener than red too, and where it lies at the surface (the calf's inner
+      side, 50 photographs running) the outline wandered about inside it, a patch of scratches on the shin. That
+      fat is well redder than blue (33 against the frost's 18, at the median);
+    - or black without being blue: a vein cut across is black, and one that lies at the surface (the long vein of
+      the leg's inner side, with the hollow it lies in) otherwise leaves a notch;
+    - in pieces that reach the mask's core (a scrap in the frost does not), their holes filled;
+    - and a notch no wider than 2 x VEIN_PX that is not gelatin is closed (what is left of such notches)."""
+    structure = ndimage.generate_binary_structure(2, 1)
+    allowed = ndimage.binary_dilation(guide, structure, iterations=BAND * FACTOR)
+    core = ndimage.binary_erosion(guide, structure, iterations=BAND * FACTOR)
+    r, g, b = (rgb[..., c].astype(np.int16) for c in range(3))
+    frost = (g > r + FROST[0]) & (r - b < FROST[1] + FROST[2] * (g - r))
+    blood = (r <= 45) & (b <= r + 8) & (g <= r + 8)            # black, and not the gelatin's dark blue: a vein, cut across
+    body = (((r > b + 8) & (r > 45) & ~frost) | blood) & allowed
+    body = ndimage.binary_opening(body, iterations=2)          # threads, a pixel or two wide
+    parts, count = ndimage.label(body)
+    if count:
+        sizes = ndimage.sum(body, parts, range(1, count + 1))
+        good = sizes >= PIECE_PX
+        if core.any():
+            good &= np.isin(np.arange(1, count + 1), np.unique(parts[core]))
+        body = np.isin(parts, 1 + np.flatnonzero(good))
+    body = ndimage.binary_fill_holes(body)
+    body |= ndimage.binary_closing(body, structure=_disc(VEIN_PX)) & ~(b > r - 8) & allowed
+    return ndimage.binary_fill_holes(body)
 
 
 def _with_clefts(body: np.ndarray, gelatin: np.ndarray):
@@ -293,7 +336,7 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
     else:
         cover = np.lib.format.open_memmap(folder / CACHE, mode="w+", dtype=np.uint8, shape=(fz, n_slices, fx))
         first, last = 0, n_slices - 1
-    n_toes, n_clefts = int(round(TOES_MM / ppv.SLICE_MM)), int(round(CLEFTS_MM / ppv.SLICE_MM))
+    n_toes, n_clefts, n_legs = (int(round(mm / ppv.SLICE_MM)) for mm in (TOES_MM, CLEFTS_MM, LEGS_MM))
     structure = ndimage.generate_binary_structure(2, 1)
     for k in range(first, last + 1):
         cover[:, k, :], fallback[k] = 0, False
@@ -321,49 +364,58 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
         if path is not None:
             rgb = ppv.read_photo(path)[rows, cols][:fz * FACTOR, :fx * FACTOR]
             t, a = ppv.tissue_mask(rgb), ring_coverage(rgb)
-        toes = foot = foot_share = None
+        # Which rules read this photograph: the toes' (to above the ankles), the legs' (to where the thighs meet), the
+        # rest's; where two of them do, the one passes over to the other.
+        blank = t is None or (t & g).sum() < 0.6 * g.sum()
+        read = {}                                               # rule -> (what is him, each pixel's share)
+
+        def shares(outline, off=None):
+            share = a.copy()
+            share[outline] = 1.0                                # solid where the tissue is, the measured share in the one ring
+            share[~ndimage.binary_dilation(outline, structure) if off is None else ~ndimage.binary_dilation(outline, structure) | off] = 0.0
+            return outline, share                               # of pixels round it, nothing beyond
+
         if t is not None and k < n_toes:                        # the toes: the tissue itself, with its clefts
             foot, carved = toes_outline(rgb, ndimage.binary_dilation(wide, structure, iterations=BAND * FACTOR), clefts=k < n_clefts)
-            foot_share = a.copy()
-            foot_share[foot] = 1.0
-            foot_share[~ndimage.binary_dilation(foot, structure) | carved] = 0.0
-            toes = foot_share.reshape(fz, FACTOR, fx, FACTOR).mean(axis=(1, 3))
-            if k < n_toes - TOES_BLEND:
-                cover[:, k, :] = np.round(toes * 255.0).astype(np.uint8)
-                continue
-        if t is None or (t & g).sum() < 0.6 * g.sum():
-            if toes is not None:
-                cover[:, k, :] = np.round(toes * 255.0).astype(np.uint8)
-            else:
-                cover[:, k, :], fallback[k] = g[::FACTOR, ::FACTOR].astype(np.uint8) * 255, True      # a blank or missing photograph
+            read["toes"] = shares(foot, carved)
+        if not blank and n_toes - TOES_BLEND <= k < n_legs:
+            read["legs"] = shares(legs_outline(rgb, g))
+        if not blank and k >= n_legs - LEGS_BLEND:
+            allowed = ndimage.binary_dilation(g, structure, iterations=BAND * FACTOR)
+            core = ndimage.binary_erosion(g, structure, iterations=BAND * FACTOR)
+            m = ndimage.binary_fill_holes((t & allowed) | core)
+            m = ndimage.binary_opening(m, structure, iterations=2)  # frost and threads of gelatin colour, a pixel or two wide
+            parts, n = ndimage.label(m)
+            if n > 1:
+                seeds = core if core.any() else g
+                keep = np.unique(parts[seeds & m])
+                m = np.isin(parts, keep[keep > 0])
+            read["rest"] = shares(m)
+        if not read:                                            # a blank or missing photograph
+            cover[:, k, :], fallback[k] = g[::FACTOR, ::FACTOR].astype(np.uint8) * 255, True
             continue
-        allowed = ndimage.binary_dilation(g, structure, iterations=BAND * FACTOR)
-        core = ndimage.binary_erosion(g, structure, iterations=BAND * FACTOR)
-        m = ndimage.binary_fill_holes((t & allowed) | core)
-        m = ndimage.binary_opening(m, structure, iterations=2)  # frost and threads of gelatin colour, a pixel or two wide
-        parts, n = ndimage.label(m)
-        if n > 1:
-            seeds = core if core.any() else g
-            keep = np.unique(parts[seeds & m])
-            m = np.isin(parts, keep[keep > 0])
-        # Solid where the tissue is, the measured share in the one ring of pixels round it, nothing beyond; then
-        # each fine voxel's share is the mean of its photo pixels.
-        a[m] = 1.0
-        a[~ndimage.binary_dilation(m, structure)] = 0.0
-        if toes is not None and foot.any() and m.any():
-            # The last of the toes' photographs pass over to the rule for the rest of him little by little (the two
-            # read the leg's edge a millimetre apart: changed from one photograph to the next, that was a line right
-            # round the leg).
-            a = passed_over(foot, m, foot_share, a, (k - (n_toes - TOES_BLEND) + 1.0) / (TOES_BLEND + 1.0))
-        share = a.reshape(fz, FACTOR, fx, FACTOR).mean(axis=(1, 3))
-        cover[:, k, :] = np.round(share * 255.0).astype(np.uint8)
+        # The last photographs of a rule pass over to the next little by little (the rules read his edge up to 2 mm
+        # apart: changed from one photograph to the next, that is a line right round him).
+        share = next(iter(read.values()))[1]
+        for one, other, last_of, over in (("toes", "legs", n_toes, TOES_BLEND), ("legs", "rest", n_legs, LEGS_BLEND)):
+            if one in read and other in read and read[one][0].any() and read[other][0].any():
+                share = passed_over(read[one][0], read[other][0], read[one][1], read[other][1], (k - (last_of - over) + 1.0) / (over + 1.0))
+        cover[:, k, :] = np.round(share.reshape(fz, FACTOR, fx, FACTOR).mean(axis=(1, 3)) * 255.0).astype(np.uint8)
         if k % 100 == 0:
             log(f"fine skin outline: photograph {number} ({k + 1}/{n_slices})")
-    if first < n_toes:
-        steady(cover, first, min(last, n_toes - 1))
-        clean_toes(cover, n_toes + 8, log)
+    # Blank photographs (the specimen's blocks meet there) took the coarse outline, which stands round him as a
+    # collar: the outline passes over them from the photograph below to the photograph above.
+    blanks = np.flatnonzero(fallback)
+    for run in np.split(blanks, np.flatnonzero(np.diff(blanks) > 1) + 1):
+        if len(run) and run[0] > 0 and run[-1] < n_slices - 1 and run[-1] >= first and run[0] <= last:
+            bridge(cover, int(run[0]) - 1, int(run[-1]) + 1)
+            log(f"fine skin outline: the blank photographs {int(run[0])} to {int(run[-1])} mm up, bridged")
+    if first < n_legs:
+        steady(cover, first, min(last, n_legs - 1))
+        if first < n_toes:
+            clean_toes(cover, n_toes + 8, log)
         # Above the toes (where they join the foot the edge moves far from one photograph to the next of itself).
-        for a, b in seams(cover, n_clefts + 8, n_toes - 1, ppv.PIXEL_MM * FACTOR):
+        for a, b in seams(cover, max(first, n_clefts + 8), min(last, n_legs - 1), ppv.PIXEL_MM * FACTOR):
             bridge(cover, max(0, a - 1 - SEAM_REACH), min(n_slices - 1, b + SEAM_REACH))
             log(f"fine skin outline: a seam between the photographs {a - 1} and {b} mm up, bridged over {SEAM_REACH} photographs either side")
     cover.flush()
@@ -378,6 +430,15 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
     return load(body)
 
 
+def export_slice(body: Body, fine: FineOutline, j: int) -> np.ndarray:
+    """Slice `j` of the export's grid: its voxels that lie at least half inside the fine outline (bool; z, x)."""
+    nz, _, nx = body.dims
+    step_y = int(round(body.spacing[1] / fine.spacing[1]))
+    step = int(round(body.spacing[0] / fine.spacing[0]))
+    block = np.asarray(fine.cover[:nz * step, j * step_y:(j + 1) * step_y, :nx * step], np.float32)
+    return block.reshape(nz, step, step_y, nx, step).mean(axis=(1, 2, 4)) / 255.0 > 0.5
+
+
 def inside_export(body: Body, fine: FineOutline, skin_mm: float = 1.4) -> np.ndarray:
     """The export's voxels that lie under the fine skin (bool, the Body's grid): at least half inside the fine
     outline and not in its outermost `skin_mm`, sideways or along the body. The export's own outline is a voxel or
@@ -390,16 +451,13 @@ def inside_export(body: Body, fine: FineOutline, skin_mm: float = 1.4) -> np.nda
     made from the skin's own, feet.py.)"""
     nz, ny, nx = body.dims
     step_y = int(round(body.spacing[1] / fine.spacing[1]))
-    step = int(round(body.spacing[0] / fine.spacing[0]))
     fz, fy, fx = fine.cover.shape
     out = np.zeros(body.dims, bool)
     whole = np.zeros(body.dims, bool)
     rounds = max(1, int(round(skin_mm / body.spacing[0])))
     structure = ndimage.generate_binary_structure(2, 1)
     for j in range(min(ny, fy // step_y)):
-        block = np.asarray(fine.cover[:nz * step, j * step_y:(j + 1) * step_y, :nx * step], np.float32)
-        share = block.reshape(nz, step, step_y, nx, step).mean(axis=(1, 2, 4)) / 255.0
-        whole[:, j, :] = share > 0.5
+        whole[:, j, :] = export_slice(body, fine, j)
         out[:, j, :] = ndimage.binary_erosion(whole[:, j, :], structure, iterations=rounds)
     for r in range(1, max(1, int(round(skin_mm / body.spacing[1]))) + 1):
         out[:, r:, :] &= whole[:, :-r, :]                       # the slice below is him too,

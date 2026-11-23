@@ -67,6 +67,27 @@ def test_what_is_greener_than_red_or_too_small_is_not_him():
     assert not fine_skin.toes_outline(rgb, allowed)[0][150, 320]        # and nothing outside where he may be
 
 
+def test_a_leg_is_its_tissue_and_not_the_frost_round_it():
+    rgb, grid = photograph((400, 400))
+    yy, xx = grid
+    far = np.hypot(yy - 200, xx - 200)
+    FROST, PALE_FAT, VEIN = (165, 175, 146), (182, 189, 149), (30, 14, 12)
+    rgb[far < 96] = FROST                                               # a rim of frost, 2 mm of it: pale, greenish, hardly redder than blue
+    rgb[far < 90] = PALE_FAT                                            # the fat under the skin, a little greener than red on this photograph
+    rgb[far < 72] = SKIN
+    disc(rgb, grid, (200, 114), 4, VEIN)                                # a vein that lies at the surface: black
+    disc(rgb, grid, (40, 330), 7, SKIN)                                 # a scrap of something tissue-coloured out in the frost
+    guide = far < 102                                                   # the export's mask: the frost with him, and a voxel more
+    leg = fine_skin.legs_outline(rgb, guide)
+    radius = np.sqrt(leg.sum() / np.pi)
+    assert 88.5 < radius < 91.0                                         # to the fat's edge: not the frost, and not short of the fat
+    assert leg[200, 114] and not leg[200, 109]                          # the vein's notch closed to half its depth (it was 8 pixels deep)
+    assert not leg[40, 330]
+    # The rule for the feet would have left that fat out (which is why it stops at the ankles).
+    strict, _ = fine_skin.toes_outline(rgb, guide, clefts=False)
+    assert np.sqrt(strict.sum() / np.pi) < 75
+
+
 def test_one_photographs_flaw_is_taken_out_by_its_neighbours():
     cover = np.zeros((20, 12, 20), np.uint8)
     cover[5:15, :, 5:15] = 255
@@ -121,6 +142,8 @@ def test_under_the_skin_means_along_the_body_too():
     assert not inside[10, 80, 10] and not inside[10, 94, 10]            # its first and last slice: the skin of the end faces
     assert not inside[4, 87, 10] and inside[5, 87, 10]                  # and one voxel in from its sides, as before
     assert inside[10, 6:19, 10].all() and not inside[10, 5, 10] and not inside[10, 19, 10]      # the same in the feet
+    # A slice of the export's grid as the fine outline has it: not cut back.
+    assert fine_skin.export_slice(body, fine, 80)[4, 10] and not fine_skin.export_slice(body, fine, 79)[10, 10]
 
 
 def test_what_lies_at_the_skin_or_outside_it_is_drawn_in_and_what_lies_deep_stays():

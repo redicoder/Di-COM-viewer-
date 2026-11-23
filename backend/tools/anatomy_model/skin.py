@@ -279,6 +279,18 @@ def briefs_solid(body: Body) -> np.ndarray | None:
     # hollow of the groin and rounds what stands out; nowhere may it sink below the skin itself.
     tent = ndimage.gaussian_filter(block.astype(np.float32), (9.0 / sz, 3.0 / sy, 9.0 / sx)) > 0.36
     outer = np.isin(lab[:, y0:y1, :], low)                             # what the opening took away of him, not the hands
+    fine = fine_skin.load(body)
+    if fine is not None and outer.any():
+        # ... and what of him the labels do not have there at all: they stop 14 mm short of his end, which showed
+        # through the cloth. In the box round the labelled parts, and below it, his own outline counts (not the hands').
+        zz, yy, xx = (np.flatnonzero(outer.any(axis=axes)) for axes in ((1, 2), (0, 2), (0, 1)))
+        below = int(round(24.0 / sy))
+        z0, z1 = max(0, zz[0] - 6), min(lab.shape[0], zz[-1] + 7)
+        j0, j1 = max(1, yy[0] - below), yy[-1] + 1
+        x0, x1 = max(0, xx[0] - 6), min(lab.shape[2], xx[-1] + 7)
+        hands = ndimage.binary_dilation(np.isin(lab[z0:z1, y0 + j0:y0 + j1, x0:x1], arms), iterations=3)
+        for j in range(j0, j1):
+            outer[z0:z1, j, x0:x1] |= fine_skin.export_slice(body, fine, y0 + j)[z0:z1, x0:x1] & ~hands[:, j - j0, :]
     proud = ndimage.binary_dilation(block | outer, ndimage.generate_binary_structure(3, 1), iterations=3)
     cloth = tent | proud
     cloth[:, :1, :] = cloth[:, -1:, :] = False                  # hems, not open ends
