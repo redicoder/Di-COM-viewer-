@@ -145,3 +145,42 @@ def test_what_is_left_of_a_toes_bone_near_the_skin_goes_towards_its_own_axis():
     before, after = np.hypot(bone[:, 0] - centre[0], bone[:, 2] - axis_x), np.hypot(out[:, 0] - centre[0], out[:, 2] - axis_x)
     assert (after <= before + 0.3).all()                                # nearer its own axis, or where it was: never further out
     assert np.abs(out[:, 1] - bone[:, 1]).max() < 1.5                   # and across its length, not along it
+
+
+def test_a_fingers_bones_that_lie_beside_the_finger_are_moved_into_it():
+    from anatomy_model import hands
+    fine, size, _, _ = legs()                                           # (the two legs stand for two fingers)
+    centre = np.array([size[0] / 2, 0.0, size[2] / 2 - HALF_APART])
+    rng = np.random.default_rng(7)
+    ring = rng.uniform(0, 2 * np.pi, 500)
+    bone = centre + np.stack([4.0 * np.cos(ring), rng.uniform(40.0, 120.0, 500), RADIUS - 2.0 + 4.0 * np.sin(ring)], axis=1)
+    assert (RADIUS - np.hypot(bone[:, 0] - centre[0], bone[:, 2] - centre[2]) < 0).sum() > 100      # a good part of it outside the finger
+    new, move = hands.into_finger(fine, bone)
+    assert 0 < np.linalg.norm(move) <= 6.0 + 1e-6
+    deep = RADIUS - np.hypot(new[:, 0] - centre[0], new[:, 2] - centre[2])
+    assert deep.min() > hands.UNDER_MM - 0.5                            # all of it in the finger and under its skin
+    assert hands.is_finger("phalanges of the left thumb") and not hands.is_finger("phalanges of the left great toe")
+
+
+def test_the_fat_in_a_hand_is_the_skin_moved_in_as_far_as_the_hand_reaches():
+    from anatomy_model import hands
+    fine, size, _, _ = legs()                                           # (one of the two legs stands for a hand and its arm)
+    centre = np.array([size[0] / 2, 0.0, size[2] / 2 - HALF_APART])
+    rng = np.random.default_rng(9)
+    ring = rng.uniform(0, 2 * np.pi, 1500)                               # its bones lie 12 mm under its skin all round
+    bones = centre + np.stack([18.0 * np.cos(ring), rng.uniform(80.0, 160.0, 1500), 18.0 * np.sin(ring)], axis=1)
+    gv, gf = hands.glove(fine, size, bones)
+    assert len(gf) > 500
+    mm = feet.to_mm(size, gv)
+    assert mm[:, 1].min() > 80.0 - hands.REACH_MM - 1.0 and mm[:, 1].max() < 160.0 + hands.REACH_MM + 1.0      # the hand, not the arm beyond it
+    assert (mm[:, 2] < size[2] / 2).all()                               # and not the other leg
+    under = RADIUS - np.hypot(mm[:, 0] - centre[0], mm[:, 2] - centre[2])
+    middle = (mm[:, 1] > 100.0) & (mm[:, 1] < 140.0)
+    assert under[middle].min() > hands.GLOVE_MM - 0.5 and under[middle].max() < hands.GLOVE_MM + 0.8
+    assert under[mm[:, 1] < 80.0 - hands.REACH_MM + 3.0].min() > hands.GLOVE_MM + 0.2      # its rim lies deeper
+    tri = gv[gf].astype(np.float64)                                     # wound to look outwards (glTF's axes)
+    normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    out = tri.mean(axis=1)
+    out[:, 0] -= -HALF_APART / 1000.0
+    out[:, 1] = 0.0
+    assert (np.einsum("ij,ij->i", normal, out) > 0).mean() > 0.97

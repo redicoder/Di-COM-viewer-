@@ -78,7 +78,7 @@ def test_a_leg_is_its_tissue_and_not_the_frost_round_it():
     disc(rgb, grid, (200, 114), 4, VEIN)                                # a vein that lies at the surface: black
     disc(rgb, grid, (40, 330), 7, SKIN)                                 # a scrap of something tissue-coloured out in the frost
     guide = far < 102                                                   # the export's mask: the frost with him, and a voxel more
-    leg = fine_skin.legs_outline(rgb, guide)
+    leg, _ = fine_skin.body_outline(rgb, guide)
     radius = np.sqrt(leg.sum() / np.pi)
     assert 88.5 < radius < 91.0                                         # to the fat's edge: not the frost, and not short of the fat
     assert leg[200, 114] and not leg[200, 109]                          # the vein's notch closed to half its depth (it was 8 pixels deep)
@@ -86,6 +86,50 @@ def test_a_leg_is_its_tissue_and_not_the_frost_round_it():
     # The rule for the feet would have left that fat out (which is why it stops at the ankles).
     strict, _ = fine_skin.toes_outline(rgb, guide, clefts=False)
     assert np.sqrt(strict.sum() / np.pi) < 75
+
+
+def test_gelatin_enclosed_by_him_stays_open_on_one_photograph_and_a_thin_film_is_closed_but_not_in_the_hands():
+    rgb, grid = photograph((300, 500))
+    rgb[60:240, 60:240] = SKIN                                          # a part of him,
+    rgb[120:180, 120:180] = GELATIN                                     # with gelatin enclosed in it: a gap or a cavity, not to be told here
+    disc(rgb, grid, (150, 90), 8, DARK)                                 # and a dark hollow that is not gelatin: his
+    rgb[60:240, 244:400] = SKIN                                         # another part, a film of gelatin 4 pixels wide between the two
+    guide = np.zeros(rgb.shape[:2], bool)
+    guide[50:250, 50:410] = True
+    him, carved = fine_skin.body_outline(rgb, guide)
+    assert not him[150, 150] and him[150, 90]
+    assert him[150, 241] and not carved.any()                           # the film closed: what lies pressed together is one
+    hands = np.zeros(guide.shape, bool)
+    hands[40:260, 200:420] = True
+    him, carved = fine_skin.body_outline(rgb, guide, hands=hands)
+    assert not him[150, 241] and ndimage.label(him)[1] == 2             # in the hands it is a cleft, and the two are two
+
+
+def test_the_photographs_frame_is_not_a_vein_and_a_photograph_that_is_not_whole_is_found():
+    rgb, grid = photograph((300, 500))
+    rgb[60:240, 0:240] = SKIN                                           # an arm that reaches the photograph's edge,
+    rgb[40:260, 0:14] = DARK                                            # where the black frame is
+    disc(rgb, grid, (150, 236), 5, DARK)                                # and a vein at its other side
+    guide = np.zeros(rgb.shape[:2], bool)
+    guide[55:245, 0:245] = True
+    him, _ = fine_skin.body_outline(rgb, guide)
+    assert not him[150, 5] and him[150, 30] and him[150, 236]
+    areas = np.array([9000.0 + 20 * k for k in range(30)])              # he widens slowly; on one photograph a twentieth of him is missing
+    areas[14] *= 0.95
+    assert np.flatnonzero(fine_skin.not_whole(areas)).tolist() == [14]
+
+
+def test_a_cavity_in_him_is_filled_and_a_gap_between_his_parts_stays_open():
+    cover = np.zeros((60, 30, 60), np.uint8)
+    cover[10:50, 2:28, 10:50] = 255                                     # him, through 26 photographs
+    cover[20:26, 8:20, 20:26] = 0                                       # a cavity: enclosed on every photograph it is on, and ends in him
+    cover[36:42, 6:24, 30:36] = 0                                       # a gap: enclosed on these photographs,
+    cover[36:50, 4:6, 30:36] = 0                                        # and open to his side on the two below them
+    filled = fine_skin.fill_closed(cover, 1, 28, log=lambda *_: None)
+    assert filled == 6 * 12 * 6
+    assert (cover[20:26, 8:20, 20:26] == 255).all()
+    assert not cover[36:42, 6:24, 30:36].any() and not cover[36:50, 4:6, 30:36].any()
+    assert fine_skin.fill_closed(cover, 1, 28, log=lambda *_: None) == 0
 
 
 def test_one_photographs_flaw_is_taken_out_by_its_neighbours():

@@ -58,6 +58,8 @@ BED_TOE, BED_FINGER = (212, 186, 156), (201, 170, 162)      # the nail seen on i
 FREE_EDGE, LUNULA = (226, 214, 196), (216, 196, 186)
 FOLD = (1.0, 0.93, 0.92)        # the skin of the folds round a nail is a little redder: its colour times this
 GLOSS = 235                     # the plate's gloss in the bake (128 = the material's own)
+THICK_MM = 24.0                 # a digit that comes out thicker than this under its nail was not found rightly
+OVERLAP = 0.75                  # two nails whose middles are nearer than this share of their widths lie on each other
 
 
 @dataclass
@@ -238,14 +240,13 @@ def frame(name: str, bone: np.ndarray, back: np.ndarray | None, others: list, sk
                  "digit_width_mm": round(wide, 1), "digit_thickness_mm": round(thick, 1)})
 
 
-def find(body: Body, v: np.ndarray, f: np.ndarray, log=print, limbs: tuple = ("toe",)) -> list[Nail]:
+def find(body: Body, v: np.ndarray, f: np.ndarray, log=print, limbs: tuple = ("toe", "finger")) -> list[Nail]:
     """The digits' nails, on the skin as built (v: glTF metres). Needs BoneHub's bones and the fine outline;
     without them, none.
 
-    The toes' only, as it stands (`limbs`): the skin of the hands is still read by the rule that joins what lies
-    together, his fingers lie together, and on fingers that are one piece of skin the nails come out across each
-    other (tried: of the right hand's five, two are not found and two overlap). The fingers' nails wait for the
-    hands' skin."""
+    A hand's or a foot's nails are drawn only if they can be placed soundly (sound): while the hands' skin was
+    read by the rule that joins what lies together, the fingers were one piece of skin and their nails came out
+    across each other (of the right hand's five, two were not found and two overlapped)."""
     from . import feet
     fine = fine_skin.load(body)
     if fine is None or not bonehub.cache_path(body).exists():
@@ -295,9 +296,36 @@ def find(body: Body, v: np.ndarray, f: np.ndarray, log=print, limbs: tuple = ("t
             narrow = min(room)
             nail.length, nail.width = nail.length * narrow / nail.width, narrow
             nail.info["narrowed"] = "by its neighbour's distance"
+    found = sound(found, log)
     if found:
         log("nails (width x length mm; the digit's width): " + "; ".join(f"{n.name} {n.width:.1f} x {n.length:.1f} ({n.digit[0]:.1f})" for n in found))
     return found
+
+
+def sound(found: list[Nail], log=print) -> list[Nail]:
+    """The nails that are placed soundly: a nail whose digit comes out thicker than THICK_MM there, or that lies
+    on another nail (their middles nearer than OVERLAP of their widths), is not; and a hand or a foot of which
+    fewer than four nails are sound gets none (a hand with two nails is worse than a hand with none)."""
+    bad = set()
+    for i, a in enumerate(found):
+        if a.digit[1] > THICK_MM:
+            bad.add(i)
+        for j, b in enumerate(found):
+            if j > i and np.linalg.norm(a.axis - b.axis) < OVERLAP * (a.width + b.width) / 2:
+                bad.update((i, j))
+    groups = {}
+    for i, nail in enumerate(found):
+        groups.setdefault((nail.name.split(" ", 1)[0], "toe" in nail.name), []).append(i)
+    keep = []
+    for (side, toes), members in sorted(groups.items()):
+        good = [i for i in members if i not in bad]
+        if len(good) >= 4:
+            keep += good
+            if len(good) < len(members):
+                log(f"nails: not placed soundly, left out: {', '.join(found[i].name for i in members if i in bad)}")
+        else:
+            log(f"nails: the {side} {'foot' if toes else 'hand'} gets none: only {len(good)} of its nails could be placed soundly")
+    return [found[i] for i in sorted(keep)]
 
 
 def on_skin(found: list[Nail], v: np.ndarray, normals: np.ndarray, size: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

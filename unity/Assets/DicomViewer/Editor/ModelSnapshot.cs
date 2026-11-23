@@ -471,6 +471,9 @@ public static class ModelSnapshot
                 Shot("skin_toes_left.png");
                 View(90f, 55f, dist * 0.11f, feet + new Vector3(0.03f, 0.04f, -0.165f));
                 Shot("skin_toes_right.png");
+                // The hands as they lie on him, from above.
+                View(0f, 78f, dist * 0.17f, new Vector3(b.min.x + 0.86f, b.size.y * 0.75f, 0f));
+                Shot("skin_hands.png");
             }
         }
         body.LookAt(body.layers[0].name);

@@ -24,6 +24,15 @@ at the ankles) is bridged the same way (seams, bridge).
 
 What is placed in him from another source (the bones, from the CT) is kept under this outline by drawn_under.
 
+THE BODY BELOW THE HEAD, from above the feet to BODY_MM (the neck), is read by the tissue alone as well
+(body_outline; its text says why: the rule above takes whatever lies inside the mask for body, and the mask has the
+frost round him and has what lies together as one). What that needs beyond the feet's rule: what he encloses on
+a photograph and is gelatin is a gap between his parts or a cavity in him, told apart along the body
+(fill_closed); a film of gelatin between parts pressed together is closed, but in the hands it is a cleft between
+fingers (hand_boxes); a photograph that is not whole counts as blank (not_whole), and blank photographs are passed
+over from the one below to the one above (bridge). THE HEAD keeps the rule of the first paragraph: its eyes, lids,
+mouth and face muscles were fitted to that skin.
+
 The result is a COVERAGE, not a yes/no mask. The export's own tissue test (red well above blue) says which pixels
 are body; the ring of pixels just outside them is part skin and part blue gelatin, and how red against blue each
 is says how much. A yes/no outline moves in whole pixels from one photograph to the next and the surface built
@@ -61,12 +70,23 @@ PIECE_PX = 60                   # (toes) a piece of tissue smaller than this man
 CLEFT_PX = 4                    # (toes) a channel of gelatin between two parts of him narrower than 2 x this + 1 pixels is a cleft
 CLEFT_MIN_PX = 24               # ... if it has at least this many pixels (smaller: a speck, filled)
 CLEFT_NARROW_PX, CLEFT_WIDEN_PX = 2, 2      # a cleft no wider than 2 x the first is widened by the second on either side
-LEGS_MM = 776.0                 # above the feet and up to here (where the thighs come to lie against each other) the legs'
-                                # rule reads the photographs (legs_outline)
-LEGS_BLEND = 60                 # the last of those photographs pass over to the rule for the rest of him (2 mm apart)
-FROST = (4, 8, 2)               # (legs) frost on skin: green more than this above red, and red above blue by less than
+BODY_MM = 1640.0                # above the feet and up to here (the neck, under the chin) the body's rule reads the
+                                # photographs (body_outline); above it the head keeps the rule it was fitted to
+BODY_BLEND = 60                 # the last of those photographs pass over to the head's rule (2 mm apart)
+SEAMS_MM = 776.0                # seams between photographs are looked for up to here (the legs: above them his own parts
+                                # come and go from one photograph to the next)
+FROST = (4, 8, 2)               # (body) frost on skin: green more than this above red, and red above blue by less than
                                 # the second + the third x (green - red)
-VEIN_PX = 8                     # (legs) a notch in the outline no wider than twice this many pixels is closed, if not gelatin
+VEIN_PX = 8                     # (body) a notch in the outline no wider than twice this many pixels is closed, if not gelatin
+VEIN_SPOT_PX = 1500             # (body) a black spot of up to this many pixels (1.6 cm2) is a vein cut across
+NOT_WHOLE = 0.025               # (body) a photograph on which he is this much larger or smaller than the photographs before
+                                # and after give between them is not whole (frost over a cut face where two blocks meet)
+FILM_PX = 3                     # (body) gelatin between two parts of him no wider than twice this many pixels (2 mm) is
+                                # closed: what lies pressed together is one (but in the hands: there such a film is a cleft)
+HAND_MM = 25.0                  # the hands, for that: the box round each hand's bones and this much more
+OPEN_VOXELS = 4                 # (body) an enclosed space is a gap between his parts if it lies on open space of the
+                                # photograph below or above by this many voxels
+HAND_BONES = ("capitate", "hamate", "lunate", "pisiform", "scaphoid", "trapezium", "trapezoid", "triquetrum", "metacarpal", "phalanges of the")
 CACHE = "skin_fine.npy"
 
 
@@ -137,13 +157,16 @@ def toes_outline(rgb: np.ndarray, allowed: np.ndarray | None = None, clefts: boo
     return body, carved
 
 
-def legs_outline(rgb: np.ndarray, guide: np.ndarray) -> np.ndarray:
-    """A photograph through the legs and the export's mask there (bool, the photograph's pixels) -> what is him.
+def body_outline(rgb: np.ndarray, guide: np.ndarray, wide: np.ndarray | None = None, hands: np.ndarray | None = None):
+    """A photograph through him below the head and the export's mask there (bool, the photograph's pixels; `wide`:
+    the mask with its neighbouring slices', for a part's last millimetre) -> (what is him, the pixels taken off
+    him to widen thin clefts in the hands).
 
-    The rule for the rest of him takes for body whatever lies BAND inside the mask, whatever its colour. The mask
-    has the frost round him as body, 3 to 4 mm of it on the legs, so that core reaches past his skin: measured on
-    every 25th photograph from the ankles to the hips, the outline stood 1.8 to 2.3 mm outside the skin all round,
-    with the frost's lumps and the tube on the left shin as warts. Here only the tissue counts, as in the feet:
+    The head's rule takes for body whatever lies BAND inside the mask, whatever its colour. The mask has the frost
+    round him as body, 3 to 4 mm of it on the legs, so that core reaches past his skin: measured on every 25th
+    photograph from the ankles to the belly, the outline stood 1.8 to 2.3 mm outside the skin all round, with the
+    frost's lumps and the tube on the left shin as warts; and it has what lies together as one, so the fingers
+    were one piece of skin. Here only the tissue counts, as in the feet:
 
     - redder than blue, and not frost: frost on skin is pale and greenish, greener than red while only weakly redder
       than blue (FROST). The feet's plain 'greener than red' will not do above them: the fat under the skin is pale
@@ -152,26 +175,137 @@ def legs_outline(rgb: np.ndarray, guide: np.ndarray) -> np.ndarray:
       fat is well redder than blue (33 against the frost's 18, at the median);
     - or black without being blue: a vein cut across is black, and one that lies at the surface (the long vein of
       the leg's inner side, with the hollow it lies in) otherwise leaves a notch;
-    - in pieces that reach the mask's core (a scrap in the frost does not), their holes filled;
-    - and a notch no wider than 2 x VEIN_PX that is not gelatin is closed (what is left of such notches)."""
+    - in pieces of some size that touch the mask (a scrap out in the gelatin does not);
+    - what such pieces enclose is him if it is not gelatin. What is gelatin stays open HERE: it may be a gap
+      between his parts (an arm and the trunk, the fingers and the belly) or a cavity in him (the bowel, the
+      windpipe: the cut cavities were filled with the same blue), and one photograph cannot tell; fill_closed
+      does, with the photographs below and above;
+    - a notch no wider than 2 x VEIN_PX that is not gelatin is closed (what is left of a vein's notch);
+    - gelatin no wider than 2 x FILM_PX between two parts of him is closed too: what lies pressed together (the
+      thighs, an arm against the chest) is one piece, as it was; a slit a millimetre wide and a hand deep cannot
+      be meshed at the body's 3 mm. But not in the hands (`hands`: where they are): there the films between the
+      fingers are clefts, found and widened as the toes' are (_with_clefts)."""
     structure = ndimage.generate_binary_structure(2, 1)
-    allowed = ndimage.binary_dilation(guide, structure, iterations=BAND * FACTOR)
-    core = ndimage.binary_erosion(guide, structure, iterations=BAND * FACTOR)
+    wide = guide if wide is None else wide
+    allowed = ndimage.binary_dilation(wide, structure, iterations=BAND * FACTOR)
     r, g, b = (rgb[..., c].astype(np.int16) for c in range(3))
+    blue = b > r - 8
     frost = (g > r + FROST[0]) & (r - b < FROST[1] + FROST[2] * (g - r))
-    blood = (r <= 45) & (b <= r + 8) & (g <= r + 8)            # black, and not the gelatin's dark blue: a vein, cut across
-    body = (((r > b + 8) & (r > 45) & ~frost) | blood) & allowed
+    blood = (r <= 45) & (b <= r + 8) & (g <= r + 8)            # black, and not the gelatin's dark blue: a vein, cut across;
+    parts, count = ndimage.label(blood)                         # in spots, not in sheets: the photograph's own frame is
+    if count:                                                   # black too, and where an arm reaches it the frame stood on
+        sizes = ndimage.sum(blood, parts, range(1, count + 1))  # the arm's side as a plate. (Its size is taken on the
+        blood = np.isin(parts, 1 + np.flatnonzero(sizes <= VEIN_SPOT_PX))      # whole photograph: cut to what the mask
+    body = (((r > b + 8) & (r > 45) & ~frost) | blood) & allowed                # allows, the frame falls into spots.)
     body = ndimage.binary_opening(body, iterations=2)          # threads, a pixel or two wide
     parts, count = ndimage.label(body)
     if count:
         sizes = ndimage.sum(body, parts, range(1, count + 1))
-        good = sizes >= PIECE_PX
-        if core.any():
-            good &= np.isin(np.arange(1, count + 1), np.unique(parts[core]))
+        good = (sizes >= PIECE_PX) & np.isin(np.arange(1, count + 1), np.unique(parts[wide]))
         body = np.isin(parts, 1 + np.flatnonzero(good))
-    body = ndimage.binary_fill_holes(body)
-    body |= ndimage.binary_closing(body, structure=_disc(VEIN_PX)) & ~(b > r - 8) & allowed
-    return ndimage.binary_fill_holes(body)
+    body |= ndimage.binary_fill_holes(body) & ~blue
+    body |= ndimage.binary_closing(body, structure=_disc(VEIN_PX)) & ~blue & allowed
+    carved = np.zeros(body.shape, bool)
+    film = ndimage.binary_closing(body, structure=_disc(FILM_PX)) & allowed
+    if hands is None or not hands.any():
+        return body | film, carved
+    body |= film & ~hands
+    gelatin = blue | frost
+    for box in ndimage.find_objects(ndimage.label(hands)[0]):
+        body[box], carved[box] = _with_clefts(body[box], gelatin[box])
+    return body, carved
+
+
+def fill_closed(cover: np.ndarray, first: int, last: int, log=print) -> int:
+    """Among the slices first..last: what the outline encloses on a photograph and has left open (gelatin) is
+    filled where it is a cavity in him, and stays open where it is a gap between his parts. Returns the voxels
+    filled.
+
+    A gap opens to the outside on some photograph near; a cavity does not (his mouth and nose are above these
+    slices, and the outline there has no holes). So: open is what the outline does not enclose; an enclosed piece
+    is open if it lies on open space of the photograph below or above, by OPEN_VOXELS at least; that is told
+    from photograph to photograph, upwards and downwards, until nothing changes. What is then not open is him."""
+    first, last = max(first, 0), min(last, cover.shape[1] - 1)
+    count = last - first + 1
+    if count <= 0:
+        return 0
+
+    def outside(k):                                             # of a slice beyond these: what its outline does not enclose
+        if k < 0 or k >= cover.shape[1]:
+            return np.ones((cover.shape[0], cover.shape[2]), bool)
+        return ~ndimage.binary_fill_holes(np.asarray(cover[:, k, :]) > 127)
+
+    opened, pieces, flags = [], [], []
+    for k in range(first, last + 1):
+        body = np.asarray(cover[:, k, :]) > 127
+        whole = ndimage.binary_fill_holes(body)
+        lab, n = ndimage.label(whole & ~body)
+        opened.append(~whole)
+        pieces.append(lab if n else None)
+        flags.append(np.zeros(n + 1, bool))
+    below, above = outside(first - 1), outside(last + 1)
+    changed, rounds = True, 0
+    while changed and rounds < 20:
+        changed, rounds = False, rounds + 1
+        for order in (range(count), range(count - 1, -1, -1)):
+            for i in order:
+                lab = pieces[i]
+                if lab is None:
+                    continue
+                for other in (opened[i - 1] if i > 0 else below, opened[i + 1] if i < count - 1 else above):
+                    touched = np.bincount(lab[other & (lab > 0)], minlength=len(flags[i])) >= OPEN_VOXELS
+                    touched[0] = False
+                    new = touched & ~flags[i]
+                    if new.any():
+                        flags[i] |= new
+                        opened[i] |= np.isin(lab, np.flatnonzero(new))
+                        changed = True
+    filled = 0
+    for i, lab in enumerate(pieces):
+        if lab is None:
+            continue
+        closed = (lab > 0) & ~opened[i]
+        if closed.any():
+            block = np.asarray(cover[:, first + i, :]).copy()
+            block[closed] = 255
+            cover[:, first + i, :] = block
+            filled += int(closed.sum())
+    log(f"fine skin outline: {filled} voxels enclosed by him and not open to the outside filled (cavities), in {rounds} rounds")
+    return filled
+
+
+def not_whole(areas: np.ndarray, least: float = 3000.0) -> np.ndarray:
+    """Which photographs are not whole, from his area on each (any unit): off by more than NOT_WHOLE from the
+    middle of the medians of the four before and the four after (a part of him that really begins or ends, a
+    shoulder, a finger, does so over many photographs). As fine_muscle.partial, which finds the same photographs
+    by his muscles."""
+    t = np.asarray(areas, np.float64)
+    out = np.zeros(len(t), bool)
+    for k in range(len(t)):
+        n = min(4, k, len(t) - 1 - k)
+        if n < 2 or t[k] < least:
+            continue
+        expected = 0.5 * (np.median(t[k - n:k]) + np.median(t[k + 1:k + 1 + n]))
+        out[k] = abs(t[k] - expected) > NOT_WHOLE * max(expected, 1.0)
+    return out
+
+
+def hand_boxes(body: Body) -> list:
+    """Where his hands are: for each, the box round its bones (BoneHub's; mm, the body's array order: z0, z1, y0,
+    y1, x0, x1) and HAND_MM more. None without the bones."""
+    from . import bonehub
+    if not bonehub.cache_path(body).exists():
+        return []
+    placed, _, _ = bonehub.load_or_build(body, None, lambda *_: None)
+    out = []
+    for side in ("left", "right"):
+        mine = [np.asarray(v) for _, name, v, _ in placed
+                if side in name and any(key in name for key in HAND_BONES) and "toe" not in name and "metatarsal" not in name]
+        if mine:
+            points = np.concatenate(mine)
+            lo, hi = points.min(axis=0) - HAND_MM, points.max(axis=0) + HAND_MM
+            out.append((float(lo[0]), float(hi[0]), float(lo[1]), float(hi[1]), float(lo[2]), float(hi[2])))
+    return out
 
 
 def _with_clefts(body: np.ndarray, gelatin: np.ndarray):
@@ -254,6 +388,8 @@ def seams(cover: np.ndarray, first: int, last: int, voxel_mm: float) -> list[tup
     Between two of the photographs (101 and 103 mm up on him, where the gelatin round him changes its look: the
     specimen's blocks meet there, and what the saw took is missing) the front of both feet steps back by 1.7 mm:
     a line across the front of both ankles."""
+    if last < first:
+        return []
     lo, hi = max(1, first - 8), min(cover.shape[1] - 1, last + 8)      # the slices beyond the ends too: what is usual there
     moves = edge_moves(cover, lo, hi, voxel_mm)
     usual = np.array([np.median(moves[max(0, j - 8):j + 9]) for j in range(len(moves))])
@@ -336,8 +472,9 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
     else:
         cover = np.lib.format.open_memmap(folder / CACHE, mode="w+", dtype=np.uint8, shape=(fz, n_slices, fx))
         first, last = 0, n_slices - 1
-    n_toes, n_clefts, n_legs = (int(round(mm / ppv.SLICE_MM)) for mm in (TOES_MM, CLEFTS_MM, LEGS_MM))
+    n_toes, n_clefts, n_body, n_seams = (int(round(mm / ppv.SLICE_MM)) for mm in (TOES_MM, CLEFTS_MM, BODY_MM, SEAMS_MM))
     structure = ndimage.generate_binary_structure(2, 1)
+    boxes = hand_boxes(body)
     for k in range(first, last + 1):
         cover[:, k, :], fallback[k] = 0, False
         number = bottom - k
@@ -346,10 +483,10 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
         if every > 1 and k % every and kc + 1 < ny:            # a photograph the export skipped: between two coarse slices
             g |= ndimage.binary_fill_holes(guide[:, kc + 1, :])
         wide = g
-        if k < n_toes:                                          # the toes' tips: the guide of the slices next to it too (the very
-            wide = g.copy()                                     # last photograph has toes in it and the export's mask has none there).
-            for j in (kc - 1, kc + 1):                          # For the toes' rule only: the rule for the rest of him fills the
-                if 0 <= j < ny:                                 # guide's core, and read a third of a millimetre wider with it.
+        if k < n_body:                                          # a part's last millimetre (the toes' tips, a fingertip): the guide of
+            wide = g.copy()                                     # the slices next to it too (the very last photograph has toes in it
+            for j in (kc - 1, kc + 1):                          # and the export's mask has none there). Not for the head's rule: it
+                if 0 <= j < ny:                                 # fills the guide's core, and read a third of a millimetre wider with it.
                     wide |= ndimage.binary_fill_holes(guide[:, j, :])
         if not wide.any():
             continue
@@ -364,8 +501,8 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
         if path is not None:
             rgb = ppv.read_photo(path)[rows, cols][:fz * FACTOR, :fx * FACTOR]
             t, a = ppv.tissue_mask(rgb), ring_coverage(rgb)
-        # Which rules read this photograph: the toes' (to above the ankles), the legs' (to where the thighs meet), the
-        # rest's; where two of them do, the one passes over to the other.
+        # Which rules read this photograph: the toes' (to above the ankles), the body's (to the neck), the head's;
+        # where two of them do, the one passes over to the other.
         blank = t is None or (t & g).sum() < 0.6 * g.sum()
         read = {}                                               # rule -> (what is him, each pixel's share)
 
@@ -378,9 +515,15 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
         if t is not None and k < n_toes:                        # the toes: the tissue itself, with its clefts
             foot, carved = toes_outline(rgb, ndimage.binary_dilation(wide, structure, iterations=BAND * FACTOR), clefts=k < n_clefts)
             read["toes"] = shares(foot, carved)
-        if not blank and n_toes - TOES_BLEND <= k < n_legs:
-            read["legs"] = shares(legs_outline(rgb, g))
-        if not blank and k >= n_legs - LEGS_BLEND:
+        if not blank and n_toes - TOES_BLEND <= k < n_body:
+            hands = None
+            height = (every - ppv.SLICE_MM) / 2.0 + (k + 0.5) * ppv.SLICE_MM
+            for z0, z1, y0, y1, x0, x1 in boxes:
+                if y0 <= height <= y1:
+                    hands = np.zeros(g.shape, bool) if hands is None else hands
+                    hands[max(0, int(z0 / ppv.PIXEL_MM)):int(z1 / ppv.PIXEL_MM) + 1, max(0, int(x0 / ppv.PIXEL_MM)):int(x1 / ppv.PIXEL_MM) + 1] = True
+            read["body"] = shares(*body_outline(rgb, g, wide, hands))
+        if not blank and k >= n_body - BODY_BLEND:
             allowed = ndimage.binary_dilation(g, structure, iterations=BAND * FACTOR)
             core = ndimage.binary_erosion(g, structure, iterations=BAND * FACTOR)
             m = ndimage.binary_fill_holes((t & allowed) | core)
@@ -390,32 +533,46 @@ def extract(body: Body, photos_dir: Path, log=print, only: tuple | None = None) 
                 seeds = core if core.any() else g
                 keep = np.unique(parts[seeds & m])
                 m = np.isin(parts, keep[keep > 0])
-            read["rest"] = shares(m)
+            read["head"] = shares(m)
         if not read:                                            # a blank or missing photograph
             cover[:, k, :], fallback[k] = g[::FACTOR, ::FACTOR].astype(np.uint8) * 255, True
             continue
         # The last photographs of a rule pass over to the next little by little (the rules read his edge up to 2 mm
         # apart: changed from one photograph to the next, that is a line right round him).
         share = next(iter(read.values()))[1]
-        for one, other, last_of, over in (("toes", "legs", n_toes, TOES_BLEND), ("legs", "rest", n_legs, LEGS_BLEND)):
+        for one, other, last_of, over in (("toes", "body", n_toes, TOES_BLEND), ("body", "head", n_body, BODY_BLEND)):
             if one in read and other in read and read[one][0].any() and read[other][0].any():
                 share = passed_over(read[one][0], read[other][0], read[one][1], read[other][1], (k - (last_of - over) + 1.0) / (over + 1.0))
         cover[:, k, :] = np.round(share.reshape(fz, FACTOR, fx, FACTOR).mean(axis=(1, 3)) * 255.0).astype(np.uint8)
         if k % 100 == 0:
             log(f"fine skin outline: photograph {number} ({k + 1}/{n_slices})")
-    # Blank photographs (the specimen's blocks meet there) took the coarse outline, which stands round him as a
-    # collar: the outline passes over them from the photograph below to the photograph above.
+    # Photographs that are not whole (frost over the cut face where two of the specimen's blocks meet: the rule
+    # for the head fills what is missing from the mask, the body's rule believes the photograph) count as blank.
+    if first < n_body:
+        areas = np.array([np.count_nonzero(np.asarray(cover[:, k, :]) > 127) for k in range(n_toes, n_body)])
+        broken = n_toes + np.flatnonzero(not_whole(areas))
+        if len(broken):
+            fallback[broken] = True
+            log(f"fine skin outline: photographs that are not whole (mm up), counted as blank: {broken.tolist()}")
+    # Blank photographs took the coarse outline, which stands round him as a collar: the outline passes over them
+    # from the photograph below to the photograph above (two runs of them with one or two good photographs between
+    # are one run).
+    blanks = np.flatnonzero(fallback)
+    for a, b in zip(blanks[:-1], blanks[1:]):
+        if 1 < b - a <= 3:
+            fallback[a:b] = True
     blanks = np.flatnonzero(fallback)
     for run in np.split(blanks, np.flatnonzero(np.diff(blanks) > 1) + 1):
         if len(run) and run[0] > 0 and run[-1] < n_slices - 1 and run[-1] >= first and run[0] <= last:
             bridge(cover, int(run[0]) - 1, int(run[-1]) + 1)
             log(f"fine skin outline: the blank photographs {int(run[0])} to {int(run[-1])} mm up, bridged")
-    if first < n_legs:
-        steady(cover, first, min(last, n_legs - 1))
+    if first < n_body:
+        fill_closed(cover, n_toes - TOES_BLEND, n_body - 1, log)      # (all of the body's slices: what is open is told along them)
+        steady(cover, first, min(last, n_body - 1))
         if first < n_toes:
             clean_toes(cover, n_toes + 8, log)
         # Above the toes (where they join the foot the edge moves far from one photograph to the next of itself).
-        for a, b in seams(cover, max(first, n_clefts + 8), min(last, n_legs - 1), ppv.PIXEL_MM * FACTOR):
+        for a, b in seams(cover, max(first, n_clefts + 8), min(last, n_seams - 1), ppv.PIXEL_MM * FACTOR):
             bridge(cover, max(0, a - 1 - SEAM_REACH), min(n_slices - 1, b + SEAM_REACH))
             log(f"fine skin outline: a seam between the photographs {a - 1} and {b} mm up, bridged over {SEAM_REACH} photographs either side")
     cover.flush()

@@ -117,7 +117,7 @@ def detail_regions(v: np.ndarray, marks: dict, triangles: int) -> tuple[np.ndarr
         for side in (-1.0, 1.0):                                         # the ears, either side and behind the face
             region[within(face + np.array([side * 0.082, 0.02, -0.085]), 0.05)] = 4
     region[toes] = 5                                                     # (the clefts between the toes are a millimetre and a half wide)
-    edges = [3.0, 1.8, 1.4, 1.8, 0.8, 0.9]
+    edges = [3.0, 1.8, 1.0, 1.8, 0.8, 0.9]                              # (the hands as fine as the toes nearly: the clefts between the fingers)
     # The body's edge from what is left of the budget.
     fine_triangles = 0.0
     # Rough areas: the regions' share of the vertices times the whole surface (the vertices are evenly spread before decimation).
@@ -253,6 +253,10 @@ def face_tolerance(base: np.ndarray, v: np.ndarray, marks: dict) -> np.ndarray:
 
 
 # ---- the briefs ------------------------------------------------------------------------------------------------
+DRAPE_MM = 30.0                 # the cloth spans hollows up to twice this wide
+LAIN_ON_MM = 6.0                # skin with body again this far out from it is lain on: no hair there
+
+
 def briefs_solid(body: Body) -> np.ndarray | None:
     """The briefs as a solid (z, y, x) on the export's grid: the pelvis and the tops of the thighs wrapped in cloth
     that spans the hollows (it hangs between the thighs and hides the shape under it), 2.5 mm proud of the skin."""
@@ -266,7 +270,14 @@ def briefs_solid(body: Body) -> np.ndarray | None:
     y0 = max(0, int(yl.min()) - int(round(45 / sy)))            # short legs, well below the crotch
     y1 = int(ys.min() + 0.52 * (ys.max() - ys.min()))           # below the iliac crests, as briefs sit
     arms = [o["index"] for o in body.objects if "arm" in o["name"]]
-    block = (lab[:, y0:y1, :] > 0) & ~np.isin(lab[:, y0:y1, :], arms)
+    block = lab[:, y0:y1, :] > 0
+    fine = fine_skin.load(body)
+    if fine is not None:
+        # His own outline, not the labels alone: they are cut back from the skin, and where they have nothing
+        # near the surface the cloth dipped under the skin (a patch of thigh showed through it).
+        for j in range(block.shape[1]):
+            block[:, j, :] |= fine_skin.export_slice(body, fine, y0 + j)
+    block &= ~np.isin(lab[:, y0:y1, :], arms)
     block = ndimage.binary_opening(block, iterations=3)          # the hands lie against the thighs: cut the thin joins
     parts, n = ndimage.label(block)
     if n == 0:
@@ -279,7 +290,6 @@ def briefs_solid(body: Body) -> np.ndarray | None:
     # hollow of the groin and rounds what stands out; nowhere may it sink below the skin itself.
     tent = ndimage.gaussian_filter(block.astype(np.float32), (9.0 / sz, 3.0 / sy, 9.0 / sx)) > 0.36
     outer = np.isin(lab[:, y0:y1, :], low)                             # what the opening took away of him, not the hands
-    fine = fine_skin.load(body)
     if fine is not None and outer.any():
         # ... and what of him the labels do not have there at all: they stop 14 mm short of his end, which showed
         # through the cloth. In the box round the labelled parts, and below it, his own outline counts (not the hands').
@@ -291,8 +301,16 @@ def briefs_solid(body: Body) -> np.ndarray | None:
         hands = ndimage.binary_dilation(np.isin(lab[z0:z1, y0 + j0:y0 + j1, x0:x1], arms), iterations=3)
         for j in range(j0, j1):
             outer[z0:z1, j, x0:x1] |= fine_skin.export_slice(body, fine, y0 + j)[z0:z1, x0:x1] & ~hands[:, j - j0, :]
-    proud = ndimage.binary_dilation(block | outer, ndimage.generate_binary_structure(3, 1), iterations=3)
+    proud = ndimage.binary_dilation(block | outer, ndimage.generate_binary_structure(3, 1), iterations=2)
     cloth = tent | proud
+    # Draped, not clinging: across each slice the cloth spans what stands out of him (closed by a disc of DRAPE_MM),
+    # fully from the lowest slice his outer genitals reach upwards, less and less below it towards the hem (there
+    # the cloth has two legs).
+    lowest = int(np.flatnonzero(outer.any(axis=(0, 2)))[0]) if outer.any() else 0
+    for j in range(cloth.shape[1]):
+        radius = int(round((DRAPE_MM if j >= lowest else 6.0 + (DRAPE_MM - 6.0) * j / max(1, lowest)) / sz))
+        padded = np.pad(cloth[:, j, :], radius)
+        cloth[:, j, :] |= ndimage.binary_closing(padded, structure=fine_skin._disc(radius))[radius:-radius, radius:-radius]
     cloth[:, :1, :] = cloth[:, -1:, :] = False                  # hems, not open ends
     solid = np.zeros(lab.shape, bool)
     solid[:, y0:y1, :] = cloth
@@ -437,10 +455,15 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
     out += nail_plates
 
     solid = briefs_solid(body)
-    covered = None
-    if solid is not None:                                                 # no hair grows through the cloth
+    # No hair where something of him lies on the skin (his fingers lie on his belly's hair, and it stood up through
+    # them): where LAIN_ON_MM out from the skin there is body again.
+    him = ndimage.gaussian_filter((body.labels[::2, ::2, ::2] > 0).astype(np.float32), 0.8)
+    covered = zones.smooth(body.sample(him, v_hair + n_hair * (LAIN_ON_MM / 1000.0), step=2), 0.3, 0.6)
+    # (not on the head: out from the skin beside the nose and the ears, that is the nose and the ears themselves)
+    covered = covered * (np.maximum.reduce([reg["scalp"], reg["beard"], reg["brow"]]) <= 0)
+    if solid is not None:                                                 # nor through the cloth
         cloth = ndimage.gaussian_filter(solid[::2, ::2, ::2].astype(np.float32), 0.8)
-        covered = zones.smooth(body.sample(cloth, v_hair, step=2), 0.3, 0.6)
+        covered = np.maximum(covered, zones.smooth(body.sample(cloth, v_hair, step=2), 0.3, 0.6))
     out += hair.build(v_hair, f_hair, n_hair, reg, info, covered=covered, lid_y=lid_y, log=log)
     if solid is not None:
         box = ndimage.find_objects(solid.astype(np.int32))[0]

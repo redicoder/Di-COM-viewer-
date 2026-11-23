@@ -327,18 +327,28 @@ def regions(body: Body, v: np.ndarray, n: np.ndarray, marks: dict) -> tuple[dict
 
     # ---- the limbs ----
     lab = body.labels
+    limb = np.zeros(k)                                                        # how much a vertex is an arm's or a hand's,
+    beside = np.zeros(k)                                                      # and how near an arm or a hand lies to it
     for side in ("left", "right"):
         ids = [o["index"] for o in body.objects if "arm" in o["name"] and side in o["name"]] + [o["index"] for o in body.objects if o["name"] == f"bones of the {side} hand"]
         hum, rad = bone_box(body, f"{side} humerus"), bone_box(body, f"{side} radius")
         if not ids or hum is None or rad is None:
             continue
-        field = ndimage.gaussian_filter(np.isin(lab, ids)[::2, ::2, ::2].astype(np.float32), 1.0)
+        part = np.isin(lab, ids)[::2, ::2, ::2].astype(np.float32)
+        field = ndimage.gaussian_filter(part, 1.0)
         arm = smooth(body.sample(field, v - n * 0.004, step=2), 0.35, 0.65)
+        limb = np.maximum(limb, arm)
+        beside = np.maximum(beside, body.sample(ndimage.gaussian_filter(part, 4.0), v + n * 0.006, step=2))      # (blurred by a centimetre)
         elbow_y, wrist_y = hum[0][1], rad[0][1]
         info[f"arm_{side}"] = (np.array([(hum[0][0] + hum[1][0]) / 2, hum[1][1], (hum[0][2] + hum[1][2]) / 2]),
                                np.array([(rad[0][0] + rad[1][0]) / 2, wrist_y, (rad[0][2] + rad[1][2]) / 2]))
         out["upper_arm"] = np.maximum(out["upper_arm"], arm * smooth(y, elbow_y - 0.01, elbow_y + 0.03))
         out["forearm"] = np.maximum(out["forearm"], arm * smooth(y, elbow_y + 0.01, elbow_y - 0.03) * smooth(y, wrist_y - 0.075, wrist_y - 0.035))
+    # His hands lie on his belly: the belly's and the chest's hair is not theirs (it grew on the fingers that lie
+    # over the belly's middle line), and it does not grow within a centimetre or two of them either (a hair is
+    # that long, and lay through the fingertips).
+    for name in ("chest", "belly_line"):
+        out[name] = out[name] * (1.0 - limb) * (1.0 - smooth(beside, 0.03, 0.12))
     femurs = [b for b in (bone_box(body, "left femur"), bone_box(body, "right femur")) if b is not None]
     if femurs and hips:
         crotch_y = min(b[0][1] for b in hips) - 0.03

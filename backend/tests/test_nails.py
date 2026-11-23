@@ -122,3 +122,19 @@ def test_a_limbs_back_is_the_side_where_the_skin_is_nearer_its_long_bones():
     slab = np.array(face(-3.0) + face(15.0), np.float64)
     back = nails.limb_back(long, slab)
     assert back @ np.array([-1.0, 0.0, 0.0]) > 0.98
+
+
+def test_a_hand_gets_its_nails_only_if_they_are_sound():
+    def nail(name, x, thick=14.0):
+        return nails.Nail(name, np.zeros(3), POINTS, np.array([-1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]), np.array([0.0, 0.0, x]), 10.0, 10.0, 3.0, (15.0, thick))
+    fingers = ["thumb", "index finger", "middle finger", "ring finger", "little finger"]
+    left = [nail(f"left {k}", 20.0 * i) for i, k in enumerate(fingers)]
+    right = [nail(f"right {k}", 200.0 + 20.0 * i) for i, k in enumerate(fingers)]
+    right[1].axis = right[2].axis + np.array([0.0, 0.0, 3.0])            # two of the right hand's lie on each other,
+    right[4].digit = (15.0, 31.0)                                       # and one's finger was not found rightly
+    said = []
+    kept = nails.sound(left + right, said.append)
+    assert [n.name for n in kept] == [n.name for n in left]             # the left hand's five; of the right hand's, none
+    assert any("right hand gets none" in line for line in said)
+    left[0].digit = (15.0, 31.0)                                        # one unsound nail of five: the other four are drawn
+    assert len(nails.sound(left, said.append)) == 4

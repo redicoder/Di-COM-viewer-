@@ -179,9 +179,9 @@ def fit(fine: fine_skin.FineOutline, zyx_mm: np.ndarray) -> np.ndarray:
     return best[2]
 
 
-def to_axis(fine: fine_skin.FineOutline, zyx_mm: np.ndarray) -> np.ndarray:
-    """A toe's bones: the points that lie less than UNDER_MM under the skin are moved towards the bones' own long
-    axis, as far as it takes (to the axis itself, if it takes that).
+def to_axis(fine: fine_skin.FineOutline, zyx_mm: np.ndarray, least_mm: float = UNDER_MM) -> np.ndarray:
+    """A toe's bones (a finger's: hands.py): the points that lie less than `least_mm` under the skin are moved
+    towards the bones' own long axis, as far as it takes (to the axis itself, if it takes that).
 
     Not along the way the depth grows, as everything else is drawn in: beside a toe lies the next toe, a
     millimetre and a half away, and of a bone that is too thick for its toe one vertex went into the one and its
@@ -192,7 +192,7 @@ def to_axis(fine: fine_skin.FineOutline, zyx_mm: np.ndarray) -> np.ndarray:
     field = fine_skin.depth_near(fine, mm)
     if field is None or len(mm) < 3:
         return mm
-    todo = np.flatnonzero(fine_skin.depth_at(fine, field, mm) < UNDER_MM)
+    todo = np.flatnonzero(fine_skin.depth_at(fine, field, mm) < least_mm)
     if len(todo) == 0:
         return mm
     centre = mm.mean(axis=0)
@@ -201,7 +201,7 @@ def to_axis(fine: fine_skin.FineOutline, zyx_mm: np.ndarray) -> np.ndarray:
     start, left = mm[todo].copy(), np.ones(len(todo), bool)
     for share in np.linspace(0.1, 1.0, 10):
         at = start + share * (foot - start)
-        good = left & ((fine_skin.depth_at(fine, field, at) >= UNDER_MM) | (share == 1.0))
+        good = left & ((fine_skin.depth_at(fine, field, at) >= least_mm) | (share == 1.0))
         mm[todo[good]] = at[good]
         left &= ~good
     return mm

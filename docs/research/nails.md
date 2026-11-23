@@ -91,14 +91,29 @@ Left as measured.
    surface and 0.15 mm over it; towards the digit's end, where the skin turns down round the tip, it goes
    straight on, as a nail does. Its rim is turned down 0.6 mm into the skin.
 
-## 5. The fingers: not built
+## 5. The fingers
 
-Tried with the same rules on 2026-11-23: 18 of the 20 nails were found; on the left hand five plausible ones, on
-the right hand the ring and little fingers' ends were not found and the index and middle fingers' nails lay
-across each other. The cause is not the rules but the skin: the hands' skin is still read by the outline rule
-that joins what lies together (see ARCHITECTURE, the legs: the same rule that made the toes one lump), and his
-right hand lies half closed, its fingers against each other. The fingers' nails wait for the hands' skin
-(`nails.find(..., limbs=("toe", "finger"))` draws them when it is there).
+Tried first with the hands' skin as it was (2026-11-23, morning): 18 of the 20 nails were found; on the left hand
+five plausible ones, on the right hand the ring and little fingers' ends were not found and the index and middle
+fingers' nails lay across each other. The cause was not the rules but the skin: it was read by the outline rule
+that joins what lies together (the same that made the toes one lump), and his right hand lies half closed, its
+fingers against each other.
+
+Built the same day, after the hands' skin was read with the fingers apart (ARCHITECTURE, the body below the
+head). Measured on that skin (O), digit's width there and nail drawn, mm:
+
+| finger | left: digit, nail | right: digit, nail |
+|---|---|---|
+| thumb | 17.5, 12.6 x 12.1 | 19.5, 14.0 x 13.5 |
+| index | 14.5, 10.4 x 11.1 | 12.8, 9.2 x 9.9 |
+| middle | 13.5, 9.7 x 10.3 | 14.6, 10.5 x 11.1 |
+| ring | 12.9, 9.3 x 9.8 | 12.3, 8.8 x 9.3 |
+| little | 10.4, 7.5 x 8.1 | 11.2, 8.1 x 8.6 |
+
+His fingers are 10 to 15 mm wide at the nail, so every fingernail is limited by the 0.72 of its finger's width
+and comes out 1.5 to 3 mm narrower than the textbooks' widths. A hand's or a foot's nails are drawn only if at
+least four of them are placed soundly (the digit not thicker than 24 mm there, no nail lying on another):
+`nails.sound`.
 
 ## 6. What stays unknown
 
