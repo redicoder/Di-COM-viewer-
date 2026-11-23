@@ -13,7 +13,7 @@ import numpy as np
 from scipy import ndimage
 from skimage import measure
 
-from . import fine_skin, hair, lids, mouth, throat, zones
+from . import feet, fine_skin, hair, lids, mouth, nails, throat, zones
 from .common import Baker, Body, Structure, decimate, decimate_regions, keep_big_pieces, load_structures, normals_of, outward, relax, save_structures, surface
 from .palette import BRIEFS
 
@@ -361,6 +361,18 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
     normals = normals_of(v, f)
     albedo, hair_mask, gloss, reg, info = zones.paint(body, v, normals, bake, marks, f)
     bake[:, 3] = gloss
+    # The nails (drawn: nails.py). Under each the skin takes the nail bed's colour and carries no hair, the fold
+    # round it is a little redder; the plates themselves are structures of their own.
+    nail_plates = []
+    found_nails = nails.find(body, v, f, log)
+    if found_nails:
+        under, fold, bed = nails.on_skin(found_nails, v, normals, feet.size_of(body))
+        colour = albedo.astype(np.float64)
+        colour = colour + (bed.astype(np.float64) - colour) * (0.85 * under)[:, None]
+        colour = colour * (1.0 + (np.array(nails.FOLD) - 1.0) * fold[:, None])
+        albedo = np.round(np.clip(colour, 0, 255)).astype(np.uint8)
+        hair_mask[under > 0.2] = 0
+        nail_plates = nails.plates(found_nails, v, f, feet.size_of(body))
     if "face" in info:
         log(info["face"].describe())
     skin_colour = tuple(c / 255 for c in zones.SKIN_BASE)
@@ -422,6 +434,7 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
     if mouth_lining is not None:
         out.append(mouth_lining)
     out += mouth_gums
+    out += nail_plates
 
     solid = briefs_solid(body)
     covered = None

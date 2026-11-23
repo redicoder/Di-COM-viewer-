@@ -104,9 +104,11 @@ public static class ModelSnapshot
     private static readonly float[] FatLook = { 0.6f, 0.55f, 0f, 0f, 0.85f, 1f };
     private static readonly float[] ToothLook = { 0.30f, 0.50f, 0f, 0f, 1f, 1f };          // enamel: smooth and wet
     private static readonly float[] MouthLook = { 0.85f, 0.45f, 0f, 0f, 0.8f, 1.05f };     // the mouth's lining and the gums: wet skin without pores
+    private static readonly float[] NailLook = { 0.35f, 0.55f, 0f, 0f, 1f, 1f };           // a nail's plate: horn, hard and smooth
 
     private static bool IsTooth(string name) => name.Contains("incisor") || name.Contains("canine") || name.Contains("molar") || name.Contains("teeth");
     private static bool IsMouthLining(string name) => name == "lining of the mouth" || name == "lining of the throat" || name == "wall of the mouth" || name.EndsWith(" gum");
+    private static bool IsNail(string name) => name.StartsWith("nail of ");
 
     private static Material LabMaterial(string name, float[] look, Texture tex, Color tint, Color cavity)
     {
@@ -167,7 +169,7 @@ public static class ModelSnapshot
                 }
                 bool cloth = r.name == "briefs";
                 bool mouth = IsMouthLining(r.name) || r.name == "tongue";      // the tongue is lit as the lining round it is (as an organ it stood dark and dull in the mouth)
-                float[] own = cloth ? ClothLook : IsTooth(r.name) ? ToothLook : mouth ? MouthLook : look;
+                float[] own = cloth ? ClothLook : IsTooth(r.name) ? ToothLook : mouth ? MouthLook : IsNail(r.name) ? NailLook : look;
                 Material m = LabMaterial(r.name, own, null, Color.white, cloth ? new Color(0.7f, 0.7f, 0.72f) : mouth ? new Color(0.62f, 0.30f, 0.30f) : cavity);
                 if (m != null && r.name == "tongue")
                 {
@@ -460,6 +462,16 @@ public static class ModelSnapshot
             Shot($"{layer.name}_feet.png");
             View(-40f, 38f, dist * 0.2f, feet);
             Shot($"{layer.name}_feet_side.png");
+            if (layer.name == "skin")
+            {
+                // The toes' backs and their nails: from above the shins, looking down along the feet; both feet, then each.
+                View(90f, 55f, dist * 0.30f, feet + new Vector3(0.02f, 0.03f, 0f));
+                Shot("skin_toes.png");
+                View(90f, 55f, dist * 0.11f, feet + new Vector3(0.03f, 0.04f, 0.165f));
+                Shot("skin_toes_left.png");
+                View(90f, 55f, dist * 0.11f, feet + new Vector3(0.03f, 0.04f, -0.165f));
+                Shot("skin_toes_right.png");
+            }
         }
         body.LookAt(body.layers[0].name);
         if (body.hasEyes)
