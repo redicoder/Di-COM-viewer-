@@ -306,3 +306,123 @@ def each_under_skin(body: Body, structures: list[Structure], least_mm: float = 1
     if moved:
         log(f"drawn under the skin, {moved} vertices: " + "; ".join(names))
     return moved
+
+
+HEAD_MM = 1640.0                # the head, for faces_under_skin: what lies above this (mm up from the lowest photograph)
+NECK_MM = 1540.0                # ... and the neck: from here up to the head
+SPREAD = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [1 / 3, 1 / 3, 1 / 3], [0.5, 0.5, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6]])
+
+
+def head_depth(body: Body, fine: fine_skin.FineOutline, from_mm: float = HEAD_MM, to_mm: float | None = None):
+    """The depth under the skin throughout the head, or between two heights (fine_skin.depth_near's field),
+    measured once for a run: kept on the body."""
+    kept = getattr(body, "_head_depth", None)
+    if kept is None:
+        kept = body._head_depth = {}
+    if (from_mm, to_mm) in kept:
+        return kept[(from_mm, to_mm)]
+    spacing, origin = np.array(fine.spacing, np.float64), np.array(fine.origin_mm, np.float64)
+    j0 = max(0, int((from_mm - 8.0 - origin[1]) / spacing[1]))
+    j1 = fine.cover.shape[1] if to_mm is None else min(fine.cover.shape[1], int((to_mm + 8.0 - origin[1]) / spacing[1]) + 1)
+    him = np.asarray(fine.cover[:, j0:j1, :]) > 127
+    zz, xx = np.flatnonzero(him.any(axis=(1, 2))), np.flatnonzero(him.any(axis=(0, 1)))
+    if len(zz) == 0:
+        return None
+    corners = origin + (np.array([[zz[0], j0, xx[0]], [zz[-1], j1 - 1, xx[-1]]]) + 0.5) * spacing
+    # The head at the outline's own fineness (a nostril is 6 mm across); the neck with the shoulders' tops, which
+    # is wider and has no such openings, at half of it.
+    field = fine_skin.depth_near(fine, corners, 6.0, most_voxels=7e7)
+    if field is None:
+        return None
+    kept[(from_mm, to_mm)] = field
+    return field
+
+
+def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 1.0, drop_mm: float = 0.5, from_mm: float = HEAD_MM, to_mm: float | None = None,
+                     log=print) -> tuple[int, int]:
+    """In the head (above `from_mm`; or between two heights: the neck): no TRIANGLE of a structure under the skin
+    reaches the skin. Returns (vertices moved, triangles taken out).
+
+    The other rules look at vertices (tuck_under_skin, each_under_skin). The head's skin, read from its tissue,
+    has what the old outline smoothed over: the nostrils, the ear canals, the creases beside the nose and round
+    the lids, each a few millimetres across; and the layers under it are meshed in triangles of 2 to 5 mm. A
+    triangle whose corners all lie well under the skin can cross a crease, or a nostril from wall to wall (the
+    fat showed yellow in both nostrils and in the ear). So points spread over every triangle are measured against
+    the fine outline:
+
+    - a triangle that comes nearer the skin than `least_mm` anywhere sinks: its corners go inwards, the way the
+      depth grows, by what it lacks (three rounds: its neighbours' corners come with it);
+    - one that still lies nearer than `drop_mm` after that, or outside, is taken out: it crosses an opening its
+      corners cannot leave (a nostril, an ear canal: there the layer under the skin has a hole too, as it has
+      in him)."""
+    fine = fine_skin.load(body)
+    got = head_depth(body, fine, from_mm, to_mm) if fine is not None else None
+    if got is None:
+        return 0, 0
+    depth, lo, step = got
+    spacing, origin = np.array(fine.spacing, np.float64), np.array(fine.origin_mm, np.float64)
+    size = np.array([body.size_mm[2], body.size_mm[1], body.size_mm[0]], np.float64)       # z, y, x
+
+    def at(points):
+        return (((points - origin) / spacing - 0.5 - lo) / step).T
+
+    def deep(points):
+        return ndimage.map_coordinates(depth, at(points), order=1, mode="nearest")
+
+    def inwards(points):                                                        # the way the depth grows, at each point
+        g = np.zeros((len(points), 3))
+        for axis in range(3):
+            h = np.zeros(3)
+            h[axis] = spacing[axis] * step
+            g[:, axis] = (deep(points + h) - deep(points - h)) / (2 * h[axis])
+        return g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-6)
+
+    moved, dropped, names = 0, 0, []
+    for s in structures:
+        if s.streams or len(s.v) == 0 or len(s.f) == 0:
+            continue
+        p = np.asarray(s.v, np.float64) * 1000.0
+        mm = np.stack([-p[:, 2], p[:, 1], p[:, 0]], axis=1) + size / 2
+        f = np.asarray(s.f, np.int64)
+        head = np.flatnonzero(((mm[:, 1] > from_mm) & (mm[:, 1] < (np.inf if to_mm is None else to_mm)))[f].all(axis=1))
+        if len(head) == 0:
+            continue
+        first = mm.copy()
+
+        def worst_of():
+            points = np.einsum("kw,nwc->nkc", SPREAD, mm[f[head]]).reshape(-1, 3)
+            return deep(points).reshape(-1, len(SPREAD)).min(axis=1)
+
+        for _ in range(3):
+            worst = worst_of()
+            bad = worst < least_mm
+            if not bad.any():
+                break
+            lacks = np.zeros(len(mm))
+            np.maximum.at(lacks, f[head[bad]].ravel(), np.repeat(np.minimum(least_mm - worst[bad] + 0.3, 5.0), 3))
+            todo = np.flatnonzero(lacks > 0)
+            wanted = deep(mm[todo]) + lacks[todo]
+            for _ in range(5):
+                d = deep(mm[todo])
+                shallow = d < wanted
+                if not shallow.any():
+                    break
+                mm[todo[shallow]] += inwards(mm[todo[shallow]]) * np.minimum(wanted[shallow] - d[shallow] + 0.1, 2.0)[:, None]
+        far = np.linalg.norm(mm - first, axis=1)
+        over = far > 6.0                                                        # none by more than this
+        mm[over] = first[over] + (mm[over] - first[over]) * (6.0 / far[over])[:, None]
+        out = worst_of() < drop_mm
+        changed = int((far > 0.05).sum())
+        if changed:
+            q = mm - size / 2
+            s.v = (np.stack([q[:, 2], q[:, 1], -q[:, 0]], axis=1) / 1000.0).astype(np.float32)
+        if out.any():
+            keep = np.ones(len(f), bool)
+            keep[head[out]] = False
+            s.f = np.asarray(s.f)[keep]
+        if changed or out.any():
+            moved, dropped = moved + changed, dropped + int(out.sum())
+            names.append(f"{s.name} {changed}/{int(out.sum())}")
+    if names:
+        log(f"{'head' if to_mm is None else 'neck'}: no triangle under the skin reaches it: {moved} vertices moved in, {dropped} triangles across an opening taken out (vertices/triangles): " + "; ".join(names))
+    return moved, dropped

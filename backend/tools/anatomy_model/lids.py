@@ -26,7 +26,9 @@ UPPER_FOLD, LOWER_FOLD = 21.0, 6.0  # mm of skin that moves, above and below the
                                     # fall by at most 1 per 13 mm), or the edge runs into skin that has not moved: so the
                                     # skin goes up with it all the way to the brow, and gathers into a fold on the way
 FOLD_CODE = 0.2                     # the fold's height rides on the eye's code: code + FOLD_CODE * (0..1)
-MARGIN = 4.0                        # mm: the lid edge's thickness (his lids are swollen: about 5 mm lie over the globe)
+MARGIN = 4.0                        # mm: the lid edge's thickness. His lids are swollen: 3.1 and 3.6 mm lie over the globes' fronts
+                                    # (5 mm by the skin's outline as it was read before 2026-11-24, with the frost on it); the
+                                    # strip reaches to the globe and a little into it, where it is not seen
 MARGIN_COLOUR = (196, 124, 118)
 UPPER_DEGREES, LOWER_DEGREES = 42.0, 7.0     # how far the lids' edges turn about the eye's centre when fully open
 SIDE_CODE = {"right": 0.05, "left": 0.55}

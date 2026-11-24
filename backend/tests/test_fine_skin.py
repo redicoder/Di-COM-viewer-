@@ -119,6 +119,42 @@ def test_the_photographs_frame_is_not_a_vein_and_a_photograph_that_is_not_whole_
     assert np.flatnonzero(fine_skin.not_whole(areas)).tolist() == [14]
 
 
+def test_the_head_is_its_tissue_with_its_cavities_filled_and_its_nostrils_as_notches():
+    rgb, grid = photograph((400, 400))
+    yy, xx = grid
+    far = np.hypot(yy - 200, xx - 200)
+    FROST = (165, 175, 146)
+    rgb[far < 108] = FROST                                              # the halo round him,
+    rgb[far < 100] = SKIN                                               # his head,
+    rgb[150:250, 150:250] = GELATIN                                     # a sinus, filled with the gelatin: enclosed, his
+    rgb[96:130, 190:210] = GELATIN                                      # and a nostril: a notch from the front, 20 pixels wide
+    guide = far < 113                                                   # the export's mask: the halo with him
+    head = fine_skin.head_outline(rgb, guide)
+    assert head[200, 200]                                               # the sinus is him (below the head it would be left open:
+    assert not fine_skin.body_outline(rgb, guide)[0][200, 200]          #  it might be a gap between his parts)
+    assert not head[110, 200] and head[110, 180] and head[140, 200]     # the nostril stays a notch, and ends
+    assert not head[200, 95] and head[200, 103]                         # and the halo is not him
+
+
+def test_over_the_crown_what_reaches_beyond_the_photograph_below_is_not_him():
+    rgb, grid = photograph((400, 400))
+    yy, xx = grid
+    far = np.hypot(yy - 200, xx - 200)
+    rgb[far < 60] = SKIN                                                # the cut face,
+    rgb[190:210, 255:300] = SKIN                                        # a spur of the skin below, showing through as red as tissue,
+    disc(rgb, grid, (200, 120), 22, SKIN)                               # and a patch of it, wide, at the other side
+    guide = far < 130
+    below = far < 64                                                    # the photograph below: a millimetre and a third wider all round
+    crown = fine_skin.head_outline(rgb, guide, below=below)
+    assert crown[200, 200] and crown[200, 255]
+    assert not crown[200, 280] and not crown[200, 120]
+    assert abs(np.sqrt(crown.sum() / np.pi) - 60) < 1.5
+    # Without the photograph below, both would be taken for him.
+    assert fine_skin.head_outline(rgb, guide)[200, 280]
+    # A photograph below that is at fault (next to nothing of him on it) is not believed.
+    assert fine_skin.head_outline(rgb, guide, below=far < 20)[200, 250]
+
+
 def test_a_cavity_in_him_is_filled_and_a_gap_between_his_parts_stays_open():
     cover = np.zeros((60, 30, 60), np.uint8)
     cover[10:50, 2:28, 10:50] = 255                                     # him, through 26 photographs

@@ -23,6 +23,7 @@ IRIS_MM, PUPIL_MM, CORNEA_MM = 5.9, 2.6, 6.0          # radii across the eye's f
 BULGE_MM = 1.6                                        # the cornea's rise over the sclera's sphere
 LID_MM = 1.1                                          # the least skin kept over the eyeball
 CONJUNCTIVA = (188, 112, 108)
+WALL_MM = 1.6                                         # the conjunctiva's walls end this far under the skin
 
 
 def globe(centre: np.ndarray, radius: float, forward: np.ndarray, up: np.ndarray, rings: int = 72, segments: int = 96):
@@ -53,14 +54,24 @@ def lining(body, origin, pit: np.ndarray):
     """The conjunctiva: the walls of the space cleared round an eye (Body.eye_pits), a millimetre inside them and
     facing into it, without the side that is the skin. Whatever way one looks in through an opened eye, the look
     ends on the globe or on this, never on the fat or the muscle the space was cut from."""
+    from . import feet, fine_skin
     from .common import surface
     got = surface(pit, body.spacing, 1.2, origin)
     if got is None:
         return None
     v, f = body.to_gltf(*got)
     n = normals_of(v, f)                                                 # out of the space, into the tissue
-    beyond = body.sample(body.depth_mm(), np.asarray(v, np.float64) + n * 0.003)
-    keep = (beyond >= 1.5)[f].all(axis=1)                                # tissue behind the wall, not the skin or the air
+    beyond = np.asarray(v, np.float64) + n * 0.003
+    fine = fine_skin.load(body)
+    if fine is None:
+        keep = (body.sample(body.depth_mm(), beyond) >= 1.5)[f].all(axis=1)      # tissue behind the wall, not the skin or the air
+    else:
+        # ... by the skin as it is drawn (the fine outline), not by the export's own outline: that one has the
+        # frost round him and stands 1.65 mm outside his skin, and the space was cut out of the labels up to it.
+        # Measured by it, the walls' rims stood out of the skin beside the nose (a dark line down from each eye's
+        # inner corner, seen as soon as the head's skin was read from its tissue).
+        size = feet.size_of(body)
+        keep = ((fine_skin.depths(fine, feet.to_mm(size, beyond)) >= 1.5) & (fine_skin.depths(fine, feet.to_mm(size, v)) >= WALL_MM))[f].all(axis=1)
     f = f[keep][:, ::-1]
     used = np.unique(f)
     remap = np.full(len(v), -1, np.int64)

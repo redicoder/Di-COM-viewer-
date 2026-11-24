@@ -115,6 +115,7 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         hands.fat(body, out, baker, occupancy, GLOSS[layer], log)
     out += head_layers.structures(body, layer, log)        # the head and neck, named on his CT
     out += leg_muscles.structures(body, layer, baker, occupancy, log)      # the hips' and legs' muscles, the knee's ligaments, the joints' cartilage
+    own = set()                                            # what has its own place and is not to be moved under the skin (below)
     m = getattr(body, "mouth", None)
     if m is not None and layer in ("skeleton", "organs"):  # the teeth and the tongue as the mouth has them (finer, and fitting its space)
         mine = [s for s in (mouth.teeth(body, m, log) if layer == "skeleton" else [mouth.tongue(body, m, log)]) if s is not None]
@@ -122,6 +123,7 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         if layer == "skeleton":
             mine = teeth.split(body, m, mine, log)             # each tooth by its name (its place in the row)
         out += mine
+        own |= {s.name for s in mine}
         if layer == "skeleton" and mine:
             for s in out:
                 if s.name in ("cranium and maxilla", "mandible"):
@@ -142,5 +144,11 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         feet.under(body, out, log)
     if layer == "muscles":                                 # (the skeleton's part in the hands is seen to above, with its bones)
         hands.under(body, out, log)
+    # In the head nothing of a layer under the skin reaches it, measured on the triangles (the nostrils, the ear
+    # canals and the creases of the face are narrower than these layers' triangles). Not the teeth and the tongue,
+    # which the mouth places, nor the eyeballs, which lie behind the lids by their own rule (eyes.py).
+    under = [s for s in out if s.name not in own and not s.name.endswith(" eyeball")]
+    head_layers.faces_under_skin(body, under, log=log)
+    head_layers.faces_under_skin(body, under, from_mm=head_layers.NECK_MM, to_mm=head_layers.HEAD_MM + 10.0, log=log)       # and in the neck
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")
     return out
