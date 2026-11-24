@@ -346,7 +346,14 @@ def regions(body: Body, v: np.ndarray, n: np.ndarray, marks: dict) -> tuple[dict
         out["forearm"] = np.maximum(out["forearm"], arm * smooth(y, elbow_y + 0.01, elbow_y - 0.03) * smooth(y, wrist_y - 0.075, wrist_y - 0.035))
     # His hands lie on his belly: the belly's and the chest's hair is not theirs (it grew on the fingers that lie
     # over the belly's middle line), and it does not grow within a centimetre or two of them either (a hair is
-    # that long, and lay through the fingertips).
+    # that long, and lay through the fingertips). A hand's own skin is told by its bones as well (hands.skin_of):
+    # by the labels alone the two fingertips that rest on the middle line were belly, and wore its hair.
+    # The arm's hair runs on over the back of the hand, but not down the fingers: the hands lie across the belly,
+    # so that by height alone the fingers were forearm, and wore its hair, a centimetre and a half long.
+    from . import hands
+    info["hand_skin"], finger = hands.skin_of(body, v, n)                     # (hair.build: the trunk's hair ends where it meets a hand)
+    limb = np.maximum(limb, info["hand_skin"])
+    out["forearm"] = out["forearm"] * (1.0 - finger)
     for name in ("chest", "belly_line"):
         out[name] = out[name] * (1.0 - limb) * (1.0 - smooth(beside, 0.03, 0.12))
     femurs = [b for b in (bone_box(body, "left femur"), bone_box(body, "right femur")) if b is not None]

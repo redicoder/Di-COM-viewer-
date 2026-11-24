@@ -11,6 +11,14 @@ Per vertex: POSITION the centre line, NORMAL the skin's normal at the root (hair
 skin it grows from), TANGENT the strand's direction, TEXCOORD_0 = (side -1/+1, distance along the strand 0..1),
 TEXCOORD_1 = (width in mm at this point, the strand's random seed 0..1), COLOR_0 = the hair's colour (sRGB).
 
+No hair passes through him. A strand is laid out from its root without knowing what lies beside the root: the
+belly's hair ran through the fingertips that rest on the belly, and out over the cloth's hem. So the body's hair
+(BODY_KINDS) is asked along each strand whether it lies in him or in the cloth (`within`, from the skin layer): a
+strand ends where it would enter, as a hair ends that runs under a finger, and one that would be left shorter
+than a third of itself is not grown. The trunk's hair (TRUNK_KINDS) ends where it comes within HAND_MM of a hand's
+own skin as well: a strand rooted on the belly beside a finger rises a little along its length, and lay across
+the finger's side.
+
 Roots are scattered by area and by the region's weight (zones.regions); directions follow the hair streams of
 the body (Kidd 1903, via docs/research/skin_features_hair_maps.md): a whorl on the crown, down the cheeks and the
 legs, along the brow towards the temple, towards the hand on the arm, down and towards the midline on the chest.
@@ -58,6 +66,10 @@ KINDS = {
     "shin": Kind("shin", 6, (11.0, 22.0), 75, 0.25, 5, 74, 0.6, (96, 70, 50), curl_mm=2.5, turns=0.5),
 }
 LASH = Kind("lashes", 0, (7.0, 11.0), 95, 0.12, 6, 0, 0.0, (40, 29, 22))
+BODY_KINDS = ("chest", "belly_line", "forearm", "upper_arm", "thigh", "shin")     # long hair, on skin that other parts of him lie on
+TRUNK_KINDS = ("chest", "belly_line")                                             # the hands lie on it
+HAND_MM = 2.5                   # the trunk's hair ends this far from a hand's own skin
+LEAST_LEFT = 0.34               # a strand cut shorter than this share of itself is not grown
 
 
 def unit(a: np.ndarray) -> np.ndarray:
@@ -96,8 +108,32 @@ def streams(v: np.ndarray, n: np.ndarray, info: dict) -> dict:
     return out
 
 
-def ribbons(roots: np.ndarray, normals: np.ndarray, flow: np.ndarray, kind: Kind, rng: np.random.Generator, length_scale=None):
-    """Strands from roots: (vertices (m, 3), streams dict, faces (t, 3)). All arrays float32 / uint32."""
+def trimmed(pts: np.ndarray, within) -> tuple[np.ndarray, np.ndarray, int]:
+    """Centre lines (k, rings, 3) and `within` (points (m, 3) -> bool: the point lies in him or in the cloth) ->
+    (the centre lines, each strand that would enter ended at its last ring outside; which strands are kept; how
+    many were shortened). A shortened strand keeps its number of rings, laid closer."""
+    k, rings = pts.shape[:2]
+    seg = rings - 1
+    inside = np.asarray(within(pts[:, 1:].reshape(-1, 3)), bool).reshape(k, seg)       # (the root lies on the skin)
+    first = np.where(inside.any(axis=1), inside.argmax(axis=1) + 1, rings)              # the first ring that lies inside
+    last = np.minimum(first - 1, seg)                                                   # the strand's last ring outside
+    keep = last >= max(1, int(np.ceil(LEAST_LEFT * seg)))
+    cut = keep & (last < seg)
+    if cut.any():
+        at = np.linspace(0.0, 1.0, rings)[None, :] * last[cut][:, None]                 # the rings' places along the part that is left
+        low = np.minimum(np.floor(at).astype(int), seg - 1)
+        share = (at - low)[..., None]
+        rows = np.arange(int(cut.sum()))[:, None]
+        mine = pts[cut]
+        pts = pts.copy()
+        pts[cut] = mine[rows, low] * (1.0 - share) + mine[rows, low + 1] * share
+    return pts, keep, int(cut.sum())
+
+
+def ribbons(roots: np.ndarray, normals: np.ndarray, flow: np.ndarray, kind: Kind, rng: np.random.Generator, length_scale=None, within=None, report: dict | None = None):
+    """Strands from roots: (vertices (m, 3), streams dict, faces (t, 3)). All arrays float32 / uint32. With
+    `within`, no strand enters what it says is inside (trimmed); `report` is then told how many strands are
+    "grown" and how many of them "shortened"."""
     k, seg = len(roots), kind.segments
     n = unit(normals)
     d = unit(flow - n * np.einsum("ij,ij->i", flow, n)[:, None])
@@ -124,6 +160,12 @@ def ribbons(roots: np.ndarray, normals: np.ndarray, flow: np.ndarray, kind: Kind
     height = np.einsum("ksj,kj->ks", pts - roots[:, None, :], n)
     floor = 0.00015 * np.minimum(1.0, along * seg)[None, :]
     pts = pts + (np.maximum(floor - height, 0.0))[..., None] * n[:, None, :]
+    keep = np.ones(k, bool)
+    shortened = 0
+    if within is not None and k:
+        pts, keep, shortened = trimmed(pts, within)
+    if report is not None:
+        report.update(grown=int(keep.sum()), shortened=shortened)
     tangent = np.empty_like(pts)
     tangent[:, 1:-1] = pts[:, 2:] - pts[:, :-2]
     tangent[:, 0] = pts[:, 1] - pts[:, 0]
@@ -142,6 +184,12 @@ def ribbons(roots: np.ndarray, normals: np.ndarray, flow: np.ndarray, kind: Kind
     shade = rng.uniform(0.85, 1.12, k)                                         # no two hairs quite the same brown
     colour = np.clip(np.array(kind.colour, np.float64)[None, :] * shade[:, None], 0, 255)
     col = np.concatenate([np.repeat(np.repeat(colour, rings, axis=0), 2, axis=0), np.full((m, 1), RIBBON_COLOUR_ALPHA)], axis=1).astype(np.uint8)
+    if not keep.all():
+        # (every strand was laid out and given its width, seed and shade, so the strands that stay are the very
+        # ones they were; those not grown are left out here)
+        mine = np.repeat(keep, rings * 2)
+        pos, nor, tan4, uv0, uv1, col = pos[mine], nor[mine], tan4[mine], uv0[mine], uv1[mine], col[mine]
+        k = int(keep.sum())
     base = (np.arange(k)[:, None] * rings + np.arange(seg)[None, :]).reshape(-1) * 2
     faces = np.concatenate([np.stack([base, base + 1, base + 2], axis=1), np.stack([base + 1, base + 3, base + 2], axis=1)]).astype(np.uint32)
     return pos, {"NORMAL": nor, "TANGENT": tan4, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "COLOR_0": col}, faces
@@ -229,12 +277,30 @@ def _ribbon_arrays(pts, n, kind: Kind, rng):
     return pos, {"NORMAL": nor, "TANGENT": tan4, "TEXCOORD_0": uv0, "TEXCOORD_1": uv1, "COLOR_0": col}, faces
 
 
-def build(v, f, n, reg: dict, info: dict, covered: np.ndarray | None = None, lid_y: dict | None = None, seed: int = 7, log=print) -> list[Structure]:
-    """The hair of the body as structures of the skin layer, one per region ("hair scalp", "hair brow", ...)."""
+def build(v, f, n, reg: dict, info: dict, covered: np.ndarray | None = None, lid_y: dict | None = None, seed: int = 7, log=print, within=None) -> list[Structure]:
+    """The hair of the body as structures of the skin layer, one per region ("hair scalp", "hair brow", ...).
+    `within`: points (m, 3; glTF metres) -> bool, whether each lies in him or in the cloth; the body's hair does
+    not enter there (the module's text)."""
     rng = np.random.default_rng(seed)
     v = np.asarray(v, np.float64)
     flows = streams(v, n, info)
     out = []
+    hand = info.get("hand_skin")
+    hand_tree = cKDTree(v[np.asarray(hand) > 0.5]) if hand is not None and (np.asarray(hand) > 0.5).any() else None
+
+    def within_for(name):
+        """What a strand of this kind may not enter: him and the cloth (`within`), and for the trunk's hair a hand."""
+        if name not in BODY_KINDS:
+            return None
+        if hand_tree is None or name not in TRUNK_KINDS:
+            return within
+
+        def both(points):
+            at_hand = hand_tree.query(points, distance_upper_bound=HAND_MM * MM)[0] < HAND_MM * MM
+            return at_hand if within is None else at_hand | np.asarray(within(points), bool)
+
+        return both
+
     for name, kind in KINDS.items():
         if name not in flows or name not in reg:
             continue
@@ -246,9 +312,12 @@ def build(v, f, n, reg: dict, info: dict, covered: np.ndarray | None = None, lid
             continue
         flow = (flows[name][f[tri]] * bary[..., None]).sum(axis=1)
         root_weight = (weight[f[tri]] * bary).sum(axis=1)
-        pos, data, faces = ribbons(roots, normals, flow, kind, rng, length_scale=0.65 + 0.35 * root_weight)
-        out.append(Structure(f"hair {name}", "skin", pos, faces, tuple(c / 255 for c in kind.colour), streams=data, info={"hair": name, "strands": int(len(roots))}))
-        log(f"hair {name}: {len(roots)} strands, {len(faces)} triangles")
+        told = {}
+        pos, data, faces = ribbons(roots, normals, flow, kind, rng, length_scale=0.65 + 0.35 * root_weight, within=within_for(name), report=told)
+        grown, shortened = told["grown"], told["shortened"]
+        out.append(Structure(f"hair {name}", "skin", pos, faces, tuple(c / 255 for c in kind.colour), streams=data, info={"hair": name, "strands": int(grown)}))
+        log(f"hair {name}: {grown} strands, {len(faces)} triangles" + (f" ({len(roots) - grown} not grown and {shortened} ended short: they would run into him or the cloth)"
+                                                                          if grown < len(roots) or shortened else ""))
     face = info.get("face")
     if face is not None and lid_y:
         got = lashes(v, n, face, lid_y, rng)

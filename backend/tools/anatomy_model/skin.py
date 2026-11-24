@@ -255,6 +255,8 @@ def face_tolerance(base: np.ndarray, v: np.ndarray, marks: dict) -> np.ndarray:
 # ---- the briefs ------------------------------------------------------------------------------------------------
 DRAPE_MM = 30.0                 # the cloth spans hollows up to twice this wide
 LAIN_ON_MM = 6.0                # skin with body again this far out from it is lain on: no hair there
+HAIR_IN = 0.85                  # a strand's point lies in him where the fine outline covers this much of the export's voxel
+                                # there (0.5 at his surface: about a millimetre in)
 
 
 def briefs_solid(body: Body) -> np.ndarray | None:
@@ -464,7 +466,20 @@ def build(body: Body, triangles: int, log=print, reuse_surface: bool = False) ->
     if solid is not None:                                                 # nor through the cloth
         cloth = ndimage.gaussian_filter(solid[::2, ::2, ::2].astype(np.float32), 0.8)
         covered = np.maximum(covered, zones.smooth(body.sample(cloth, v_hair, step=2), 0.3, 0.6))
-    out += hair.build(v_hair, f_hair, n_hair, reg, info, covered=covered, lid_y=lid_y, log=log)
+    # And no strand runs into him or into the cloth further along (the belly's hair ran through the fingertips
+    # that rest on it, and out over the cloth's hem): asked of the fine outline, at the export's grid.
+    within = None
+    if fine is not None:
+        full = fine_skin.occupancy(body, fine)
+        cloth_grid = None if solid is None else solid.astype(np.uint8)
+
+        def within(points):
+            inside = body.sample(full, points) > HAIR_IN * 255.0
+            if cloth_grid is not None:
+                inside |= body.sample(cloth_grid, points, order=0) > 0
+            return inside
+
+    out += hair.build(v_hair, f_hair, n_hair, reg, info, covered=covered, lid_y=lid_y, log=log, within=within)
     if solid is not None:
         box = ndimage.find_objects(solid.astype(np.int32))[0]
         got = surface(solid[box], body.spacing, 2.2, [s.start for s in box])

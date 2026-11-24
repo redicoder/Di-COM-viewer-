@@ -89,6 +89,33 @@ def test_a_muscle_keeps_nothing_under_skin_that_moves_with_a_lid():
     assert len(face_muscles.without_moving_skin(far, skin_v + np.array([0.0, 0.0, 0.05]), moves, log=lambda *_: None).f) == 80
 
 
+def test_what_lies_in_skin_that_moves_with_a_lid_goes_with_it():
+    from anatomy_model import lids
+    # A sheet of skin, 40 x 20 mm, a millimetre between its vertices. Along x its lid weight rises from 0 to 0.5
+    # (the skin under the brow, towards the lid) on the left eye; the fold stands out most half way.
+    xs, ys = np.meshgrid(np.arange(0.0, 0.0401, 0.001), np.arange(0.0, 0.0201, 0.001), indexing="ij")
+    skin_v = np.stack([xs.ravel(), ys.ravel(), np.full(xs.size, 0.010)], axis=1)
+    weight = np.clip((xs.ravel() - 0.010) / 0.040, 0.0, None)
+    fold = np.clip(1.0 - np.abs(xs.ravel() - 0.025) / 0.015, 0.0, 1.0)
+    code = np.where(weight > 0, lids.SIDE_CODE["left"] + lids.FOLD_CODE * fold, 0.0)
+    data2 = np.stack([weight, code], axis=1)
+    under = np.array([[0.030, 0.010, 0.008],                            # a muscle's vertex 2 mm under the moving skin,
+                      [0.030, 0.010, 0.0035],                           # one 6.5 mm under it,
+                      [0.030, 0.010, -0.002],                           # one on the bone, 12 mm under it,
+                      [0.004, 0.010, 0.008],                            # one under skin that does not move
+                      [0.030, 0.010, 0.300]])                           # and one far away from all of it
+    got = lids.carried(skin_v, data2, under)
+    assert abs(got[0, 0] - 0.5) < 0.03                                  # the skin's own weight there,
+    assert 0.0 < got[1, 0] < 0.45 * got[0, 0] + 0.2 and got[1, 0] < got[0, 0]      # less the deeper it lies,
+    assert got[2, 0] == 0.0 and got[3, 0] == 0.0 and got[4, 0] == 0.0   # none on the bone, none under skin that stays
+    assert 0.55 <= got[0, 1] <= 0.75                                    # the left eye's, with its share of the fold
+    assert abs((got[0, 1] - 0.55) / lids.FOLD_CODE - fold[np.argmin(np.linalg.norm(skin_v - [0.030, 0.010, 0.010], axis=1))]) < 0.1
+    assert (got[2:, 1] == 0.0).all()
+    # Nothing that moves near: nothing to carry.
+    assert lids.carried(skin_v, np.zeros_like(data2), under) is None
+    assert lids.carried(skin_v, data2, under[4:]) is None
+
+
 def test_a_set_of_vertices_is_closed_along_the_mesh():
     # A strip of 30 vertices in a row (each joined to the next): marked 5..9 and 12..20, a gap of two between.
     f = np.array([[k, k + 1, k + 1] for k in range(29)], np.int64)

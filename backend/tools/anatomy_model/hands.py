@@ -58,6 +58,59 @@ def bones_of(body: Body) -> dict:
     return out
 
 
+SKIN_REACH_MM = 16.0            # a hand's own skin lies within this of its bones
+FINGER_REACH_MM = 12.0          # ... and a finger's within this of the finger's
+
+
+def own_skin(bones: np.ndarray, zyx_mm: np.ndarray, normals_zyx: np.ndarray, reach_mm: float = SKIN_REACH_MM) -> np.ndarray:
+    """Which points of the skin (mm, the body's axes, with their outward normals) are a hand's own skin, 0..1,
+    given the hand's bones' vertices (in the hand: a finger's as into_finger has them).
+
+    Skin within `reach_mm` of a hand's bone is the hand's if it looks AWAY from that bone. The belly's skin under
+    a finger that rests on it is as near the bone, and looks towards it."""
+    out = np.zeros(len(zyx_mm))
+    if len(bones) == 0 or len(zyx_mm) == 0:
+        return out
+    far, index = cKDTree(bones).query(zyx_mm, distance_upper_bound=reach_mm)
+    near = np.flatnonzero(far < reach_mm)
+    if len(near) == 0:
+        return out
+    away = zyx_mm[near] - bones[index[near]]
+    cos = np.einsum("ij,ij->i", away, normals_zyx[near]) / np.maximum(np.linalg.norm(away, axis=1) * np.linalg.norm(normals_zyx[near], axis=1), 1e-9)
+    out[near] = np.clip(cos / 0.3, 0.0, 1.0)
+    return out
+
+
+def skin_of(body: Body, v: np.ndarray, n: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The hands' own skin among the skin's vertices (glTF metres, with their normals), and the fingers' alone:
+    each 0..1 (own_skin), by the hands' bones with each finger's moved into its finger. Zeros without the bones
+    or the fine outline.
+
+    The labels do not tell it: they are 2.6 mm coarse where the skin's zones read them, and the two fingertips
+    that rest on the belly's middle line were taken for belly (its hair grew on them)."""
+    fine = fine_skin.load(body)
+    none = np.zeros(len(v)), np.zeros(len(v))
+    if fine is None or not bonehub.cache_path(body).exists():
+        return none
+    placed, _, _ = bonehub.load_or_build(body, None, lambda *_: None)
+    palm, fingers = [], []
+    for _, name, bv, _ in placed:
+        if not is_hand(name):
+            continue
+        mm = np.asarray(bv, np.float64)
+        if is_finger(name):
+            fingers.append(mm + nails.settle(fine, mm[::max(1, len(mm) // 600)]))
+        else:
+            palm.append(mm)
+    if not palm and not fingers:
+        return none
+    size = feet.size_of(body)
+    normals = np.asarray(n, np.float64)
+    points, facing = feet.to_mm(size, v), np.stack([-normals[:, 2], normals[:, 1], normals[:, 0]], axis=1)
+    return (own_skin(np.concatenate(palm + fingers), points, facing),
+            own_skin(np.concatenate(fingers), points, facing, FINGER_REACH_MM) if fingers else none[1])
+
+
 def into_finger(fine: fine_skin.FineOutline, zyx_mm: np.ndarray):
     """A finger's bones (mm, the body's axes) -> (the bones in the finger, the move that was made of them as a
     whole)."""

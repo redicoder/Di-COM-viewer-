@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
-from . import head_layers, mouth
+from . import head_layers, lids, mouth
 from .common import Body, Structure, load_structures
 from .zones import MM, Face
 
@@ -332,14 +332,20 @@ def prepare(body: Body, log=print):
 LID_REACH_MM = 9.0              # a muscle's point belongs to the skin's nearest vertex within this
 
 
-def lid_skin(body: Body):
-    """The skin's vertices that move when a lid is opened (glTF metres) and all the skin's vertices near the eyes with
-    whether they move: (vertices, moves), from the skin as last built; None before there is one."""
+def skin_with_lids(body: Body):
+    """The skin as last built, if its lids are cut (it carries their weights); None before there is one."""
     path = body.export / "model" / "skin.npz"
     if not path.exists():
         return None
     skin = next((s for s in load_structures(path) if s.name == "skin"), None)
-    if skin is None or skin.data2 is None:
+    return skin if skin is not None and skin.data2 is not None else None
+
+
+def lid_skin(body: Body, skin: Structure | None = None):
+    """The skin's vertices that move when a lid is opened (glTF metres) and all the skin's vertices near the eyes with
+    whether they move: (vertices, moves), from the skin as last built; None before there is one."""
+    skin = skin_with_lids(body) if skin is None else skin
+    if skin is None:
         return None
     moves = np.abs(np.asarray(skin.data2)[:, 0]) > 0.02               # the lid's weight (lids.py): the lids and the fold over the upper one
     if not moves.any():
@@ -558,11 +564,22 @@ def build(body: Body, log=print) -> list[Structure]:
     head_layers.tuck_under_skin(body, out, least_mm=1.6, log=log)           # measured against the fine skin itself: nothing at or outside it
     # Round the eyes, nothing of them under the skin that moves when a lid is opened (the lid turns up into the orbit and
     # the skin over it lifts: the ring under them stayed, and stood over the opened eye as a red band).
-    moving = lid_skin(body)
+    lidded = skin_with_lids(body)
+    moving = lid_skin(body, lidded)
     if moving is not None:
         for k, s in enumerate(out):
             if s.name.endswith("orbicularis oculi"):
                 out[k] = without_moving_skin(s, *moving, log=log)
+        # What is left of them under skin that moves a little (under the brow, beside the lids) goes with that skin
+        # (lids.carried): it turns up and in when a lid is opened, and a muscle that stayed came through it.
+        goes = []
+        for s in out:
+            weights = lids.carried(lidded.v, lidded.data2, s.v)
+            if weights is not None:
+                s.data2 = weights
+                goes.append(f"{s.name} {int((np.abs(weights[:, 0]) > 0).sum())} (up to {np.abs(weights[:, 0]).max():.2f})")
+        if goes:
+            log("face muscles: go with the lids' skin (vertices, the most of a lid's turn): " + "; ".join(goes))
     log(f"face muscles: {len(out)} drawn on his skull and skin (generated), {sum(s.triangles for s in out)} triangles")
     body.face_muscles = out
     return out

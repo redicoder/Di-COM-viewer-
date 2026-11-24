@@ -161,17 +161,26 @@ namespace DicomViewer.AnatomyLab
             return meshSpace;
         }
 
-        /// <summary>Hands the eyes and how far their lids are open to the skin's and the lashes' shaders.</summary>
+        /// <summary>Hands the eyes and how far their lids are open to the shaders of the meshes that carry lid weights
+        /// (a third pair of numbers per vertex): the skin, the lashes, and the muscles of the face that lie in the
+        /// skin which moves with a lid (they go with it; one that stayed came through the skin under the brow). A
+        /// mesh that carries the pair only as a place holder before its jaw weights has zeros there and does not move.
+        /// No other mesh is handed them: one without the pair would be turned by whatever stands in its place.</summary>
         public void PushLids()
         {
             if (!hasEyes) return;
             if (lidMaterials.Count == 0)
                 foreach (Renderer r in GetComponentsInChildren<Renderer>(true))
-                    if (r.sharedMaterial != null && (r.name == "skin" || r.name == "hair lashes"))
+                {
+                    if (r.sharedMaterial == null) continue;
+                    MeshFilter mf = r.GetComponent<MeshFilter>();
+                    bool weights = mf != null && mf.sharedMesh != null && mf.sharedMesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord2);
+                    if (r.name == "skin" || r.name == "hair lashes" || (weights && r.sharedMaterial.HasProperty("_LidOpen")))
                     {
                         lidMaterials.Add(r.sharedMaterial);
                         if (r.name == "skin") skin = r.transform;
                     }
+                }
             foreach (Material m in lidMaterials)
             {
                 m.SetVector("_EyeR", eyeRight);

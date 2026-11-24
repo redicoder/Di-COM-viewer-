@@ -622,6 +622,20 @@ def export_slice(body: Body, fine: FineOutline, j: int) -> np.ndarray:
     return block.reshape(nz, step, step_y, nx, step).mean(axis=(1, 2, 4)) / 255.0 > 0.5
 
 
+def occupancy(body: Body, fine: FineOutline) -> np.ndarray:
+    """How much of each of the export's voxels the fine outline covers: uint8 0..255 on the Body's grid (about 128
+    at his surface). For asking of many points all over him whether they lie in him (the hair's strands)."""
+    nz, ny, nx = body.dims
+    step_y = int(round(body.spacing[1] / fine.spacing[1]))
+    step = int(round(body.spacing[0] / fine.spacing[0]))
+    out = np.zeros(body.dims, np.uint8)
+    for j in range(min(ny, fine.cover.shape[1] // step_y)):
+        block = np.asarray(fine.cover[:nz * step, j * step_y:(j + 1) * step_y, :nx * step], np.float32)
+        out[:block.shape[0] // step, j, :block.shape[2] // step] = np.round(
+            block[:block.shape[0] // step * step, :, :block.shape[2] // step * step].reshape(block.shape[0] // step, step, step_y, block.shape[2] // step, step).mean(axis=(1, 2, 4)))
+    return out
+
+
 def inside_export(body: Body, fine: FineOutline, skin_mm: float = 1.4) -> np.ndarray:
     """The export's voxels that lie under the fine skin (bool, the Body's grid): at least half inside the fine
     outline and not in its outermost `skin_mm`, sideways or along the body. The export's own outline is a voxel or

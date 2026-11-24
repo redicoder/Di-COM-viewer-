@@ -13,6 +13,11 @@ gives the lid's edge its thickness when it is open.
 Per vertex (Structure.data2, written as TEXCOORD_2): x = the weight, positive on the upper lid and negative on
 the lower; y = which eye (0.05 the right, 0.55 the left) plus 0.2 times how much the skin there stands out as a
 fold when the lid is open (0..1); 0 elsewhere.
+
+What lies in that skin goes with it (carried): the muscles of the face are drawn 1.6 to 5 mm under the skin, and
+the skin under the brow turns up and in by nearly 2 mm when the lid is opened fully. A muscle that stayed came
+through it there (the corrugator, by up to 0.9 mm: a red sliver above each opened eye). So a muscle's vertices take
+the weights of the skin over them, less the deeper they lie, and Unity turns them by the same rule.
 """
 from __future__ import annotations
 
@@ -32,6 +37,8 @@ MARGIN = 4.0                        # mm: the lid edge's thickness. His lids are
 MARGIN_COLOUR = (196, 124, 118)
 UPPER_DEGREES, LOWER_DEGREES = 42.0, 7.0     # how far the lids' edges turn about the eye's centre when fully open
 SIDE_CODE = {"right": 0.05, "left": 0.55}
+CARRY_MM, CARRY_DEEP_MM = 4.0, 9.0  # what lies within the first of the moving skin goes wholly with it, beyond the second
+                                    # not at all (a muscle's end on the bone stays on the bone)
 
 
 def lid_curve(face: Face, side: str, lid_w: float):
@@ -139,6 +146,47 @@ def cut(v: np.ndarray, f: np.ndarray, face: Face, lid_w: dict, eye_centres: dict
         log(f"lids: {side} eye cut along {len(seam_ids)} vertices, {len(edges)} edges")
     data2 = np.stack([lid, eye], axis=1).astype(np.float32)
     return v.astype(np.float32), f.astype(np.uint32), source, data2, margin
+
+
+def carried(skin_v: np.ndarray, skin_data2: np.ndarray, v: np.ndarray, k: int = 4) -> np.ndarray | None:
+    """The lids' weights for points under the skin (a face muscle's vertices; glTF metres): float32 (n, 2) as the
+    skin's own (the module's text), or None where none of the points moves.
+
+    Each point takes the weight of the skin over it: the mean of its `k` nearest skin vertices' (the nearer the
+    more; across a lid's slit, where the upper lid's are positive and the lower's negative, the nearest's alone),
+    times how near the skin it lies (CARRY_MM, CARRY_DEEP_MM). Its eye is that of the neighbour that moves most,
+    and its fold's height the neighbours' mean, so it stands out with the skin's fold and not into it."""
+    from scipy.spatial import cKDTree
+    skin_v, d2 = np.asarray(skin_v, np.float64), np.asarray(skin_data2, np.float64)
+    moves = np.abs(d2[:, 0]) > 1e-4
+    p = np.asarray(v, np.float64)
+    if not moves.any() or len(p) == 0:
+        return None
+    lo, hi = skin_v[moves].min(axis=0) - 0.02, skin_v[moves].max(axis=0) + 0.02
+    near = ((skin_v > lo) & (skin_v < hi)).all(axis=1)
+    inside = ((p > lo) & (p < hi)).all(axis=1)
+    if not inside.any():
+        return None
+    weight, code = d2[near, 0], d2[near, 1]
+    dist, idx = cKDTree(skin_v[near]).query(p[inside], k=min(k, int(near.sum())))
+    dist, idx = dist.reshape(len(dist), -1), idx.reshape(len(idx), -1)
+    share = 1.0 / (dist + 1e-4)
+    share /= share.sum(axis=1, keepdims=True)
+    w = (share * weight[idx]).sum(axis=1)
+    mixed = (weight[idx].max(axis=1) > 1e-4) & (weight[idx].min(axis=1) < -1e-4)
+    w[mixed] = weight[idx[mixed, 0]]
+    nearness = smooth(dist[:, 0] / MM, CARRY_DEEP_MM, CARRY_MM)
+    w = w * nearness
+    lead = code[idx[np.arange(len(idx)), np.argmax(np.abs(weight[idx]), axis=1)]]
+    base = np.where(lead < 0.5, SIDE_CODE["right"], SIDE_CODE["left"])
+    theirs = np.where(code[idx] < 0.5, SIDE_CODE["right"], SIDE_CODE["left"])
+    fold = np.where(np.abs(weight[idx]) > 1e-4, np.clip((code[idx] - theirs) / FOLD_CODE, 0.0, 1.0), 0.0)
+    fold = (share * fold).sum(axis=1) * nearness
+    out = np.zeros((len(p), 2), np.float32)
+    values = np.stack([w, base + FOLD_CODE * fold], axis=1)
+    values[np.abs(w) < 1e-3] = 0.0
+    out[inside] = values
+    return out if (np.abs(out[:, 0]) > 0).any() else None
 
 
 def lash_weights(face: Face, side: str, t: np.ndarray, upper: bool) -> np.ndarray:

@@ -87,8 +87,11 @@ triangle (`head_layers.faces_under_skin`), in the head and the neck.
 - The photographs end about a millimetre under the top of his head (section 2).
 - The nostrils end in a ceiling a few millimetres in, and the ear canals where the gelatin did: the passages
   behind them are not modelled as open space.
-- With the lids fully open a red sliver shows above each upper lid (the fold of the lid turning back). It was
-  there before the head was read again; not looked into here.
+- With the lids fully open a red sliver showed above each upper lid. It was there before the head was read
+  again. Looked into the same day: not the lid's fold but the corrugator supercilii, which stayed while the skin
+  under the brow went up and in by nearly 2 mm with the lid (O: the lids turned in a calculation as the shader
+  turns them; the muscle stood 0.3 and 0.9 mm in front of the opened skin). Cured: ARCHITECTURE, What lies in a
+  lid's skin goes with it.
 - The head's colour from the photographs is sampled 1.2 to 3.6 mm under the skin. With the skin at his true
   surface those samples lie a millimetre and a half deeper in him than before. No change was seen in the
   pictures; not measured.
