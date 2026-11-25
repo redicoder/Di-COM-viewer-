@@ -293,6 +293,115 @@ public static class ModelSnapshot
         BuildScene();
     }
 
+    /// <summary>Tapping a structure to learn its name (build/snapshots/names_*.png): on each layer a structure is
+    /// tapped where it lies on the screen, and the picture shows it tinted with its card. The log says what each
+    /// tap picked and what the card reads.</summary>
+    public static void RunNames()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null) return;
+        string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
+        Directory.CreateDirectory(outDir);
+        body.GetComponent<ModelPolish>().Apply();
+        Debug.Log($"ModelSnapshot: names table: {body.Names.Count} structures");
+        float dist = b.size.x * 0.5f / (0.84f * 1600f / 900f) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+        cam.targetTexture = rt;                                 // (kept while tapping: the taps are in this picture's pixels)
+        void View(float yawDeg, float pitchDeg, float distance, Vector3 focus)
+        {
+            Quaternion q = Quaternion.Euler(pitchDeg, yawDeg, 0f);
+            cam.transform.position = focus + q * new Vector3(0, 0, -distance);
+            cam.transform.rotation = q;
+        }
+        void Shot(string name)
+        {
+            cam.Render();
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(outDir, "names_" + name + ".png"), tex.EncodeToPNG());
+            RenderTexture.active = null;
+            Object.DestroyImmediate(tex);
+            Debug.Log($"ModelSnapshot: wrote names_{name}.png");
+        }
+        string CardText()
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (ModelCard.Line l in body.Card.Lines) parts.Add(l.text);
+            return body.Card.Shown ? string.Join(" | ", parts) : "(no card)";
+        }
+        // A tap where the named structure lies on the screen: at its middle, or at the first of a few places
+        // round it where it is the structure in front.
+        void Tap(string structure)
+        {
+            body.Select(null, cam);
+            Renderer target = null;
+            foreach (Renderer r in body.Touchable()) if (r.name == structure) target = r;
+            if (target == null) { Debug.LogWarning($"ModelSnapshot: no structure '{structure}' on the layers shown"); return; }
+            Bounds tb = target.bounds;
+            Vector2 at = cam.WorldToScreenPoint(tb.center);
+            foreach (Vector3 f in new[] { Vector3.zero, new Vector3(0.25f, 0f, 0f), new Vector3(-0.25f, 0f, 0f), new Vector3(0f, 0f, 0.25f), new Vector3(0f, 0f, -0.25f),
+                                          new Vector3(0.25f, 0.3f, 0.25f), new Vector3(-0.25f, 0.3f, -0.25f), new Vector3(0f, 0.45f, 0f), new Vector3(0.4f, 0.2f, 0f), new Vector3(-0.4f, 0.2f, 0f) })
+            {
+                Vector2 p = cam.WorldToScreenPoint(tb.center + Vector3.Scale(tb.size, f));
+                if (ModelPick.At(cam, p, body.Touchable()) == target) { at = p; break; }
+            }
+            Renderer got = body.TapAt(cam, at);
+            Debug.Log($"ModelSnapshot: tapped at {at} for '{structure}': picked '{(got != null ? got.name : "nothing")}'; card: {CardText()}");
+        }
+        Vector3 head = new Vector3(b.min.x + 0.12f, b.size.y * 0.6f, 0f);
+        Vector3 chest = new Vector3(b.min.x + 0.50f, b.size.y * 0.5f, 0f);
+        Vector3 legs = new Vector3(b.min.x + 1.25f, b.size.y * 0.5f, 0f);
+        Vector3 feet = new Vector3(b.max.x - 0.07f, b.size.y * 0.55f, 0f);
+
+        body.LookAt("skin");
+        View(-20f, 35f, dist * 0.4f, chest);
+        Tap("skin");
+        Shot("skin");
+        View(90f, 55f, dist * 0.11f, feet + new Vector3(0.03f, 0.04f, 0.165f));
+        Tap("nail of the left great toe");
+        Shot("skin_nail");
+
+        body.LookAt("muscles");
+        View(0f, 40f, dist * 0.2f, legs);
+        Tap("right rectus femoris");
+        Shot("muscles_leg");
+        View(-90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f));
+        Tap("left zygomaticus major");
+        Shot("muscles_face_drawn");
+
+        body.LookAt("skeleton");
+        View(0f, 40f, dist * 0.2f, legs);
+        Tap("left femur");
+        Shot("skeleton_femur");
+        body.SetLanguage(NameLanguage.English);
+        Debug.Log($"ModelSnapshot: in English: {CardText()}");
+        Shot("skeleton_femur_en");
+        body.SetLanguage(NameLanguage.Latin);
+        Debug.Log($"ModelSnapshot: in Latin: {CardText()}");
+        Shot("skeleton_femur_la");
+        body.SetLanguage(NameLanguage.Italian);
+        View(-90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f));
+        Tap("frontal bone");
+        Shot("skeleton_skull");
+
+        body.LookAt("organs");
+        View(-20f, 35f, dist * 0.4f, chest);
+        Tap("liver");
+        Shot("organs_liver");
+        // A tap beside the body puts the card away; so does a second tap on what is picked.
+        Renderer left = body.TapAt(cam, new Vector2(6f, 6f));
+        Debug.Log($"ModelSnapshot: a tap beside the body: picked '{(left != null ? left.name : "nothing")}'; card: {CardText()}");
+
+        body.Select(null, cam);
+        body.LookAt("skin");
+        cam.targetTexture = null;
+        Object.DestroyImmediate(rt);
+        Debug.Log("ModelSnapshot: names done");
+    }
+
     /// <summary>The eyes only, quickly (build/snapshots/eye_*.png): closed, half open and open, from the front and from both sides.</summary>
     public static void RunEyes()
     {

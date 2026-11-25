@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from anatomy_model import bonehub, fine_muscle, fine_skin, head_layers, leg_muscles, mouth, skull_bones, throat  # noqa: E402
+from anatomy_model import bonehub, fine_muscle, fine_skin, head_layers, leg_muscles, mouth, names, skull_bones, throat  # noqa: E402
 from anatomy_model import layers as object_layers  # noqa: E402
 from anatomy_model import skin  # noqa: E402
 from anatomy_model.common import LAYERS, Body, load_structures, save_structures  # noqa: E402
@@ -132,6 +132,9 @@ def main() -> int:
         skin_info = next((s.info for s in structures if s.name == "skin"), {})
         args.out.with_suffix(".json").write_text(json.dumps({"eyes": skin_info.get("eyes"), "mouth": skin_info.get("mouth"), "landmarks": skin_info.get("landmarks")}, indent=1))
         print(f"wrote {args.out} ({args.out.stat().st_size / 1e6:.1f} MB, {len(structures)} structures, {sum(s.triangles for s in structures)} triangles)")
+        # Every structure's name in Latin, English and Italian, and whether it is read from him or drawn: the table
+        # the app reads when a structure is tapped (it stops the build if a structure has no name).
+        names.write(args.out.parent.parent / "StreamingAssets" / "anatomy" / "model_names.json", structures)
     return 0
 
 

@@ -94,6 +94,11 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   #  with --head-ct its teeth come from the CT's own 0.5 mm pixels, kept afterwards in out\photo_body\model\ct_mouth.npz)
   .\.venv-seg\Scripts\python.exe tools\build_model_meshes.py out\photo_body ..\unity\Assets\Models\anatomy.glb
   ```
+- **Names in the modelled body**: in Play, tap a structure: it is marked and a card names it in Italian, English and Latin (the **IT / EN / LA** button, top right, picks which is large) and says whether its shape is read from this body or drawn. Tap it again, or beside the body, to put the card away; the layer buttons take layers off to reach what lies under the skin. The names are in `unity/Assets/StreamingAssets/anatomy/model_names.json`, written whenever the model is built (do not edit it: put corrections in `model_names_corrections.json` beside it, same shape, only the `key` and the names to change). **The Latin and Italian terms have not yet been checked by an anatomist.** To write the table again without rebuilding the model, and to take pictures of taps (`build/snapshots/names_*.png`):
+  ```powershell
+  cd backend\tools; ..\.venv-seg\Scripts\python.exe -m anatomy_model.names ..\out\photo_body ..\..\unity\Assets\StreamingAssets\anatomy\model_names.json
+  & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.RunNames -logFile build\model_names.log -quit
+  ```
 - **The modelled body, prototype** (the new body built step by step from generated reference pictures: body, skeleton,
   muscles, each organ as a GLB made by an image-to-3D tool from Gemini pictures): put the files in
   `unity/Assets/Models/` (`body.glb`, `skeleton.glb`, `muscles.glb`, `heart.glb`, ...). The glTF importer

@@ -23,6 +23,8 @@ Shader "DicomViewer/LabModel"
         _SkinLut ("Pre-integrated skin", 2D) = "white" {}
         _SkinLutOn ("Use the lookup", Float) = 0
         _MmPerUnit ("Millimetres per mesh unit", Float) = 890
+        _Picked ("Picked: how strongly it is marked (ModelBody, while its name card is up)", Range(0, 1)) = 0
+        _PickedColour ("Picked: the mark's colour (green: no tissue, vessel or nerve is drawn in it)", Color) = (0.30, 0.95, 0.55, 1)
         [HideInInspector] _EyeR ("Right eye's centre", Vector) = (0, 0, 0, 0)
         [HideInInspector] _EyeL ("Left eye's centre", Vector) = (0, 0, 0, 0)
         [HideInInspector] _EyeFwd ("The face's forward", Vector) = (0, 0, 1, 0)
@@ -45,7 +47,8 @@ Shader "DicomViewer/LabModel"
             float4 _BaseTex_ST;
             float4 _Tint;
             float4 _CavityTint;
-            float _Saturation, _Skin, _Gloss, _Bump, _Grain, _Occlusion, _MmPerUnit, _VertexAlbedo, _SkinDetail;
+            float4 _PickedColour;
+            float _Saturation, _Skin, _Gloss, _Bump, _Grain, _Occlusion, _MmPerUnit, _VertexAlbedo, _SkinDetail, _Picked;
             LAB_LID_UNIFORMS
             LAB_JAW_UNIFORMS
         CBUFFER_END
@@ -172,6 +175,14 @@ Shader "DicomViewer/LabModel"
                 float3 lit = LabShadeTissue(albedo, N, V, light.direction, light.color, gloss, _Skin, ao, light.shadowAttenuation,
                                             i.positionMm, pixelMm, bake);
                 lit = min(max(lit, 0.0), 8.0);
+                // The structure whose name is asked: its own shading under a wash of one colour, lit as it is lit (a
+                // tint alone would only darken what is red already), and brighter at its rim.
+                [branch] if (_Picked > 0.0)
+                {
+                    float towards = saturate(dot(N, light.direction)) * 0.75 + 0.25;
+                    float rim = pow(1.0 - saturate(dot(N, V)), 3.0);
+                    lit = lerp(lit, _PickedColour.rgb * towards, 0.5 * _Picked) + _PickedColour.rgb * (0.35 * rim * _Picked);
+                }
                 return half4(lit, 1.0);
             }
             ENDHLSL
@@ -224,6 +235,41 @@ Shader "DicomViewer/LabModel"
             }
 
             half4 ShadowFrag(Varyings i) : SV_Target { return 0; }
+            ENDHLSL
+        }
+
+        // What lies under a finger (ModelPick): each mesh drawn in its own number as a colour, at the place the
+        // main pass draws it (a lid that is open, a jaw that is turned). No camera draws this pass of itself.
+        // Both faces: the nearest surface is what is touched, and the picture's winding is not relied on.
+        Pass
+        {
+            Name "Pick"
+            Tags { "LightMode" = "LabPick" }
+            Cull Off
+            ZWrite On
+            ZTest LEqual
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            #pragma vertex PickVert
+            #pragma fragment PickFrag
+
+            float4 _LabPickColour;                               // the mesh's number; set for each draw, not a material's value
+
+            struct Attributes { float4 positionOS : POSITION; float2 uv3 : TEXCOORD2; float2 uv4 : TEXCOORD3; };
+            struct Varyings { float4 positionCS : SV_POSITION; };
+
+            Varyings PickVert(Attributes v)
+            {
+                Varyings o;
+                float3 position = v.positionOS.xyz, a = 0.0, b = 0.0;
+                LabLid(v.uv3, _EyeR.xyz, _EyeL.xyz, _EyeFwd.xyz, _EyeUp.xyz, _LidOpen, position, a, b);
+                LabJaw(v.uv4, _JawHinge, _JawAxis.xyz, _LipPull, _LipLift, position, a, b);
+                o.positionCS = TransformObjectToHClip(position);
+                return o;
+            }
+
+            float4 PickFrag(Varyings i) : SV_Target { return _LabPickColour; }
             ENDHLSL
         }
     }

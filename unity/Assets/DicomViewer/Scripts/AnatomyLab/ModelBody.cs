@@ -11,6 +11,9 @@ namespace DicomViewer.AnatomyLab
     /// skin), so only the outermost layer that is on is drawn: take the skin away and the muscles show, take the
     /// muscles away and the skeleton shows. Buttons at the top of the screen (big enough for a finger) pick the
     /// layer to see while the scene plays.
+    /// A tap on the body names what was touched (ModelPick finds the structure, ModelNames has its names, ModelCard
+    /// shows them) and marks it in colour; a tap on it again, or beside the body, puts the card away. The language button
+    /// (top right) goes round Italian, English and Latin.
     /// </summary>
     public class ModelBody : MonoBehaviour
     {
@@ -49,6 +52,10 @@ namespace DicomViewer.AnatomyLab
         [Tooltip("The renderers whose meshes carry jaw weights (TEXCOORD_3): only their materials are told of the jaw.")]
         public List<Renderer> jawRenderers = new List<Renderer>();
 
+        [Header("Names (StreamingAssets/anatomy/model_names.json)")]
+        [Tooltip("The language a touched structure is named in; the card shows the other two smaller.")]
+        public NameLanguage language = NameLanguage.Italian;
+
         /// <summary>A lid or a lip is in the hand: the camera does not turn meanwhile (ModelOrbit).</summary>
         public static bool Grabbing { get; private set; }
 
@@ -61,6 +68,15 @@ namespace DicomViewer.AnatomyLab
         private Vector2 lastPointer;
         private readonly List<Material> lidMaterials = new List<Material>();
         private Transform skin;
+        private static readonly int PickedId = Shader.PropertyToID("_Picked");
+        private const float SkinMark = 0f;                               // how strongly the skin is marked when it is the picked structure
+        private ModelNames names;
+        private readonly ModelCard card = new ModelCard();
+        private Renderer picked;
+        private Camera cardCamera;
+        private Vector2 downAt;
+        private float downTime;
+        private bool downOnUi;
 
         public static readonly string[] LayerNames = { "body", "muscles", "skeleton" };
         public static readonly string[] LayerLabels = { "Skin", "Muscles", "Skeleton" };
@@ -104,6 +120,102 @@ namespace DicomViewer.AnatomyLab
             Layer visible = Visible;
             foreach (Layer l in layers)
                 if (l.model != null) l.model.SetActive(nested ? l.shown : l == visible);
+            if (picked != null && !picked.gameObject.activeInHierarchy) Select(null, cardCamera);      // its layer was taken away
+        }
+
+        // ---- names ----------------------------------------------------------------------------------------------
+
+        /// <summary>The names table, read when first asked for.</summary>
+        public ModelNames Names => names ?? (names = ModelNames.Load());
+
+        /// <summary>The structure whose card is up; null when none is.</summary>
+        public Renderer Picked => picked;
+
+        /// <summary>The picked structure as the names table has it; null when nothing is picked or the table does
+        /// not have it.</summary>
+        public NameEntry PickedEntry => picked != null ? Names.Find(picked.name) : null;
+
+        /// <summary>The card as it is shown now (its lines).</summary>
+        public ModelCard Card => card;
+
+        /// <summary>What a finger can touch: every mesh of the layers that are drawn. Not the hair: its strands are
+        /// no structure to name, and the skin under them is what was meant.</summary>
+        public List<Renderer> Touchable()
+        {
+            var found = new List<Renderer>();
+            foreach (Layer l in layers)
+            {
+                if (l.model == null || !l.model.activeInHierarchy) continue;
+                foreach (MeshRenderer r in l.model.GetComponentsInChildren<MeshRenderer>(false))
+                    if (r.enabled && !r.name.StartsWith("hair")) found.Add(r);
+            }
+            return found;
+        }
+
+        /// <summary>A tap at a pixel of this camera's picture (origin bottom-left): the structure in front there is
+        /// picked, marked and named on the card; a tap on the picked structure again, or where no structure is,
+        /// puts the card away. Returns what is picked afterwards.</summary>
+        public Renderer TapAt(Camera cam, Vector2 pixel)
+        {
+            Renderer hit = ModelPick.At(cam, pixel, Touchable());
+            Select(hit == picked ? null : hit, cam);
+            return picked;
+        }
+
+        /// <summary>Picks a structure (null: none): it is marked (the shader's _Picked), the last one no longer, and
+        /// its card shown.</summary>
+        public void Select(Renderer r, Camera cam)
+        {
+            Mark(picked, 0f);
+            picked = r;
+            if (cam != null) cardCamera = cam;
+            if (r == null) { card.Hide(); return; }
+            Mark(r, r.name == "skin" ? SkinMark : 1f);                // (the skin is all of him: marked, he is a green man; its card says enough)
+            ShowCard();
+        }
+
+        private static void Mark(Renderer r, float how)
+        {
+            if (r != null && r.sharedMaterial != null && r.sharedMaterial.HasProperty(PickedId)) r.sharedMaterial.SetFloat(PickedId, how);
+        }
+
+        /// <summary>The language structures are named in; the card that is up is written again.</summary>
+        public void SetLanguage(NameLanguage to)
+        {
+            language = to;
+            if (picked != null) ShowCard();
+        }
+
+        private void ShowCard()
+        {
+            Camera cam = cardCamera != null ? cardCamera : Camera.main;
+            if (cam == null || picked == null) return;
+            card.Show(cam, ModelCard.Compose(Names, Names.Find(picked.name), picked.name, language));
+        }
+
+        private void TapUpdate()
+        {
+            Camera cam = Camera.main;
+            if (cam == null) return;
+            Vector2 pointer = Input.mousePosition;
+            float s = Mathf.Max(1f, Screen.dpi > 0f ? Screen.dpi / 96f : 1f);
+            if (Input.GetMouseButtonDown(0))
+            {
+                downAt = pointer;
+                downTime = Time.unscaledTime;
+                downOnUi = ViewerUi.PointerOverUi;
+            }
+            // A tap: down and up at one place within a moment, with one finger, not on a button.
+            if (Input.GetMouseButtonUp(0) && !downOnUi && Input.touchCount < 2 && Vector2.Distance(pointer, downAt) < 8f * s && Time.unscaledTime - downTime < 0.45f)
+                TapAt(cam, pointer);
+        }
+
+        private void LateUpdate() => card.Place(cardCamera != null ? cardCamera : Camera.main);
+
+        private void OnDestroy()
+        {
+            Select(null, null);
+            card.Destroy();
         }
 
         private void Start()
@@ -198,6 +310,7 @@ namespace DicomViewer.AnatomyLab
         // drawn towards the nose: it comes off the upper teeth and the jaw stays.
         private void Update()
         {
+            TapUpdate();
             if (!hasEyes && !hasMouth) return;
             Camera cam = Camera.main;
             bool skinOn = hasEyes && Shown("skin") && skin != null;
@@ -292,20 +405,32 @@ namespace DicomViewer.AnatomyLab
             {
                 int k = Array.IndexOf(LayerNames, l.name);
                 string label = (l == visible ? "● " : "") + (k >= 0 ? LayerLabels[k] : char.ToUpper(l.name[0]) + l.name.Substring(1));
-                if (GUI.Button(new Rect(x, y, w, h), label)) LookAt(l.name);
+                var layerButton = new Rect(x, y, w, h);
+                if (GUI.Button(layerButton, label)) LookAt(l.name);
+                ViewerUi.Block(layerButton);                             // (a tap on a button is not a tap on the body under it)
                 x += w + 8f * s;
             }
             if (hasEyes && Shown("skin"))
             {
                 bool open = goalRight > 0.5f || goalLeft > 0.5f;
-                if (GUI.Button(new Rect(x, y, w, h), open ? "Close eyes" : "Open eyes")) goalRight = goalLeft = open ? 0f : 1f;
+                var eyesButton = new Rect(x, y, w, h);
+                if (GUI.Button(eyesButton, open ? "Close eyes" : "Open eyes")) goalRight = goalLeft = open ? 0f : 1f;
+                ViewerUi.Block(eyesButton);
                 x += w + 8f * s;
             }
             if (hasMouth && visible != null)
             {
                 bool open = goalJaw > 0.5f;
-                if (GUI.Button(new Rect(x, y, w + 20f * s, h), open ? "Close mouth" : "Open mouth")) goalJaw = goalUpper = open ? 0f : 1f;      // both lips part
+                var mouthButton = new Rect(x, y, w + 20f * s, h);
+                if (GUI.Button(mouthButton, open ? "Close mouth" : "Open mouth")) goalJaw = goalUpper = open ? 0f : 1f;      // both lips part
+                ViewerUi.Block(mouthButton);
             }
+            // The language structures are named in: Italian, English, Latin, round and round.
+            var languageButton = new Rect(Screen.width - 108f * s, y, 96f * s, h);
+            string tag = language == NameLanguage.Italian ? "IT" : language == NameLanguage.English ? "EN" : "LA";
+            if (GUI.Button(languageButton, tag))
+                SetLanguage(language == NameLanguage.Italian ? NameLanguage.English : language == NameLanguage.English ? NameLanguage.Latin : NameLanguage.Italian);
+            ViewerUi.Block(languageButton);
             if (!string.IsNullOrEmpty(credits))
             {
                 var style = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(11f * s), wordWrap = true };
