@@ -438,56 +438,6 @@ def clear_scraps(body: Body, log=print) -> int:
     return int(len(hit))
 
 
-DEEP = ("levator anguli oris", "buccinator", "corrugator supercilii", "depressor labii inferioris")      # these lie under other muscles and under fat
-
-
-def expose(body: Body, log=print) -> int:
-    """Takes the labels' fat off the muscles of expression that lie right under the skin. They lie IN the face's
-    thin fat, a millimetre or two from where the fat layer's own surface runs, and the two meshes went through
-    each other in rags; a face with the skin off shows these muscles in its fat. Whatever fat lies over one of
-    them (nearer the skin, in its directions from the head's middle) is cleared, so each shows whole in a window
-    of the fat layer, as in a prepared face. The deep ones (DEEP) keep their fat. Returns the voxels cleared."""
-    got = prepare(body, log)
-    muscles = build(body, log)
-    if got is None or not muscles:
-        return 0
-    _, maps = got
-    least = np.full(maps.skin.shape, np.inf, np.float32)                     # per direction: the least radius of a superficial muscle's outer face
-    for s in muscles:
-        if any(s.name.endswith(k) for k in DEEP):
-            continue
-        offset = np.asarray(s.v, np.float64) - maps.centre
-        r = np.linalg.norm(offset, axis=1)
-        cells = np.round(maps.cell(offset / r[:, None])).astype(int)
-        ok = (cells[0] >= 0) & (cells[0] < least.shape[0]) & (cells[1] >= 0) & (cells[1] < least.shape[1])
-        np.minimum.at(least, (cells[0][ok], cells[1][ok]), (r[ok] * 1000.0).astype(np.float32))
-    for _ in range(3):                                                        # the bands' meshes are coarser than the cells: the gaps between their vertices closed
-        least = np.minimum(least, ndimage.minimum_filter(least, 3))
-    cover = np.where(np.isfinite(least), least, 0.0)                         # 0 = no such muscle in that direction
-    lab = body.labels
-    fat = [o["index"] for o in body.objects if o["layer"] == "fat"]
-    spacing = np.array(body.spacing)
-    size = np.array([body.size_mm[2], body.size_mm[1], body.size_mm[0]])
-    c = np.array([-maps.centre[2], maps.centre[1], maps.centre[0]]) * 1000.0 + size / 2
-    lo = np.maximum(np.floor((c - 190.0) / spacing).astype(int), 0)
-    hi = np.minimum(np.ceil((c + 190.0) / spacing).astype(int), np.array(lab.shape))
-    view = lab[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
-    at = np.argwhere(np.isin(view, fat))
-    if len(at) == 0:
-        return 0
-    mm = (at + lo + 0.5) * spacing - size / 2
-    offset = np.stack([mm[:, 2], mm[:, 1], -mm[:, 0]], axis=1) / 1000.0 - maps.centre
-    r = np.linalg.norm(offset, axis=1)
-    under = ndimage.map_coordinates(cover, maps.cell(offset / np.maximum(r[:, None], 1e-9)), order=0, mode="constant", cval=0.0)
-    hit = at[(under > 0) & (r * 1000.0 > under - 2.5)]                        # over the muscle, and what of the fat it lies in
-    view[hit[:, 0], hit[:, 1], hit[:, 2]] = 0
-    counts = np.bincount(lab.ravel(), minlength=256)
-    for o in body.objects:
-        o["voxels"] = int(counts[o["index"]])
-    log(f"face muscles: {len(hit)} voxels of fat taken off the muscles that lie under the skin")
-    return int(len(hit))
-
-
 def build(body: Body, log=print) -> list[Structure]:
     """The muscles of expression of both sides (made once per run); [] where the skin, the skull or the eyes are not at hand."""
     if getattr(body, "face_muscles", None) is not None:

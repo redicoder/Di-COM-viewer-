@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, face_muscles, face_vessels, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth
+from . import bonehub, eyes, face_muscles, face_vessels, fat_shell, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, surface
 from .palette import BONE, colour_of
 
@@ -36,8 +36,6 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
     lab = body.labels
     if layer == "muscles":                                 # the face's muscles are drawn whole (face_muscles.py): the labels' scraps of them go
         face_muscles.clear_scraps(body, log)
-    if layer == "fat":                                     # and the fat over those of them that lie right under the skin
-        face_muscles.expose(body, log)
     objs = objects_of(body, layer)
     named = []
     if layer == "skeleton" and bonehub.cache_path(body).exists():
@@ -110,8 +108,9 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
             albedo = fine_muscle.tone(body, v_mm, np.stack([-n[:, 2], n[:, 1], n[:, 0]], axis=1), colour_of(o["name"], o["layer"]), f)
             info["source"] = "the labels' object; its surface from the photographs' muscle-coloured voxels at 0.66 mm (fine_muscle.py)"
         out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), albedo=albedo, info=info))
-    if layer == "fat":                                     # in the feet and the hands the fat's surface is the skin's own, moved in
-        feet.fat(body, out, baker, occupancy, GLOSS[layer], log)
+    if layer == "fat":                                     # the fat's surface is the skin's own, moved in: all over him,
+        fat_shell.fat(body, out, baker, occupancy, GLOSS[layer], log)
+        feet.fat(body, out, baker, occupancy, GLOSS[layer], log)          # and in the feet and the hands at their own fineness
         hands.fat(body, out, baker, occupancy, GLOSS[layer], log)
     out += head_layers.structures(body, layer, log)        # the head and neck, named on his CT
     out += leg_muscles.structures(body, layer, baker, occupancy, log)      # the hips' and legs' muscles, the knee's ligaments, the joints' cartilage
@@ -150,6 +149,8 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
     # teeth and the tongue, which the mouth places, nor the eyeballs, which lie behind the lids by their own
     # rule (eyes.py).
     under = [s for s in out if s.name not in own and not s.name.endswith(" eyeball")]
-    head_layers.under_skin_everywhere(body, under, log)
+    head_layers.under_skin_everywhere(body, under, log, under_fat=layer != "fat")
+    if layer == "fat":                                     # and it is open over the red of the lips (last: its vertices are renumbered)
+        fat_shell.lips(body, out, log)
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")
     return out

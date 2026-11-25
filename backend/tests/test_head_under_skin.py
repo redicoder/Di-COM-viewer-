@@ -128,3 +128,25 @@ def test_a_part_of_him_is_measured_by_itself(tmp_path):
     # The box that holds it: it sinks.
     moved, _ = head_layers.faces_under_skin(body, [shallow], from_mm=0.0, to_mm=79.0, box=(0.0, 79.0, 10.0, 60.0), log=lambda *_: None)
     assert moved > 0 and depth_of(body, size, shallow).min() > 0.9
+
+
+def test_a_band_leaves_what_lies_in_a_hand_to_the_hands_own_measure(tmp_path):
+    body, size = block(tmp_path)
+    shallow = sheet(size, "shallow", FRONT + 0.3, (50, 68), (20, 55))
+    before = shallow.v.copy()
+    hand = (0.0, 79.0, 45.0, 75.0, 10.0, 60.0)                          # a box that holds it
+    assert head_layers.faces_under_skin(body, [shallow], from_mm=0.0, leave=[hand], log=lambda *_: None) == (0, 0)
+    assert np.array_equal(shallow.v, before)
+    elsewhere = (0.0, 79.0, 0.0, 20.0, 10.0, 60.0)                      # a box that does not
+    assert head_layers.faces_under_skin(body, [shallow], from_mm=0.0, leave=[elsewhere], log=lambda *_: None)[0] > 0
+
+
+def test_what_lies_under_the_fat_is_asked_more_of(tmp_path):
+    body, size = block(tmp_path)
+    # Two millimetres under the skin: deep enough for the fat itself, not for what lies under the fat.
+    as_fat = sheet(size, "as fat", FRONT + 2.0, (50, 68), (16, 34), step=2.0)
+    as_muscle = sheet(size, "as muscle", FRONT + 2.0, (50, 68), (16, 34), step=2.0)
+    wanted = 1.0 + head_layers.UNDER_FAT_MM[0]
+    assert head_layers.faces_under_skin(body, [as_fat], least_mm=1.0, from_mm=0.0, log=lambda *_: None) == (0, 0)
+    assert head_layers.faces_under_skin(body, [as_muscle], least_mm=wanted, from_mm=0.0, log=lambda *_: None)[0] > 0
+    assert (feet.to_mm(size, as_muscle.v)[:, 0] - FRONT).min() > wanted - 0.4      # (a depth reads a third of a millimetre more than it is)

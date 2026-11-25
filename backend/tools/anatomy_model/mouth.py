@@ -39,7 +39,7 @@ import numpy as np
 from scipy import ndimage
 
 from . import ct_frame, fine_skin, head_layers, throat
-from .common import Body, Structure, decimate, level_set, normals_of, surface
+from .common import FAT_LOWER_LIP, FAT_SURFACE, FAT_UPPER_LIP, Body, Structure, decimate, level_set, load_structures, normals_of, surface
 from .zones import MM, Face
 
 GUM_MM = 3.0                    # soft tissue over the upper jaw's bone (gum, palate)
@@ -1612,6 +1612,80 @@ def skin_weights(body: Body, m: Mouth, v: np.ndarray, side: np.ndarray, anchor: 
     return out
 
 
+def lip_sides(v: np.ndarray, m: Mouth, least_d: float = 15.0) -> np.ndarray:
+    """Which lip each vertex of a surface before the mouth is of: +1 the upper, -1 the lower, NaN away from the
+    mouth (as cut says it of the skin's, by the side of the lip line it lies on). `least_d`: only what lies
+    further forward than this is the lips' (mm before the eyes, in the face's frame; the skin's own: 15)."""
+    u, w, d = m.face.local(np.asarray(v, np.float64))
+    g = w - m.lip_w(u)
+    close = (np.abs(u) < HALF_WIDTH + 8.0) & (np.abs(g) < 16.0) & (d > least_d)
+    return np.where(close & (np.abs(u) < HALF_WIDTH + 2.0), np.sign(g), np.nan)
+
+
+def nearest_in_triangles(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """For points p and triangles a, b, c (all (..., 3)): the shares of a, b and c in each triangle's point nearest
+    its p, (..., 3), summing to 1 (Ericson, Real-Time Collision Detection, 5.1.5)."""
+    ab, ac = b - a, c - a
+    ap, bp, cp = p - a, p - b, p - c
+    d1, d2 = (ab * ap).sum(-1), (ac * ap).sum(-1)
+    d3, d4 = (ab * bp).sum(-1), (ac * bp).sum(-1)
+    d5, d6 = (ab * cp).sum(-1), (ac * cp).sum(-1)
+    va, vb, vc = d3 * d6 - d5 * d4, d5 * d2 - d1 * d6, d1 * d4 - d3 * d2
+
+    def over(x, y):
+        return x / np.where(np.abs(y) > 1e-30, y, 1.0)
+
+    inside = np.stack([va, vb, vc], axis=-1) / np.where(np.abs(va + vb + vc) > 1e-30, va + vb + vc, 1.0)[..., None]
+    zero, one = np.zeros_like(d1), np.ones_like(d1)
+    t_ab, t_ac, t_bc = over(d1, d1 - d3), over(d2, d2 - d6), over(d4 - d3, (d4 - d3) + (d5 - d6))
+    cases = [((d1 <= 0) & (d2 <= 0), np.stack([one, zero, zero], axis=-1)),                 # nearest a
+             ((d3 >= 0) & (d4 <= d3), np.stack([zero, one, zero], axis=-1)),                # nearest b
+             ((vc <= 0) & (d1 >= 0) & (d3 <= 0), np.stack([1 - t_ab, t_ab, zero], axis=-1)),          # on the edge a b
+             ((d6 >= 0) & (d5 <= d6), np.stack([zero, zero, one], axis=-1)),                # nearest c
+             ((vb <= 0) & (d2 >= 0) & (d6 <= 0), np.stack([1 - t_ac, zero, t_ac], axis=-1)),          # on the edge a c
+             ((va <= 0) & (d4 - d3 >= 0) & (d5 - d6 >= 0), np.stack([zero, 1 - t_bc, t_bc], axis=-1))]    # on the edge b c
+    out = inside
+    for when, shares in reversed(cases):
+        out = np.where(when[..., None], shares, out)
+    return out
+
+
+def on_the_skin(v: np.ndarray, n: np.ndarray, skin_v: np.ndarray, skin_f: np.ndarray, reach_mm: float = 8.0, k: int = 16):
+    """For points under the skin (glTF metres) and their own normals: the skin's triangle over each. Returns its
+    corners (n, 3; the skin's vertex numbers), their shares in the skin's point nearest the point (n, 3), and
+    whether there is one.
+
+    Of the `k` skin triangles whose middles lie nearest (within `reach_mm`), the one whose nearest point is
+    nearest, among those that look the way the point's own surface does: in a fold (under the chin) the nearest
+    skin of all can be the fold's other side, which goes otherwise with the jaw.
+
+    What is under the skin goes with the jaw as the skin over it does only if it takes the skin's own movement
+    there, and the skin moves as its triangles do: straight between their corners. Read at a point of its own
+    (even one on the skin), a vertex under a triangle in which the weights bend took another way than the
+    triangle did, by millimetres where the jaw travels 30."""
+    from scipy.spatial import cKDTree
+    v, n = np.asarray(v, np.float64), np.asarray(n, np.float64)
+    skin_v, skin_f = np.asarray(skin_v, np.float64), np.asarray(skin_f, np.int64)
+    corners, shares = np.zeros((len(v), 3), np.int64), np.zeros((len(v), 3))
+    if len(v) == 0 or len(skin_f) == 0:
+        return corners, shares, np.zeros(len(v), bool)
+    a, b, c = skin_v[skin_f[:, 0]], skin_v[skin_f[:, 1]], skin_v[skin_f[:, 2]]
+    looks = np.cross(b - a, c - a)
+    looks /= np.maximum(np.linalg.norm(looks, axis=1, keepdims=True), 1e-20)
+    k = min(k, len(skin_f))
+    far, index = cKDTree((a + b + c) / 3.0).query(v, k=k, distance_upper_bound=reach_mm / 1000.0)
+    far, index = far.reshape(len(v), k), np.minimum(index.reshape(len(v), k), len(skin_f) - 1)
+    part = nearest_in_triangles(v[:, None, :], a[index], b[index], c[index])
+    point = part[..., 0:1] * a[index] + part[..., 1:2] * b[index] + part[..., 2:3] * c[index]
+    away = np.linalg.norm(point - v[:, None, :], axis=-1)
+    same = np.isfinite(far) & (np.einsum("nkc,nc->nk", looks[index], n) > 0.3)
+    away = np.where(same, away, np.inf)
+    best = np.argmin(away, axis=1)
+    rows = np.arange(len(v))
+    found = np.isfinite(away[rows, best]) & (away[rows, best] < reach_mm / 1000.0)
+    return skin_f[index[rows, best]], part[rows, best], found
+
+
 # ---- every structure's share in the jaw's turn -----------------------------------------------------------------------
 WITH_THE_JAW = ("mandible", "lower teeth")
 HELD = ("cranium and maxilla", "upper teeth")
@@ -1622,9 +1696,28 @@ AS_ONE = ("hyoid bone", "thyroid cartilage", "cricoid cartilage", "bone (not nam
 def assign(structures: list[Structure], body: Body, m: Mouth, log=print) -> int:
     """Gives every structure near the mouth its jaw weights (Structure.data3: x = the weight, y = how far it goes
     with the lower lip when that is drawn down; hair: a TEXCOORD_3 stream, a strand going as its root goes). Triangles that reach across the sheet (a mesh drawn through the
-    closed mouth) are taken out: they would be drawn out into sheets when it opens. Returns how many structures move."""
+    closed mouth) are taken out: they would be drawn out into sheets when it opens. Returns how many structures move.
+
+    The fat's outer surface is the skin's outline moved in (fat_shell), and it carries marks (Structure.extra:
+    common.FAT_SURFACE, FAT_LOWER_LIP, FAT_UPPER_LIP). It goes as the skin over it goes: each of its vertices
+    takes the movement of the skin's triangle over it (on_the_skin, on the skin's surface as last built: the
+    triangle's corners read, at the lips on the vertex's own lip's side of the sheet, and weighed by where the
+    vertex lies under the triangle), and none of its triangles is taken out. (Read at its own place, a
+    millimetre or two under the skin, it moved otherwise than the skin where the weights change quickly, and
+    with the mouth open it showed through the skin of the upper lip and the jaw.) The marks are taken off
+    here: they are the build's."""
     moved = 0
+    whole_skin = None
     for s in structures:
+        side, spared = None, None
+        if s.name == "subcutaneous fat" and s.extra is not None and not s.streams:
+            mark = np.asarray(s.extra, np.uint8)
+            side = np.where((mark & FAT_UPPER_LIP) > 0, 1.0, np.where((mark & FAT_LOWER_LIP) > 0, -1.0, np.nan))
+            spared = (mark & FAT_SURFACE) > 0
+            s.extra = None
+            path = getattr(body, "export", None)
+            if path is not None and (path / "model" / "skin_surface.npz").exists():
+                whole_skin = load_structures(path / "model" / "skin_surface.npz")[0]
         if s.data3 is not None or (s.streams and "TEXCOORD_3" in s.streams):
             moved += 1
             continue
@@ -1635,7 +1728,8 @@ def assign(structures: list[Structure], body: Body, m: Mouth, log=print) -> int:
             s.data3 = np.stack([np.ones(len(v), np.float32), np.zeros(len(v), np.float32)], axis=1)
             moved += 1
             continue
-        w = weight(body, m, v, np.full(len(v), -1.0) if s.name == "tongue" else None)
+        w = weight(body, m, v, np.full(len(v), -1.0) if s.name == "tongue" else side)
+        over = None                                                         # the fat's surface: the skin's points over it
         if w.max() < 0.004:
             continue
         if s.name == "subcutaneous fat" and s.streams is None:
@@ -1643,9 +1737,16 @@ def assign(structures: list[Structure], body: Body, m: Mouth, log=print) -> int:
             # folds under the chin) that is enough for it to move otherwise than the skin and show through it. Its
             # weights are read where the skin over it is, 1.5 mm out along its own normal (not where that reads
             # something else altogether: across the mouth's slit).
-            outer = weight(body, m, v + normals_of(np.asarray(s.v, np.float32), np.asarray(s.f)) * 0.0015)
+            own = normals_of(np.asarray(s.v, np.float32), np.asarray(s.f))
+            outer = weight(body, m, v + own * 0.0015, side)
             _, at_mouth = sheet_at(m, to_mm(body, v))
             w = np.where((np.abs(outer - w) < 0.25) & ~at_mouth, outer, w).astype(np.float32)
+            if spared is not None and whole_skin is not None and spared.any():
+                corners, shares, found = on_the_skin(v[spared], own[spared], whole_skin.v, whole_skin.f)
+                mine = np.flatnonzero(spared)[found]
+                at = np.asarray(whole_skin.v, np.float64)[corners[found]].reshape(-1, 3)         # the triangles' corners, three for each vertex
+                over = (mine, at, shares[found], np.repeat(side[mine], 3))
+                w[mine] = (weight(body, m, at, over[3]).reshape(-1, 3) * over[2]).sum(axis=1)
         if s.name == "tongue":
             w = with_the_tongue(m, to_mm(body, v), w)
         if any(s.name.startswith(k) or s.name.endswith(k) for k in AS_ONE):
@@ -1662,7 +1763,9 @@ def assign(structures: list[Structure], body: Body, m: Mouth, log=print) -> int:
             # the mouth parts: a mesh made through the closed mouth. Left in, it hangs across the open mouth as a sheet.
             f = np.asarray(s.f, np.int64)
             hard = s.layer == "skeleton" or s.name == "tongue"             # bone, cartilage and the tongue are not the lip's flesh
-            pull = np.zeros_like(w) if hard else lip_pull(body, m, v)
+            pull = np.zeros_like(w) if hard else lip_pull(body, m, v, side)
+            if over is not None:
+                pull[over[0]] = (lip_pull(body, m, over[1], over[3]).reshape(-1, 3) * over[2]).sum(axis=1)
             if s.name == "tongue" and m.throat is not None:
                 pull = throat.sink(body, m, v)                              # it lies down as the mouth opens (else it hides the throat)
             there = turned(m, v, w, 1.0, pull)
@@ -1672,6 +1775,8 @@ def assign(structures: list[Structure], body: Body, m: Mouth, log=print) -> int:
 
             after = longest(there)
             across = (after > 1.7 * np.maximum(longest(v), 2e-4)) & (after > 0.004)
+            if spared is not None:
+                across &= ~spared[f].all(axis=1)                            # (the fat's own surface stays whole)
             if across.any() and s.name in MASSES:
                 s.f = np.asarray(s.f)[~across]
                 log(f"mouth: {s.name}: {int(across.sum())} triangles reaching across the closed mouth taken out")

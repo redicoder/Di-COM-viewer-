@@ -12,6 +12,10 @@ from skimage import measure
 LAYERS = ["skin", "fat", "muscles", "skeleton", "organs"]          # outermost first
 LAYER_OF_CLASS = {"skin": "skin", "fat": "fat", "muscle": "muscles", "bone": "skeleton", "organ": "organs"}
 THICK_MAX_MM = 60.0            # the bake's thickness saturates here (SkinBake.ThickMaxMm in Unity)
+# The fat's marks (Structure.extra, flags): a vertex of its outer surface, which is the skin's outline moved in
+# (fat_shell, feet.sock, hands.glove) and goes as the skin goes; and of that surface, the lower and the upper lip's
+# (it is parted along the lip line as the skin is). mouth.assign reads them and takes them off: they are the build's.
+FAT_SURFACE, FAT_LOWER_LIP, FAT_UPPER_LIP = 1, 2, 4
 CURV_MAX = 0.25                # 1/mm (SkinBake.CurvMax)
 
 
@@ -25,7 +29,8 @@ class Structure:
     bake    uint8 (n, 4)    openness (ambient occlusion), tissue behind the surface / 60 mm, curvature / 0.25 per mm,
                             gloss (128 = the material's own, 255 = twice as glossy, 0 = matte)
     albedo  uint8 (n, 3)    sRGB per vertex, or None
-    extra   uint8 (n,)      the layer's own use (skin: hair density), or None
+    extra   uint8 (n,)      the layer's own use (skin: hair density; the fat: FAT_SURFACE and the lips' marks, for the
+                            build only), or None
     data2   float32 (n, 2)  a third pair of numbers per vertex (skin: the eyelids' weights, lids.py), or None
     data3   float32 (n, 2)  a fourth pair: x = how far the vertex goes with the jaw (mouth.py), or None
     streams dict            ready vertex attributes by glTF name (NORMAL, TANGENT, COLOR_0, TEXCOORD_0, TEXCOORD_1),

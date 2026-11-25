@@ -32,7 +32,7 @@ import numpy as np
 from scipy import ndimage
 
 from . import fine_skin
-from .common import Body, Structure, decimate_regions, outward, taubin
+from .common import FAT_SURFACE, Body, Structure, decimate_regions, outward, taubin
 
 UP_MM = 230.0                   # the feet, for this module: his lowest millimetres (to above the ankles)
 FAT_MM = 1.5                    # the fat's surface lies this far under the skin's (2 mm left the small toes as stalks)
@@ -143,6 +143,8 @@ def fat(body: Body, structures: list[Structure], baker, occupancy: np.ndarray, g
     v = np.concatenate([np.asarray(s.v, np.float32)[used], sv])
     f = np.concatenate([inverse.reshape(-1, 3), sf.astype(np.int64) + len(used)]).astype(np.uint32)
     log(f"feet: the fat's surface there is the level {FAT_MM} mm under the skin's outline: {len(sf)} triangles in place of {int((~keep).sum())} from the labels")
+    if s.extra is not None:                                                # (the fat's marks: the sock is its surface too)
+        s.extra = np.concatenate([np.asarray(s.extra, np.uint8)[used], np.full(len(sv), FAT_SURFACE, np.uint8)])
     s.v, s.f = v, f
     s.bake = baker.colours(v, f, occupancy, gloss=gloss)
     s.info["feet"] = f"below {UP_MM:.0f} mm its surface is the level {FAT_MM} mm under the skin's outline (feet.py), not the labels' fat"

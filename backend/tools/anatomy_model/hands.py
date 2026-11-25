@@ -25,7 +25,7 @@ from scipy import ndimage
 from scipy.spatial import cKDTree
 
 from . import bonehub, feet, fine_skin, nails
-from .common import Body, Structure, decimate_regions, taubin
+from .common import FAT_SURFACE, Body, Structure, decimate_regions, taubin
 
 UNDER_MM = 2.0                  # a hand's bones and muscles lie at least this far under the skin (under the fat's surface)
 GLOVE_MM = 1.5                  # the fat's surface under the skin's
@@ -208,6 +208,7 @@ def fat(body: Body, structures: list[Structure], baker, occupancy: np.ndarray, g
     size = feet.size_of(body)
     v, f = np.asarray(s.v, np.float32), np.asarray(s.f)
     mm = feet.to_mm(size, v)
+    mark = None if s.extra is None else np.asarray(s.extra, np.uint8)     # (the fat's marks: the gloves are its surface too)
     added, taken = 0, 0
     for side, bones in hands.items():
         gv, gf = glove(fine, size, bones)
@@ -219,11 +220,15 @@ def fat(body: Body, structures: list[Structure], baker, occupancy: np.ndarray, g
         f = np.concatenate([f[keep], gf.astype(np.int64) + len(v)])
         v = np.concatenate([v, gv])
         mm = np.concatenate([mm, feet.to_mm(size, gv)])
+        if mark is not None:
+            mark = np.concatenate([mark, np.full(len(gv), FAT_SURFACE, np.uint8)])
         added += int(len(gf))
     if not added:
         return 0
     used, inverse = np.unique(f, return_inverse=True)
     s.v, s.f = v[used], inverse.reshape(-1, 3).astype(np.uint32)
+    if mark is not None:
+        s.extra = mark[used]
     s.bake = baker.colours(s.v, s.f, occupancy, gloss=gloss)
     s.info["hands"] = f"within {REACH_MM:.0f} mm of a hand's bones its surface is the level {GLOVE_MM} mm under the skin's outline (hands.py), not the labels' fat"
     log(f"hands: the fat's surface there is the level {GLOVE_MM} mm under the skin's outline: {added} triangles in place of {taken} from the labels")
