@@ -402,6 +402,75 @@ public static class ModelSnapshot
         Debug.Log("ModelSnapshot: names done");
     }
 
+    /// <summary>What shows through the skin: with every layer on, the body is looked at from the views the
+    /// pictures are taken from, and every pixel is asked which mesh is in front (ModelPick.Map). Whatever is in
+    /// front and is not of the skin's layer shows through it. The log lists it view by view (structure, pixels,
+    /// where in the picture) and the sum; nothing is written but the log.</summary>
+    public static void RunThrough()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null) return;
+        float dist = b.size.x * 0.5f / (0.84f * 1600f / 900f) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+        cam.targetTexture = rt;
+        body.LookAt("skin");
+        var renderers = body.Touchable();
+        var ofSkin = new System.Collections.Generic.HashSet<Renderer>();
+        Transform skinLayer = FindDeep(body.transform, "skin");
+        foreach (Renderer r in skinLayer.GetComponentsInChildren<Renderer>(true)) ofSkin.Add(r);
+        Vector3 centre = new Vector3(0f, b.size.y * 0.5f, 0f);
+        Vector3 head = new Vector3(b.min.x + 0.12f, b.size.y * 0.6f, 0f);
+        Vector3 chest = new Vector3(b.min.x + 0.50f, b.size.y * 0.5f, 0f);
+        Vector3 legs = new Vector3(b.min.x + 1.25f, b.size.y * 0.5f, 0f);
+        Vector3 feet = new Vector3(b.max.x - 0.07f, b.size.y * 0.55f, 0f);
+        Vector3 hands = new Vector3(b.min.x + 0.86f, b.size.y * 0.75f, 0f);
+        var views = new (string name, float yaw, float pitch, float distance, Vector3 focus)[]
+        {
+            ("whole", 0f, 35f, dist, centre), ("above", 0f, 90f, dist, centre), ("from his other side", 180f, 35f, dist, centre),
+            ("chest", -20f, 35f, dist * 0.4f, chest), ("chest from the other side", 160f, 35f, dist * 0.4f, chest), ("belly from above", 0f, 80f, dist * 0.4f, new Vector3(b.min.x + 0.75f, b.size.y * 0.5f, 0f)),
+            ("head", -30f, 30f, dist * 0.18f, head), ("face", -90f, 80f, dist * 0.16f, head + new Vector3(0.03f, 0f, 0f)), ("head from the other side", 150f, 30f, dist * 0.18f, head),
+            ("legs", 0f, 40f, dist * 0.2f, legs), ("legs from the other side", 180f, 40f, dist * 0.2f, legs), ("thighs from above", 0f, 80f, dist * 0.3f, new Vector3(b.min.x + 1.05f, b.size.y * 0.5f, 0f)),
+            ("shins from above", 0f, 80f, dist * 0.3f, new Vector3(b.min.x + 1.5f, b.size.y * 0.5f, 0f)),
+            ("feet", -90f, 28f, dist * 0.2f, feet), ("feet from the side", -40f, 38f, dist * 0.2f, feet), ("hands", 0f, 78f, dist * 0.17f, hands),
+        };
+        long all = 0;
+        foreach (var view in views)
+        {
+            Quaternion q = Quaternion.Euler(view.pitch, view.yaw, 0f);
+            cam.transform.position = view.focus + q * new Vector3(0, 0, -view.distance);
+            cam.transform.rotation = q;
+            int[] map = ModelPick.Map(cam, renderers, out int w, out int h);
+            var count = new System.Collections.Generic.Dictionary<int, int>();
+            var box = new System.Collections.Generic.Dictionary<int, RectInt>();
+            int skinPixels = 0;
+            for (int i = 0; i < map.Length; i++)
+            {
+                int id = map[i];
+                if (id == 0) continue;
+                if (ofSkin.Contains(renderers[id - 1])) { skinPixels++; continue; }
+                int x = i % w, y = h - 1 - i / w;                              // as in the saved pictures: y from the top
+                if (!count.ContainsKey(id)) { count[id] = 0; box[id] = new RectInt(x, y, 0, 0); }
+                count[id]++;
+                RectInt r = box[id];
+                int x0 = Mathf.Min(r.xMin, x), y0 = Mathf.Min(r.yMin, y), x1 = Mathf.Max(r.xMax, x), y1 = Mathf.Max(r.yMax, y);
+                box[id] = new RectInt(x0, y0, x1 - x0, y1 - y0);
+            }
+            var parts = new System.Collections.Generic.List<string>();
+            int through = 0;
+            foreach (var pair in count)
+            {
+                through += pair.Value;
+                RectInt r = box[pair.Key];
+                parts.Add($"{renderers[pair.Key - 1].name} {pair.Value} px (x {r.xMin}..{r.xMax}, y {r.yMin}..{r.yMax})");
+            }
+            all += through;
+            Debug.Log($"ModelSnapshot: through the skin, view '{view.name}': {through} pixels of {skinPixels + through} of him" + (parts.Count > 0 ? ": " + string.Join("; ", parts) : ""));
+        }
+        Debug.Log($"ModelSnapshot: through the skin, {views.Length} views: {all} pixels in all");
+        cam.targetTexture = null;
+        Object.DestroyImmediate(rt);
+    }
+
     /// <summary>The eyes only, quickly (build/snapshots/eye_*.png): closed, half open and open, from the front and from both sides.</summary>
     public static void RunEyes()
     {

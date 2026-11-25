@@ -161,6 +161,26 @@ namespace DicomViewer.Tests
         }
 
         [Test]
+        public void TheWholePictureIsReadInNumbersTheRightWayUp()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) Assert.Ignore("needs a graphics device");
+            var (cam, near, far, rt) = Stage();
+            near.transform.position = new Vector3(0f, 0.5f, 2f);          // the small cube lifted: in the picture's upper half
+            var both = new List<Renderer> { far, near };
+            int[] map = ModelPick.Map(cam, both, out int w, out int h);
+            Assert.That(w, Is.EqualTo(200));
+            Assert.That(h, Is.EqualTo(100));
+            Assert.That(map.Length, Is.EqualTo(200 * 100));
+            Assert.That(map[72 * 200 + 100], Is.EqualTo(2), "above the middle (rows count from the bottom): the small cube, the second offered");
+            Assert.That(map[28 * 200 + 100], Is.EqualTo(1), "below the middle: the large cube behind");
+            Assert.That(map[3 * 200 + 3], Is.EqualTo(0), "in the corner: nothing");
+            // What a tap picks is what the map has at that pixel.
+            Assert.That(ModelPick.At(cam, new Vector2(100f, 72f), both), Is.SameAs(near));
+            Assert.That(ModelPick.At(cam, new Vector2(100f, 28f), both), Is.SameAs(far));
+            Clear(cam, rt, near, far);
+        }
+
+        [Test]
         public void ATapPicksTintsAndNamesAndASecondTapPutsTheCardAway()
         {
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) Assert.Ignore("needs a graphics device");

@@ -99,6 +99,11 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   cd backend\tools; ..\.venv-seg\Scripts\python.exe -m anatomy_model.names ..\out\photo_body ..\..\unity\Assets\StreamingAssets\anatomy\model_names.json
   & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.RunNames -logFile build\model_names.log -quit
   ```
+- **Does anything show through the skin?** After a change to the model, ask it of the picture: every pixel of sixteen views is asked which mesh is in
+  front, and the log lists whatever is in front without being skin (the lines "through the skin"; the last gives the sum, which should be 0):
+  ```powershell
+  & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.RunThrough -logFile build\model_through.log -quit
+  ```
 - **The modelled body, prototype** (the new body built step by step from generated reference pictures: body, skeleton,
   muscles, each organ as a GLB made by an image-to-3D tool from Gemini pictures): put the files in
   `unity/Assets/Models/` (`body.glb`, `skeleton.glb`, `muscles.glb`, `heart.glb`, ...). The glTF importer

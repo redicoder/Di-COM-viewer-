@@ -144,11 +144,12 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         feet.under(body, out, log)
     if layer == "muscles":                                 # (the skeleton's part in the hands is seen to above, with its bones)
         hands.under(body, out, log)
-    # In the head nothing of a layer under the skin reaches it, measured on the triangles (the nostrils, the ear
-    # canals and the creases of the face are narrower than these layers' triangles). Not the teeth and the tongue,
-    # which the mouth places, nor the eyeballs, which lie behind the lids by their own rule (eyes.py).
+    # Nothing of a layer under the skin reaches it anywhere, measured on the triangles (the nostrils, the ear
+    # canals and the creases of the face are narrower than these layers' triangles; and with every layer on,
+    # fat showed in rings where photographs were passed over, and fingers' bones at five fingertips). Not the
+    # teeth and the tongue, which the mouth places, nor the eyeballs, which lie behind the lids by their own
+    # rule (eyes.py).
     under = [s for s in out if s.name not in own and not s.name.endswith(" eyeball")]
-    head_layers.faces_under_skin(body, under, log=log)
-    head_layers.faces_under_skin(body, under, from_mm=head_layers.NECK_MM, to_mm=head_layers.HEAD_MM + 10.0, log=log)       # and in the neck
+    head_layers.under_skin_everywhere(body, under, log)
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")
     return out

@@ -114,10 +114,11 @@ card's own words are Italian.
 
 ## 7. What stays open
 
-- Found with the new pick, by asking what is in front at a yellow speck on the chest: **a spot of fat stands in
-  front of the skin there** (three pixels in `anatomy_skin_chest.png`). The check on whole triangles is run in
-  the head and the neck only, and it measures against the fine outline; on the trunk the skin's mesh is coarser
-  (3 mm) and lies under that outline in places. The pick can find every such spot from a set of views.
+- (Closed the same day.) Found with the new pick, by asking what is in front at a yellow speck on the chest: a
+  spot of fat stood in front of the skin there. Asked of sixteen whole views, 2620 pixels were not skin: fat in
+  three rings where photographs were passed over, and fingers' bones at six fingertips. The check on whole
+  triangles now runs over all of him, and the same sixteen views show nothing but skin (ARCHITECTURE, Nothing
+  shows through the skin).
 
 - The names are unchecked (section 2).
 - The spec's short descriptions (3.3, `anatomy_info.json`: two to four sentences per structure and language)

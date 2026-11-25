@@ -90,3 +90,41 @@ def test_the_depth_of_points_is_told_even_where_the_box_holds_only_him_or_nothin
     assert fine_skin.depths(fine, np.array([[2.0, 40.0, 3.0]]), reach_mm=2.0)[0] == -99.0        # far out in front
     near = fine_skin.depths(fine, np.array([[FRONT + 2.0, 60.0, 30.0], [FRONT - 2.0, 60.0, 30.0]]))
     assert abs(near[0] - 2.0) < 0.6 and abs(near[1] + 2.0) < 0.6
+
+
+def test_where_photographs_were_passed_over_what_lies_under_the_skin_lies_deeper(tmp_path):
+    body, size = block(tmp_path)
+    fine = fine_skin.load(body)
+    fine.fallback[30:36] = True                                         # six photographs passed over, 30 to 36 mm up
+    assert head_layers.joints_of(fine) == [(30.0, 36.0)]
+    joints = head_layers.joints_of(fine)
+    two = sheet(size, "two millimetres under", FRONT + 2.0, (8, 70), (16, 34), step=2.0)     # deep enough anywhere else (and beside the pit)
+    before = feet.to_mm(size, two.v)
+    moved, dropped = head_layers.faces_under_skin(body, [two], from_mm=0.0, joints=joints, log=lambda *_: None)
+    assert moved > 0 and dropped == 0
+    after = feet.to_mm(size, two.v)
+    at_joint = (before[:, 1] > 30) & (before[:, 1] < 36)
+    far = (before[:, 1] < 12) | (before[:, 1] > 54)
+    # (z runs back: deeper is more. A depth reads half a voxel more than it is: 0.33 mm here.)
+    assert (after[at_joint, 0] - FRONT).min() > head_layers.JOINT_MM - 0.4       # to JOINT_MM under the outline there
+    assert np.abs(after[far] - before[far]).max() < 1e-4                # and as it was away from it
+    # Without the joints nothing of it is too shallow.
+    again = sheet(size, "again", FRONT + 2.0, (8, 70), (16, 34), step=2.0)
+    assert head_layers.faces_under_skin(body, [again], from_mm=0.0, log=lambda *_: None) == (0, 0)
+    # Measured at half the fineness, a depth may read up to a millimetre more than it is; so more is asked for
+    # there (COARSE_MM), and what is a millimetre under the skin truly goes deeper.
+    one = sheet(size, "a millimetre under", FRONT + 1.0, (8, 28), (16, 34), step=2.0)
+    assert head_layers.faces_under_skin(body, [one], least_mm=head_layers.COARSE_MM, from_mm=0.0, fine_grid=False, log=lambda *_: None)[0] > 0
+    assert (feet.to_mm(size, one.v)[:, 0] - FRONT).min() > 0.8
+
+
+def test_a_part_of_him_is_measured_by_itself(tmp_path):
+    body, size = block(tmp_path)
+    shallow = sheet(size, "shallow", FRONT + 0.3, (50, 68), (20, 55))
+    before = shallow.v.copy()
+    # A box that does not hold it (a hand elsewhere): nothing is touched.
+    assert head_layers.faces_under_skin(body, [shallow], from_mm=0.0, to_mm=79.0, box=(0.0, 79.0, 60.0, 79.0), log=lambda *_: None) == (0, 0)
+    assert np.array_equal(shallow.v, before)
+    # The box that holds it: it sinks.
+    moved, _ = head_layers.faces_under_skin(body, [shallow], from_mm=0.0, to_mm=79.0, box=(0.0, 79.0, 10.0, 60.0), log=lambda *_: None)
+    assert moved > 0 and depth_of(body, size, shallow).min() > 0.9

@@ -310,38 +310,61 @@ def each_under_skin(body: Body, structures: list[Structure], least_mm: float = 1
 
 HEAD_MM = 1640.0                # the head, for faces_under_skin: what lies above this (mm up from the lowest photograph)
 NECK_MM = 1540.0                # ... and the neck: from here up to the head
+FEET_MM = 190.0                 # the feet: what lies below this (fine_skin.TOES_MM)
+BAND_MM = 150.0                 # the rest of him is measured in bands this high
+COARSE_MM = 1.8                 # the least depth where it is measured at half the outline's fineness (the neck, the trunk,
+                                # the limbs): the depth read there may be up to a millimetre more than it is
+JOINT_MM = 3.8                  # the least depth where photographs were passed over (see under_skin_everywhere); read coarsely
+JOINT_REACH_MM = 12.0           # ... and for this far either side of them, less and less
 SPREAD = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [1 / 3, 1 / 3, 1 / 3], [0.5, 0.5, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6]])
 
 
-def head_depth(body: Body, fine: fine_skin.FineOutline, from_mm: float = HEAD_MM, to_mm: float | None = None):
-    """The depth under the skin throughout the head, or between two heights (fine_skin.depth_near's field),
-    measured once for a run: kept on the body."""
+def head_depth(body: Body, fine: fine_skin.FineOutline, from_mm: float = HEAD_MM, to_mm: float | None = None, box: tuple | None = None, fine_grid: bool = True):
+    """The depth under the skin throughout the head, or between two heights, or in a box of them (z0, z1, x0, x1:
+    mm, the body's axes) (fine_skin.depth_near's field), measured once for a run: kept on the body.
+
+    `fine_grid`: at the outline's own fineness if the box is not too large (a nostril is 6 mm across, the cleft
+    between two fingers a millimetre and a half); without it at half of that, which is enough for the trunk and
+    the limbs and an eighth of the work."""
     kept = getattr(body, "_head_depth", None)
     if kept is None:
         kept = body._head_depth = {}
-    if (from_mm, to_mm) in kept:
-        return kept[(from_mm, to_mm)]
+    key = (from_mm, to_mm, box, fine_grid)
+    if key in kept:
+        return kept[key]
     spacing, origin = np.array(fine.spacing, np.float64), np.array(fine.origin_mm, np.float64)
     j0 = max(0, int((from_mm - 8.0 - origin[1]) / spacing[1]))
     j1 = fine.cover.shape[1] if to_mm is None else min(fine.cover.shape[1], int((to_mm + 8.0 - origin[1]) / spacing[1]) + 1)
-    him = np.asarray(fine.cover[:, j0:j1, :]) > 127
-    zz, xx = np.flatnonzero(him.any(axis=(1, 2))), np.flatnonzero(him.any(axis=(0, 1)))
-    if len(zz) == 0:
+    if j1 <= j0:
         return None
-    corners = origin + (np.array([[zz[0], j0, xx[0]], [zz[-1], j1 - 1, xx[-1]]]) + 0.5) * spacing
-    # The head at the outline's own fineness (a nostril is 6 mm across); the neck with the shoulders' tops, which
-    # is wider and has no such openings, at half of it.
-    field = fine_skin.depth_near(fine, corners, 6.0, most_voxels=7e7)
+    if box is None:
+        him = np.asarray(fine.cover[:, j0:j1, :]) > 127
+        zz, xx = np.flatnonzero(him.any(axis=(1, 2))), np.flatnonzero(him.any(axis=(0, 1)))
+        if len(zz) == 0:
+            return None
+        corners = origin + (np.array([[zz[0], j0, xx[0]], [zz[-1], j1 - 1, xx[-1]]]) + 0.5) * spacing
+    else:
+        corners = np.array([[box[0], origin[1] + (j0 + 0.5) * spacing[1], box[2]], [box[1], origin[1] + (j1 - 0.5) * spacing[1], box[3]]])
+    field = fine_skin.depth_near(fine, corners, 6.0, most_voxels=7e7 if fine_grid else 1.0)
     if field is None:
         return None
-    kept[(from_mm, to_mm)] = field
+    kept[key] = field
     return field
 
 
+def joints_of(fine: fine_skin.FineOutline) -> list[tuple[float, float]]:
+    """The stretches of him (mm up, from and to) whose photographs were passed over (FineOutline.fallback)."""
+    blank = np.flatnonzero(np.asarray(fine.fallback))
+    if len(blank) == 0:
+        return []
+    origin, step = float(fine.origin_mm[1]), float(fine.spacing[1])
+    return [(origin + run[0] * step, origin + (run[-1] + 1) * step) for run in np.split(blank, np.flatnonzero(np.diff(blank) > 1) + 1)]
+
+
 def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 1.0, drop_mm: float = 0.5, from_mm: float = HEAD_MM, to_mm: float | None = None,
-                     log=print) -> tuple[int, int]:
-    """In the head (above `from_mm`; or between two heights: the neck): no TRIANGLE of a structure under the skin
-    reaches the skin. Returns (vertices moved, triangles taken out).
+                     box: tuple | None = None, fine_grid: bool = True, joints: list | None = None, label: str = "head", log=print) -> tuple[int, int]:
+    """In one part of him (above `from_mm`; or between two heights; or in a box of them, z0, z1, x0, x1): no
+    TRIANGLE of a structure under the skin reaches the skin. Returns (vertices moved, triangles taken out).
 
     The other rules look at vertices (tuck_under_skin, each_under_skin). The head's skin, read from its tissue,
     has what the old outline smoothed over: the nostrils, the ear canals, the creases beside the nose and round
@@ -351,12 +374,14 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
     the fine outline:
 
     - a triangle that comes nearer the skin than `least_mm` anywhere sinks: its corners go inwards, the way the
-      depth grows, by what it lacks (three rounds: its neighbours' corners come with it);
+      depth grows, by what it lacks (three rounds: its neighbours' corners come with it). Where photographs
+      were passed over (`joints`: from and to, mm up) the least is JOINT_MM, falling back to `least_mm` over
+      JOINT_REACH_MM either side (under_skin_everywhere says why);
     - one that still lies nearer than `drop_mm` after that, or outside, is taken out: it crosses an opening its
       corners cannot leave (a nostril, an ear canal: there the layer under the skin has a hole too, as it has
       in him)."""
     fine = fine_skin.load(body)
-    got = head_depth(body, fine, from_mm, to_mm) if fine is not None else None
+    got = head_depth(body, fine, from_mm, to_mm, box, fine_grid) if fine is not None else None
     if got is None:
         return 0, 0
     depth, lo, step = got
@@ -377,6 +402,13 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
             g[:, axis] = (deep(points + h) - deep(points - h)) / (2 * h[axis])
         return g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-6)
 
+    def least_at(heights):                                                      # the least depth wanted at each height
+        need = np.full(np.shape(heights), float(least_mm))
+        for a, b in joints or []:
+            away = np.maximum(np.maximum(a - heights, heights - b), 0.0)
+            need = np.maximum(need, least_mm + (JOINT_MM - least_mm) * np.clip(1.0 - away / JOINT_REACH_MM, 0.0, 1.0))
+        return need
+
     moved, dropped, names = 0, 0, []
     for s in structures:
         if s.streams or len(s.v) == 0 or len(s.f) == 0:
@@ -384,22 +416,27 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
         p = np.asarray(s.v, np.float64) * 1000.0
         mm = np.stack([-p[:, 2], p[:, 1], p[:, 0]], axis=1) + size / 2
         f = np.asarray(s.f, np.int64)
-        head = np.flatnonzero(((mm[:, 1] > from_mm) & (mm[:, 1] < (np.inf if to_mm is None else to_mm)))[f].all(axis=1))
+        here = (mm[:, 1] > from_mm) & (mm[:, 1] < (np.inf if to_mm is None else to_mm))
+        if box is not None:
+            here &= (mm[:, 0] > box[0]) & (mm[:, 0] < box[1]) & (mm[:, 2] > box[2]) & (mm[:, 2] < box[3])
+        head = np.flatnonzero(here[f].all(axis=1))
         if len(head) == 0:
             continue
         first = mm.copy()
 
-        def worst_of():
-            points = np.einsum("kw,nwc->nkc", SPREAD, mm[f[head]]).reshape(-1, 3)
-            return deep(points).reshape(-1, len(SPREAD)).min(axis=1)
+        def lacking():
+            """Per triangle: how much it lacks of the depth wanted (positive: too shallow), and its least depth."""
+            points = np.einsum("kw,nwc->nkc", SPREAD, mm[f[head]])
+            d = deep(points.reshape(-1, 3)).reshape(-1, len(SPREAD))
+            return (least_at(points[..., 1]) - d).max(axis=1), d.min(axis=1)
 
         for _ in range(3):
-            worst = worst_of()
-            bad = worst < least_mm
+            lack, _ = lacking()
+            bad = lack > 0
             if not bad.any():
                 break
             lacks = np.zeros(len(mm))
-            np.maximum.at(lacks, f[head[bad]].ravel(), np.repeat(np.minimum(least_mm - worst[bad] + 0.3, 5.0), 3))
+            np.maximum.at(lacks, f[head[bad]].ravel(), np.repeat(np.minimum(lack[bad] + 0.3, 5.0), 3))
             todo = np.flatnonzero(lacks > 0)
             wanted = deep(mm[todo]) + lacks[todo]
             for _ in range(5):
@@ -411,7 +448,7 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
         far = np.linalg.norm(mm - first, axis=1)
         over = far > 6.0                                                        # none by more than this
         mm[over] = first[over] + (mm[over] - first[over]) * (6.0 / far[over])[:, None]
-        out = worst_of() < drop_mm
+        out = lacking()[1] < drop_mm
         changed = int((far > 0.05).sum())
         if changed:
             q = mm - size / 2
@@ -424,5 +461,41 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
             moved, dropped = moved + changed, dropped + int(out.sum())
             names.append(f"{s.name} {changed}/{int(out.sum())}")
     if names:
-        log(f"{'head' if to_mm is None else 'neck'}: no triangle under the skin reaches it: {moved} vertices moved in, {dropped} triangles across an opening taken out (vertices/triangles): " + "; ".join(names))
+        log(f"{label}: no triangle under the skin reaches it: {moved} vertices moved in, {dropped} triangles across an opening taken out (vertices/triangles): " + "; ".join(names))
     return moved, dropped
+
+
+def under_skin_everywhere(body: Body, structures: list[Structure], log=print) -> tuple[int, int]:
+    """faces_under_skin for all of him, part by part. Returns (vertices moved, triangles taken out).
+
+    First run in the head and the neck only (2026-11-24). Then, with every layer on, the body was looked at from
+    sixteen sides and every pixel asked which mesh is in front (ModelSnapshot.RunThrough): 2620 pixels were not
+    skin. Two things showed:
+
+    - FAT, in three rings round him: at the knees, the hips and across the chest, exactly where photographs were
+      passed over (FineOutline.fallback: frost over a cut face where two blocks of the specimen meet). The skin's
+      mesh is let move 2.25 mm there when it is relaxed (skin.tolerance: the outline steps at those joints),
+      0.45 mm elsewhere, and what lies under it was kept 1.4 mm under the OUTLINE. So there the least is JOINT_MM
+      (2.8 mm truly, at the least: see the next paragraph);
+    - the FINGERS' BONES at five fingertips (the right ring finger's by 5.7 mm): each finger's bones are moved as
+      one piece into the finger (hands.under), and a finger that was bent otherwise in the CT than under the
+      camera does not fit in as one piece. What still stands out goes in here, corner by corner.
+
+    The head and the hands are measured at the outline's own 0.66 mm (the nostrils; the clefts between the
+    fingers); the neck, the trunk and the limbs at half of that, in bands; the feet as the hands. A depth is
+    counted from voxel to voxel (fine_skin.depth_near), so it reads half a voxel more than it is, and at half
+    the fineness up to a whole millimetre: there the least is COARSE_MM, which is 0.8 mm truly at the least."""
+    fine = fine_skin.load(body)
+    if fine is None:
+        return 0, 0
+    joints = joints_of(fine)
+    total = np.zeros(2, int)
+    total += faces_under_skin(body, structures, label="head", log=log)
+    total += faces_under_skin(body, structures, least_mm=COARSE_MM, from_mm=NECK_MM, to_mm=HEAD_MM + 10.0, fine_grid=False, joints=joints, label="neck", log=log)
+    for k, (z0, z1, y0, y1, x0, x1) in enumerate(fine_skin.hand_boxes(body)):
+        total += faces_under_skin(body, structures, from_mm=y0, to_mm=y1, box=(z0, z1, x0, x1), joints=joints, label=f"hand {k + 1}", log=log)
+    total += faces_under_skin(body, structures, from_mm=-1.0, to_mm=FEET_MM + 10.0, joints=joints, label="feet", log=log)
+    for a in np.arange(FEET_MM, NECK_MM, BAND_MM):
+        total += faces_under_skin(body, structures, least_mm=COARSE_MM, from_mm=float(a), to_mm=float(min(a + BAND_MM, NECK_MM)) + 10.0, fine_grid=False,
+                                  joints=joints, label=f"{a:.0f} to {min(a + BAND_MM, NECK_MM):.0f} mm up", log=log)
+    return int(total[0]), int(total[1])
