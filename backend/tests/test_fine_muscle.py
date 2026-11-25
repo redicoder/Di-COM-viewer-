@@ -1,5 +1,7 @@
 """The fine muscle outline's rules on made-up blocks: which labelled muscle a voxel's fine outline may belong to,
-and what stands in for a blank photograph. Needs scipy and scikit-image (backend/.venv-seg); skipped without them."""
+what stands in for a blank photograph, how near the skin a muscle may begin, and what counts as an object's
+where the colour cannot say (thin sheets, aponeuroses). Needs scipy and scikit-image (backend/.venv-seg); skipped
+without them."""
 import sys
 from pathlib import Path
 
@@ -93,3 +95,73 @@ def test_a_photograph_with_a_part_missing_is_found_and_a_growing_part_is_not():
     slope = np.linspace(5000.0, 60000.0, 40)                            # a shoulder coming in: larger from photograph to photograph
     assert fine_muscle.partial(tissue).nonzero()[0].tolist() == [20]
     assert not fine_muscle.partial(slope).any()
+
+
+def test_a_muscle_begins_no_nearer_the_skin_than_it_may_measured_in_space():
+    # A ball of 20 mm on the fine grid: what lies nearer its surface than 3.6 mm is no muscle's, what lies deeper is.
+    fine = (0.66, 1.0, 0.66)
+    zz, yy, xx = np.mgrid[0:81, 0:51, 0:81]
+    depth = 20.0 - np.sqrt(((zz - 40) * 0.66) ** 2 + ((yy - 25) * 1.0) ** 2 + ((xx - 40) * 0.66) ** 2)
+    inside = depth > 0
+    limit = fine_muscle.under_limit(inside, fine, 3.6)
+    assert limit.shape == inside.shape and limit.dtype == np.float32
+    assert limit[~inside].max() == 0.0 and limit[inside & (depth < 2.5)].max() == 0.0      # not in the skin, nor in the fat's place under it
+    assert limit[depth > 5.0].min() == 1.0                              # all of what lies deeper
+    half = depth[(limit > 0.4) & (limit < 0.6)]
+    assert 3.3 < np.median(half) < 4.1                                  # and half of it at 3.6 mm, good to a third of a millimetre or so
+    top = inside & (yy > 25) & (np.abs(zz - 40) < 4) & (np.abs(xx - 40) < 4)                # where the outline lies ABOVE (along the body): in space,
+    assert limit[top & (depth < 2.5)].max() == 0.0                      # not only within a photograph
+    # One least depth for every slice: the feet's and the head's own (shallower) beside the body's.
+    per_slice = np.where(np.arange(51) < 25, 1.3, 3.6)
+    mixed = fine_muscle.under_limit(inside, fine, per_slice)
+    side = inside & (np.abs(depth - 2.4) < 0.3) & (np.abs(yy - 25) > 6)                     # 2.4 mm under the ball's side, clear of its ends
+    assert mixed[side & (yy < 25)].min() > 0.9 and mixed[side & (yy > 25)].max() == 0.0
+    assert (fine_muscle.under_limit(np.ones((8, 8, 8), bool), fine, 3.6) == 1.0).all()      # no outline in the block: all of it deep
+
+
+def test_the_thin_parts_of_an_object_are_its_sheets_not_the_edges_of_its_thick_parts():
+    mask = np.zeros((20, 20, 20), bool)
+    mask[2:12, 2:12, 2:12] = True                                       # a thick block,
+    mask[12:18, 5:17, 6:8] = True                                       # a sheet two voxels thick standing on it,
+    mask[15, 15, 15] = True                                             # and a speck
+    thin = fine_muscle.thin_parts(mask)
+    assert thin[12:18, 5:17, 6:8].all() and not thin[2:12, 2:12, 2:12].any() and not thin[15, 15, 15]
+    zz, yy, xx = np.mgrid[0:40, 0:40, 0:40]
+    ball = np.sqrt((zz - 20) ** 2 + (yy - 20) ** 2 + (xx - 20) ** 2) < 15
+    assert not fine_muscle.thin_parts(ball).any()                       # a round thing has no thin parts
+    aslant = np.abs(zz - xx) < 2                                        # a sheet at 45 degrees, three voxels through along an axis
+    assert fine_muscle.thin_parts(aslant & (yy > 2) & (yy < 37)).sum() > 0.9 * (aslant & (yy > 2) & (yy < 37)).sum()
+
+
+def test_a_thin_sheet_counts_whatever_its_colour_and_an_aponeurosis_as_its_labels_have_it():
+    shape = (6, 4, 12)
+    cover = np.zeros(shape, np.float32)
+    cover[:, :, 0:4] = 1.0                                              # muscle-red here,
+    cover[:, :, 4:8] = 0.2                                              # pale here (a thin sheet with its fascia: a fifth red),
+    tissue = np.ones(shape, np.float32)
+    tissue[:, :, 10:] = 0.0                                             # and no tissue at all here
+    mine = np.ones(shape, bool)
+    thin = np.zeros(shape, bool)
+    thin[:, :, 6:12] = True
+    got = fine_muscle.counted(cover, tissue, mine, thin)
+    assert (got[:, :, 0:4] == 1.0).all()                                # red: the object's
+    assert np.allclose(got[:, :, 4:6], 0.2)                             # pale where its labels are thick: as much as is red
+    assert (got[:, :, 6:10] == 1.0).all()                               # pale where its labels are thin: the object's all the same
+    assert (got[:, :, 10:] == 0.0).all()                                # (not where there is nothing)
+    assert (fine_muscle.counted(cover, tissue, np.zeros(shape, bool), thin)[:, :, 0:4] == 0.0).all()       # red that is not its own: not
+    own = np.zeros(shape, bool)
+    own[:, :, 2:11] = True
+    sheet = fine_muscle.counted(cover, tissue, mine, None, own)
+    assert (sheet[:, :, 2:10] == 1.0).all() and (sheet[:, :, :2] == 0.0).all() and (sheet[:, :, 10:] == 0.0).all()     # its labels' voxels that hold tissue, no more, no less
+
+
+def test_an_aponeurosis_is_taken_a_little_tidier_than_its_labels_have_it():
+    sheet = np.zeros((12, 30, 30), bool)
+    sheet[8, 3:27, 3:27] = True                                         # a sheet one voxel thick,
+    sheet[8, 10, 10] = False                                            # with a gap of a voxel in it,
+    sheet[1, 2:5, 2:5] = True                                           # and a scrap of nine voxels well away from it
+    tidy = fine_muscle.tidy_sheet(sheet)
+    assert tidy[8, 10, 10] and tidy[8, 3:27, 3:27].all()                # the gap is closed, the sheet whole,
+    assert not tidy[:5].any()                                           # the scrap left out,
+    assert tidy.sum() == 24 * 24                                        # and it is no thicker and no wider for it
+    assert not fine_muscle.tidy_sheet(np.zeros((4, 4, 4), bool)).any()

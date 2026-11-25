@@ -150,3 +150,16 @@ def test_what_lies_under_the_fat_is_asked_more_of(tmp_path):
     assert head_layers.faces_under_skin(body, [as_fat], least_mm=1.0, from_mm=0.0, log=lambda *_: None) == (0, 0)
     assert head_layers.faces_under_skin(body, [as_muscle], least_mm=wanted, from_mm=0.0, log=lambda *_: None)[0] > 0
     assert (feet.to_mm(size, as_muscle.v)[:, 0] - FRONT).min() > wanted - 0.4      # (a depth reads a third of a millimetre more than it is)
+
+
+def test_where_there_is_no_fat_over_it_no_more_is_asked_than_of_the_fat(tmp_path):
+    body, size = block(tmp_path)
+    # A muscle two millimetres under the skin, half of it under the red of a lip (x under 25 mm): that half stays.
+    lip = sheet(size, "of the lip", FRONT + 2.0, (50, 68), (16, 34), step=2.0)
+    first = feet.to_mm(size, lip.v).copy()
+    wanted = 1.0 + head_layers.UNDER_FAT_MM[0]
+    head_layers.faces_under_skin(body, [lip], least_mm=wanted, from_mm=0.0, eased=lambda p: p[:, 2] < 25.0, eased_mm=1.0, log=lambda *_: None)
+    after = feet.to_mm(size, lip.v)
+    under_the_red, away = first[:, 2] < 22.0, first[:, 2] > 28.0        # (clear of the line between the two by a triangle)
+    assert np.abs(after[under_the_red] - first[under_the_red]).max() < 0.05
+    assert (after[away, 0] - FRONT).min() > wanted - 0.4

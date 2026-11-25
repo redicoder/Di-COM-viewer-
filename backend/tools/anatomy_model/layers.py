@@ -52,6 +52,11 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         # its name and takes the muscle-coloured voxels there at 0.66 mm. One that comes out empty keeps its labels'.
         raw = fine_muscle.surfaces(body, muscle_outline, objs, getattr(body, "original_labels", None), log=log)
         fine = {int(o["index"]) for o, _, _ in raw}
+        if any(o["name"] == fine_muscle.WHOLE for o, _, _ in raw):
+            # The arms' masses are part of the whole mass's surface there (fine_muscle.MASSES): they are not meshed once
+            # more from their labels. (They were: each arm's muscle was in the model twice, a fine surface and a coarse
+            # one a millimetre apart at the most, and each showed through the other in patches: the arms' "lace".)
+            fine |= {int(o["index"]) for o in objs if o["name"] in fine_muscle.MASSES}
         log(f"fine muscles: {len(raw)} of {len(objs)} muscle objects from the photographs, {sum(len(f) for _, _, f in raw)} triangles before decimation")
     for o in objs:
         if int(o["index"]) in fine:
@@ -106,7 +111,9 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         if int(o.get("index", 0)) in fine:                     # lighter and darker as the photographs are under its surface, pale where a tendon or fascia lies
             n = normals_of(v, f)
             albedo = fine_muscle.tone(body, v_mm, np.stack([-n[:, 2], n[:, 1], n[:, 0]], axis=1), colour_of(o["name"], o["layer"]), f)
-            info["source"] = "the labels' object; its surface from the photographs' muscle-coloured voxels at 0.66 mm (fine_muscle.py)"
+            info["source"] = ("the labels' object, whole (an aponeurosis: pale by nature, not read by colour), on the photographs' grid of 0.66 mm (fine_muscle.py)"
+                              if o["name"] in fine_muscle.SHEETS else
+                              "the labels' object; its surface from the photographs' muscle-coloured voxels at 0.66 mm (fine_muscle.py)")
         out.append(Structure(o["name"], layer, v, f, colour_of(o["name"], o["layer"]), bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), albedo=albedo, info=info))
     if layer == "fat":                                     # the fat's surface is the skin's own, moved in: all over him,
         fat_shell.fat(body, out, baker, occupancy, GLOSS[layer], log)
@@ -149,7 +156,15 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
     # teeth and the tongue, which the mouth places, nor the eyeballs, which lie behind the lids by their own
     # rule (eyes.py).
     under = [s for s in out if s.name not in own and not s.name.endswith(" eyeball")]
-    head_layers.under_skin_everywhere(body, under, log, under_fat=layer != "fat")
+    no_fat = None
+    if m is not None:                                      # (under the red of the lips there is no fat to lie under: fat_shell.lips)
+        size = np.array([body.size_mm[2], body.size_mm[1], body.size_mm[0]], np.float64)
+
+        def no_fat(zyx_mm):
+            q = np.asarray(zyx_mm, np.float64) - size / 2
+            return fat_shell.red_of_the_lips(m, np.stack([q[:, 2], q[:, 1], -q[:, 0]], axis=1) / 1000.0)
+
+    head_layers.under_skin_everywhere(body, under, log, under_fat=layer != "fat", no_fat=no_fat)
     if layer == "fat":                                     # and it is open over the red of the lips (last: its vertices are renumbered)
         fat_shell.lips(body, out, log)
     log(f"{layer}: {len(out)} structures, {sum(s.triangles for s in out)} triangles")

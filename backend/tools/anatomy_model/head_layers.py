@@ -365,7 +365,7 @@ def joints_of(fine: fine_skin.FineOutline) -> list[tuple[float, float]]:
 
 def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 1.0, drop_mm: float = 0.5, from_mm: float = HEAD_MM, to_mm: float | None = None,
                      box: tuple | None = None, fine_grid: bool = True, joints: list | None = None, joint_mm: float = JOINT_MM, label: str = "head",
-                     leave: list | None = None, log=print) -> tuple[int, int]:
+                     leave: list | None = None, eased=None, eased_mm: float = 1.0, log=print) -> tuple[int, int]:
     """In one part of him (above `from_mm`; or between two heights; or in a box of them, z0, z1, x0, x1): no
     TRIANGLE of a structure under the skin reaches the skin. Returns (vertices moved, triangles taken out).
 
@@ -386,7 +386,12 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
 
     `leave`: boxes (z0, z1, y0, y1, x0, x1; mm) whose triangles are not looked at here (the hands, where they lie
     in a band of the trunk: measured coarsely, and asked the trunk's depth of, a finger's bones were pressed
-    thin)."""
+    thin).
+
+    `eased`: a function of points (n, 3; the body's mm, z, y, x) that says where no more than `eased_mm` is
+    asked, whatever `least_mm` (under the red of the lips there is no fat to lie under, and a lip is a few
+    millimetres through: pressed 2.5 mm in from its front, the lip's muscle came out of its inner side and was
+    seen in the opened mouth)."""
     fine = fine_skin.load(body)
     got = head_depth(body, fine, from_mm, to_mm, box, fine_grid) if fine is not None else None
     if got is None:
@@ -439,7 +444,10 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
             """Per triangle: how much it lacks of the depth wanted (positive: too shallow), and its least depth."""
             points = np.einsum("kw,nwc->nkc", SPREAD, mm[f[head]])
             d = deep(points.reshape(-1, 3)).reshape(-1, len(SPREAD))
-            return (least_at(points[..., 1]) - d).max(axis=1), d.min(axis=1)
+            need = least_at(points[..., 1])
+            if eased is not None:
+                need = np.where(np.asarray(eased(points.reshape(-1, 3)), bool).reshape(need.shape), np.minimum(need, eased_mm), need)
+            return (need - d).max(axis=1), d.min(axis=1)
 
         for _ in range(3):
             lack, _ = lacking()
@@ -476,8 +484,11 @@ def faces_under_skin(body: Body, structures: list[Structure], least_mm: float = 
     return moved, dropped
 
 
-def under_skin_everywhere(body: Body, structures: list[Structure], log=print, under_fat: bool = True) -> tuple[int, int]:
+def under_skin_everywhere(body: Body, structures: list[Structure], log=print, under_fat: bool = True, no_fat=None) -> tuple[int, int]:
     """faces_under_skin for all of him, part by part. Returns (vertices moved, triangles taken out).
+
+    `no_fat`: a function of points (the body's mm, z, y, x) that says where the fat is open and nothing lies
+    under it (the red of the lips, in the head): there no more is asked than of the fat itself.
 
     `under_fat` (the muscles, the skeleton, the organs): what is given lies under the FAT's surface too, which is
     the skin's outline moved in (fat_shell): every least depth is UNDER_FAT_MM more. Without it (the fat layer
@@ -510,7 +521,7 @@ def under_skin_everywhere(body: Body, structures: list[Structure], log=print, un
     joint_mm = JOINT_MM + (UNDER_FAT_MM[1] if under_fat else 0.0)
     total = np.zeros(2, int)
     hands = fine_skin.hand_boxes(body)
-    total += faces_under_skin(body, structures, least_mm=fine_mm, label="head", log=log)
+    total += faces_under_skin(body, structures, least_mm=fine_mm, label="head", eased=no_fat if under_fat else None, eased_mm=1.0, log=log)
     total += faces_under_skin(body, structures, least_mm=coarse_mm, from_mm=NECK_MM, to_mm=HEAD_MM + 10.0, fine_grid=False, joints=joints, joint_mm=joint_mm,
                               label="neck", log=log)
     for k, (z0, z1, y0, y1, x0, x1) in enumerate(hands):

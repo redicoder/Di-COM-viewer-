@@ -25,10 +25,13 @@ ORGAN_COLOURS = [
 ]
 
 
+APONEUROSIS = (0.76, 0.66, 0.58)        # a sheet of tendon (the rectus sheath): a shade pinker and darker than bone, to be told from it
+
+
 def colour_of(name: str, tissue_class: str) -> tuple:
     """tissue_class: the label table's layer of the object (skin, fat, muscle, bone, organ)."""
     if tissue_class == "muscle":
-        return MUSCLE
+        return APONEUROSIS if "sheath" in name else MUSCLE
     if tissue_class == "bone":
         return BONE
     if tissue_class == "fat":

@@ -33,6 +33,25 @@ organ, never where a named structure was taken out of the mass (the head's and t
 mouth), and never outside the fine skin. So each object keeps its place and its name and gets its own true
 surface: the grooves between the muscles where the fat lies in them, the thin sheets, the tendons' pale ends
 left out.
+
+Three things the colour cannot be left to decide (2026-11-25, when the layers under the skin were brought up to
+the skin's standard; docs/research/under_layers.md):
+
+- HOW NEAR THE SKIN a muscle's surface may begin. It was cut 1.3 mm under the skin's outline, and what came
+  nearer the skin than the layers' rule allows (head_layers.under_skin_everywhere: under the fat's surface too
+  since the fat is the skin's outline moved in) was pressed in afterwards, vertex by vertex. Where a muscle lies
+  shallow over a whole stretch (the arms' outer sides, where the photographs cut the arm and there is next to no
+  fat) every vertex was pressed by its own lack, 12 271 of the mass's: a relief of small pits. Now the coverage
+  itself ends UNDER_MM under the outline, measured in space (under_limit), and the surface comes out there as
+  one smooth level, as the fat's does; the rule afterwards finds little to move (2663, most of them in the
+  feet). (The arms' "lace" was something else: each arm's muscle in the model twice. layers.build.)
+- THIN SHEETS. A sheet of muscle a voxel or two thick (the muscles over the ribs, the flat muscles of the
+  belly's side) blurs to less than half and is not contoured: the chest's side was in rags, with the ribs
+  showing. Where an object's own labels are thin (thin_parts), every voxel of them that holds tissue counts as
+  the object, whatever its colour.
+- APONEUROSES. The rectus sheath is a labelled object of the muscles' layer and is pale by nature: read by
+  colour, three quarters of it were left out, and the belly's wall stood open along the midline and across the
+  rectus. The objects named in SHEETS are taken as their labels have them, whole, and coloured as tendon.
 """
 from __future__ import annotations
 
@@ -58,7 +77,14 @@ WHOLE = "muscles"               # the unnamed mass; the labels' other unnamed ma
 MASSES = ("muscles of the left arm", "muscles of the right arm")      # they are one flesh, and meshed apart each was closed where the
                                 # labels' blocks end, which stood round the arm and the shoulder as ledges
 MUSCLE_LIGHT = 52.0             # the export's lightness of muscle (its colours' mean): stands in where a surface has no voxel under it
-SKIN_MM = 1.3                   # and never in the outermost of the fine skin
+SKIN_MM = 1.3                   # and never in the outermost of the fine skin: in the feet and the head (their own rules see to the rest)
+UNDER_MM = 3.6                  # ... and between them not nearer the skin's outline than this: under the fat's surface (1.8 mm under
+                                # the outline, contoured at 2.5) and the least the layers' rule asks there (head_layers.COARSE_MM + UNDER_FAT_MM)
+UNDER_FROM_MM, UNDER_TO_MM = 190.0, 1640.0      # (fine_skin.TOES_MM, fine_skin.BODY_MM)
+RAMP_MM = 1.0                   # the coverage falls to nothing over this, round UNDER_MM
+SHEETS = ("rectus sheath",)     # aponeuroses: pale by nature, taken as the labels have them
+THIN_PIECE = 12                 # thin parts of an object's labels smaller than this many voxels are corners of its thick parts
+SHEET_PIECE = 60                # scraps of an aponeurosis's labels smaller than this many voxels (a square centimetre and a half of sheet) are left out
 SLAB = 96                       # fine slices meshed at a time
 SMOOTH_MM = 0.8                 # blur of the coverage before contouring, within a photograph
 ALONG_MM = 2.5                  # and from photograph to photograph: a muscle streaked with fat (the deltoid) reads a little fuller or
@@ -208,13 +234,14 @@ def owners(labels: np.ndarray, ids, soft, taken: np.ndarray | None, spacing, ban
     return out
 
 
-def _slab(fine: fine_skin.FineOutline, a: int, b: int) -> np.ndarray:
+def _slab(fine: fine_skin.FineOutline, a: int, b: int, with_tissue: bool = False):
     """Slices a..b-1 as muscle coverage, float32 0..1: from each voxel's lightness between its photograph's own
     muscle and fat (calibrate; MUSCLE_L and FAT_L without it). A blank photograph, or one that is not whole, takes
-    the nearest good one's."""
+    the nearest good one's. `with_tissue`: also where there is tissue at all (bool), as a second array."""
     lower, upper = getattr(fine, "lower", None), getattr(fine, "upper", None)
     good = np.nonzero(~fine.fallback)[0]
     block = np.empty((fine.cover.shape[0], b - a, fine.cover.shape[2]), np.float32)
+    tissue = np.zeros(block.shape, bool) if with_tissue else None
     for k in range(a, b):
         source = k
         if fine.fallback[k] and len(good):
@@ -222,7 +249,66 @@ def _slab(fine: fine_skin.FineOutline, a: int, b: int) -> np.ndarray:
         light = np.asarray(fine.cover[:, source, :], np.float32)
         lo, hi = (MUSCLE_L, FAT_L) if lower is None else (float(lower[source]), float(upper[source]))
         block[:, k - a, :] = np.clip((hi - light) / (hi - lo), 0.0, 1.0) * (light > 0)
-    return block
+        if with_tissue:
+            tissue[:, k - a, :] = light > 0
+    return (block, tissue) if with_tissue else block
+
+
+def under_limit(inside: np.ndarray, spacing, under_mm, ramp_mm: float = RAMP_MM) -> np.ndarray:
+    """How much of each voxel of a block (z, y, x) may be muscle, by its depth under the skin's outline (`inside`:
+    bool, what the outline encloses): 0 nearer the outline than `under_mm` (a number, or one for every slice y),
+    1 deeper, falling over `ramp_mm` round it. The depth is measured in space, on blocks of 2 x 2 x 2 voxels (a
+    block counts as inside when all of it is; the block's faces are taken for the body going on: only the outline
+    inside the block counts), good to a third of a millimetre."""
+    inside = np.asarray(inside, bool)
+    sp = np.asarray(spacing, np.float64)
+    nz, ny, nx = (n // 2 for n in inside.shape)
+    blocks = inside[:2 * nz, :2 * ny, :2 * nx].reshape(nz, 2, ny, 2, nx, 2).all(axis=(1, 3, 5))
+    if blocks.all():
+        return np.ones(inside.shape, np.float32) * inside
+    # From a block's middle to the middle of the nearest block that is not wholly inside: the outline runs somewhere
+    # through that block, through its middle on the average.
+    depth = ndimage.distance_transform_edt(blocks, sampling=2.0 * sp)
+    depth = ndimage.zoom(depth.astype(np.float32), 2, order=1, grid_mode=True, mode="nearest")
+    depth = np.pad(depth, [(0, max(0, n - m)) for n, m in zip(inside.shape, depth.shape)], mode="edge")[:inside.shape[0], :inside.shape[1], :inside.shape[2]]
+    least = np.broadcast_to(np.asarray(under_mm, np.float32), (inside.shape[1],))[None, :, None]
+    return np.clip((depth - (least - ramp_mm / 2.0)) / ramp_mm, 0.0, 1.0).astype(np.float32) * inside
+
+
+def thin_parts(mask: np.ndarray, least: int = THIN_PIECE) -> np.ndarray:
+    """The thin parts of an object's voxels (bool, z, y, x): where no cube of three voxels fits into it (sheets one
+    or two voxels thick; three or four where they run aslant), without the specks that are only the sharp
+    ridges of its thick parts (connected pieces smaller than `least` voxels)."""
+    mask = np.asarray(mask, bool)
+    thin = mask & ~ndimage.binary_opening(mask, structure=np.ones((3, 3, 3), bool))
+    if not thin.any():
+        return thin
+    parts, count = ndimage.label(thin, structure=np.ones((3, 3, 3), bool))
+    sizes = ndimage.sum(thin, parts, range(1, count + 1))
+    return np.isin(parts, 1 + np.flatnonzero(np.asarray(sizes) >= least))
+
+
+def tidy_sheet(mask: np.ndarray, least: int = SHEET_PIECE) -> np.ndarray:
+    """An aponeurosis's voxels as the labels have them (bool, z, y, x), a little tidier: gaps of a voxel closed,
+    and scraps smaller than `least` voxels left out (a sheet a voxel thick is labelled in rags at its edges, and
+    every scrap of it was a white fleck on the belly)."""
+    mask = np.asarray(mask, bool)
+    if not mask.any():
+        return mask
+    box = np.ones((3, 3, 3), bool)
+    closed = ndimage.binary_closing(np.pad(mask, 1), structure=box)[1:-1, 1:-1, 1:-1] | mask
+    parts, count = ndimage.label(closed, structure=box)
+    sizes = np.asarray(ndimage.sum(closed, parts, range(1, count + 1)))
+    return np.isin(parts, 1 + np.flatnonzero(sizes >= least))
+
+
+def counted(cover: np.ndarray, tissue: np.ndarray, mine: np.ndarray, thin: np.ndarray, own: np.ndarray | None = None) -> np.ndarray:
+    """What of a block counts as one object's (float32 0..1), before it is blurred and contoured: the muscle-red
+    coverage where the object may be (`mine`: at and near its labels), and every voxel of tissue where its own
+    labels are thin. `own` (its own labels' voxels) given: an aponeurosis, taken whole as the labels have it."""
+    if own is not None:
+        return (tissue * own).astype(np.float32)
+    return np.maximum(cover * mine, tissue * thin).astype(np.float32)
 
 
 def surfaces(body: Body, fine: fine_skin.FineOutline, objs: list[dict], original: np.ndarray | None = None, sigma_mm: float = SMOOTH_MM, log=print,
@@ -246,8 +332,9 @@ def surfaces(body: Body, fine: fine_skin.FineOutline, objs: list[dict], original
     sigma = [sigma_mm / spacing[0], ALONG_MM / spacing[1], sigma_mm / spacing[2]]
     pad = int(np.ceil(4 * sigma[1])) + 1
     skin = fine_skin.load(body)
-    rounds = max(1, int(round(SKIN_MM / spacing[0])))
-    cross = ndimage.generate_binary_structure(2, 1)
+    heights = fine.origin_mm[1] + (np.arange(ny) + 0.5) * spacing[1]
+    under_mm = np.where((heights >= UNDER_FROM_MM) & (heights < UNDER_TO_MM), UNDER_MM, SKIN_MM).astype(np.float32)
+    sheets = {int(o["index"]) for o in objs if o["name"] in SHEETS}
     whole = next((int(o["index"]) for o in objs if o["name"] == WHOLE), None)
     merged = [int(o["index"]) for o in objs if o["name"] in MASSES] if whole is not None else []
     verts, faces, offsets = {i: [] for i in ids}, {i: [] for i in ids}, {i: 0 for i in ids}
@@ -262,24 +349,35 @@ def surfaces(body: Body, fine: fine_skin.FineOutline, objs: list[dict], original
             continue
         taken = None if original is None else np.isin(original[:, ca:cb, :], ids) & (coarse != original[:, ca:cb, :])
         own = owners(coarse, ids, soft, taken, body.spacing)
+        labelled = np.where(np.isin(coarse, ids), coarse, 0)              # the objects' own voxels, without the band round them
         if merged:
             own[np.isin(own, merged)] = whole
-        own = np.repeat(np.repeat(np.repeat(own, step, axis=0), step_y, axis=1), step, axis=2)
-        own = own[:, a - ca * step_y:b - ca * step_y, :]
-        own = np.pad(own, ((0, max(0, fz - own.shape[0])), (0, 0), (0, max(0, fx - own.shape[2]))))[:fz, :, :fx]
-        cover = _slab(fine, a, b)
-        if skin is not None:                                              # not in the skin, nor outside it
-            under = np.asarray(skin.cover[:, a:b, :]) > 127
-            for k in range(under.shape[1]):
-                under[:, k, :] = ndimage.binary_erosion(under[:, k, :], cross, iterations=rounds)
-            cover *= under
+            labelled[np.isin(labelled, merged)] = whole
+
+        def to_fine(block):                                               # the export's voxels of this slab on the fine grid
+            block = np.repeat(np.repeat(np.repeat(block, step, axis=0), step_y, axis=1), step, axis=2)
+            block = block[:, a - ca * step_y:b - ca * step_y, :]
+            return np.pad(block, ((0, max(0, fz - block.shape[0])), (0, 0), (0, max(0, fx - block.shape[2]))))[:fz, :, :fx]
+
+        own = to_fine(own)
+        cover, tissue = _slab(fine, a, b, with_tissue=True)
+        tissue = tissue.astype(np.float32)
+        if skin is not None:                                              # not in the skin, nor nearer it than a muscle may lie
+            limit = under_limit(np.asarray(skin.cover[:, a:b, :]) > 127, spacing, under_mm[a:b])
+            cover *= limit
+            tissue *= limit
         for i in np.unique(own):
             if i == 0:
                 continue
             mine = own == i
             zs, xs = np.nonzero(mine.any(axis=1))
             z0, z1, x0, x1 = max(0, zs.min() - 6), min(fz, zs.max() + 7), max(0, xs.min() - 6), min(fx, xs.max() + 7)
-            field = ndimage.gaussian_filter(cover[z0:z1, :, x0:x1] * mine[z0:z1, :, x0:x1], sigma)[:, y0 - a:y1 + 1 - a, :]
+            box = (slice(z0, z1), slice(None), slice(x0, x1))
+            if i in sheets:
+                mass = counted(cover[box], tissue[box], mine[box], None, to_fine(tidy_sheet(labelled == i))[box])
+            else:
+                mass = counted(cover[box], tissue[box], mine[box], to_fine(thin_parts(labelled == i))[box])
+            field = ndimage.gaussian_filter(mass, sigma)[:, y0 - a:y1 + 1 - a, :]
             if field.max() <= 0.5:
                 continue
             field = np.pad(field, ((1, 1), (1 if y0 == 0 else 0, 1 if y1 == ny - 1 else 0), (1, 1)))

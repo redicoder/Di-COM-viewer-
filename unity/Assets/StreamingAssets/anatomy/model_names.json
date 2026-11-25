@@ -668,26 +668,6 @@
    "note": "unnamed"
   },
   {
-   "key": "muscles of the left arm",
-   "layer": "muscles",
-   "la": "Musculi membri superioris sinistri",
-   "en": "Muscles of the left arm",
-   "it": "Muscoli dell'arto superiore sinistro",
-   "from": "photo",
-   "drawn": false,
-   "note": ""
-  },
-  {
-   "key": "muscles of the right arm",
-   "layer": "muscles",
-   "la": "Musculi membri superioris dextri",
-   "en": "Muscles of the right arm",
-   "it": "Muscoli dell'arto superiore destro",
-   "from": "photo",
-   "drawn": false,
-   "note": ""
-  },
-  {
    "key": "right masseter",
    "layer": "muscles",
    "la": "Musculus masseter dexter",

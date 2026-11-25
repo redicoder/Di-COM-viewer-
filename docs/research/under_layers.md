@@ -1,4 +1,4 @@
-# The layers under the skin: a survey, and the fat (2026-11-25)
+# The layers under the skin: a survey, the fat, and the muscles (2026-11-25)
 
 Research before the layers under the skin were worked on (product owner: "ok do what you recommend", on: bring
 the layers under the skin up to the skin's standard). Marks as in the other reports: **O** read on our own data,
@@ -91,7 +91,7 @@ now with the skin off as well ("through the fat"), and once more with the skin o
 sides ("through the skin, the mouth open": the teeth and the tongue are meant to be seen then and are counted
 apart). See ARCHITECTURE for the counts of the build.
 
-## 4. What stays open
+## 4. What stayed open after the fat
 
 - Steps 2 to 4 of section 2.
 - With the skin off the eyes stand uncovered in openings as wide as the orbits' rims: the lids are the skin's,
@@ -110,3 +110,59 @@ apart). See ARCHITECTURE for the counts of the build.
   cheek muscle (162) and smaller things. It is asked for the first time in this build, so there is no earlier
   number to compare it with; while the fat's cure was built it was 6400. To be brought to nothing with the
   muscles.
+
+## 5. The muscles: what the faults were, and what was built (O)
+
+Product owner: "ok do what you recommend", on: the muscles next (the right forearm's lace, the cracks in the
+chest and the belly, what shows in the opened mouth). Looked at before anything was changed: the build's log;
+cross-sections of the trunk and of an arm as the muscles' surface is made from them (the photograph, the labels,
+the coverage, and where the surface comes out); the mass's mesh itself; and a count, on the export's grid, of
+where the labels have muscle and the photographs show no muscle colour within 2 mm.
+
+- **The arms' "lace" was each arm's muscle in the model twice.** Section 1 took it for a surface in holes. The
+  mass's mesh has no hole (not one open edge in 666 000 triangles). `fine_muscle.surfaces` gives the two arms'
+  unnamed masses to the whole mass's surface (they are one flesh: `MASSES`), and `layers.build`, which meshes
+  from its labels every muscle object that has no fine surface of its own, meshed them once more: a fine
+  surface and a coarse one a millimetre apart at the most, each showing through the other in patches. The log
+  said so (the rule on what lies under the skin moved vertices of "muscles of the right arm", a structure that
+  should not have been there). They are meshed once now: 537 structures, not 539.
+- **How near the skin a muscle may begin** is decided where its coverage is read, not afterwards. The coverage
+  was cut 1.3 mm under the outline, within each photograph, and what came nearer the skin than the layers' rule
+  allows (3.6 mm since the fat is the outline moved in) was pressed in afterwards, vertex by vertex: 12 271
+  vertices of the mass in the last build of the fat's stage, each by its own lack, which leaves a relief of
+  small pits wherever a muscle lies shallow over a stretch. Now the coverage ends 3.6 mm under the outline,
+  measured in space on blocks of 2 x 2 x 2 voxels (`under_limit`, good to a third of a millimetre), between the
+  feet and the head (those two keep their own rules), and the surface comes out there as one smooth level, as
+  the fat's does. The rule afterwards moved 2601 vertices of the mass, 1845 of them in the feet.
+- **Thin sheets.** A sheet of muscle a voxel or two thick (the muscles over the ribs, the flat muscles at the
+  belly's side) blurs to less than half and is not contoured; the cross-section at 1380 mm shows the labels'
+  band whole over the ribs and the surface broken along it. Where an object's own labels are thin (no cube of
+  three voxels fits: `thin_parts`), every voxel of them that holds tissue counts as the object, whatever its
+  colour.
+- **The rectus sheath is an aponeurosis** and a labelled object of the muscles' layer. Read by colour, three
+  quarters of it were left out (19 827 of its 26 532 voxels have no muscle colour within 2 mm: the count's
+  largest item by far), and the belly's wall stood open along the midline, across the rectus and down its
+  sides. Objects named in `fine_muscle.SHEETS` are taken as their labels have them, whole, a little tidier
+  (`tidy_sheet`: gaps of a voxel closed, scraps under 60 voxels left out), in a colour of their own, a shade
+  pinker and darker than bone. What shows now is the pattern a student knows: the linea alba, the tendinous
+  intersections, the semilunar lines. It is as ragged at its edges as the labels are.
+- **What the white in the chest is.** Seen from the front, 95 % of the trunk's wall under the fat is muscle by
+  the labels. The white down the chest's middle is the sternum and the costal cartilages, which lie under the
+  skin there (K); the slits under the pectoral's lower edge lie between muscle bodies, where the labels have
+  fat and fascia and no muscle: left as they are.
+- **The lips' muscle was pressed out of the lip.** Under the red of the lips the fat is open (section 3), yet the
+  rule asked the lips' muscle to lie 2.5 mm under the skin, as under fat: a lip is a few millimetres through,
+  and the muscle came out of its inner side (2516 pixels in the opened mouth's seven views). Under the red of
+  the lips no more is asked than of the fat itself (`faces_under_skin(eased=...)`, from
+  `fat_shell.red_of_the_lips`).
+
+## 6. What stays open after the muscles
+
+- The hands have next to no muscle (the labels have none there): they would have to be drawn, as the face's
+  are. The arms' muscles are one unnamed mass each (no dataset of this body names them).
+- In the opened mouth (see ARCHITECTURE for the last count): the lower lip's muscle is still seen along the
+  inside of the lip, where the lip is thinner than the muscle as drawn; fat under the chin, where the opened
+  jaw brings the chin's skin down on the neck's; the mandible behind the lower front teeth.
+- The rectus sheath is ragged at its edges, as its labels are.
+- Steps 3 and 4 of section 2 (the organs, the skeleton), and what section 4 lists.
+
