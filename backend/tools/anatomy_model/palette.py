@@ -12,6 +12,7 @@ ORGAN_COLOURS = [
     ("lung", (0.86, 0.60, 0.60)), ("liver", (0.50, 0.27, 0.24)), ("hepatic", (0.38, 0.42, 0.56)),
     ("gallbladder", (0.42, 0.46, 0.32)), ("cystic", (0.42, 0.46, 0.32)), ("spleen", (0.50, 0.31, 0.32)),
     ("pancreas", (0.88, 0.72, 0.50)), ("kidney", (0.55, 0.25, 0.20)), ("renal medulla", (0.66, 0.36, 0.30)),
+    ("pulmonary arter", (0.40, 0.44, 0.60)),                # (as their trunk, and as every atlas has them: they carry the blood the veins bring)
     ("aorta", (0.66, 0.20, 0.18)), ("arter", (0.66, 0.20, 0.18)), ("pulmonary trunk", (0.40, 0.44, 0.60)),
     ("pulmonary veins", (0.82, 0.25, 0.22)), ("vein", (0.38, 0.42, 0.56)), ("vena cava", (0.38, 0.42, 0.56)),
     ("atrium", (0.70, 0.25, 0.24)), ("ventricle", (0.66, 0.20, 0.19)), ("myocardium", (0.62, 0.18, 0.17)),

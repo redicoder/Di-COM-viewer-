@@ -1,4 +1,4 @@
-# The layers under the skin: a survey, the fat, and the muscles (2026-11-25)
+# The layers under the skin: a survey, the fat, the muscles, and the organs (2026-11-25 and 26)
 
 Research before the layers under the skin were worked on (product owner: "ok do what you recommend", on: bring
 the layers under the skin up to the skin's standard). Marks as in the other reports: **O** read on our own data,
@@ -165,4 +165,45 @@ where the labels have muscle and the photographs show no muscle colour within 2 
   jaw brings the chin's skin down on the neck's; the mandible behind the lower front teeth.
 - The rectus sheath is ragged at its edges, as its labels are.
 - Steps 3 and 4 of section 2 (the organs, the skeleton), and what section 4 lists.
+
+## 7. The organs: what the faults were, and what was built (O)
+
+Product owner: "ok do what you say", on: the organs next (the windpipe's lattice, the lungs torn at the heart).
+Looked at before anything was changed: the organs' meshes (none has an open edge); the labels' objects of the
+chest and the neck with their sizes; pictures of the chest with and without single structures; the labels in
+cross-section at three heights beside the photograph; and counts of how thick each thin object is.
+
+- **The windpipe's label is its wall only.** The labels' "trachea" (2839 voxels) is the C of cartilage round the
+  front and the sides of the windpipe, one voxel thick: no cube of three voxels fits into any of it. The air
+  inside is another object, "trachea lumen" (8107 voxels), which was not meshed, being no organ. Contoured by
+  itself the wall was a white ladder of ring fragments. The windpipe is now the tube: the wall and what it
+  encloses as one solid (9828 voxels), with the rings as ridges on it (`thin_organs.airways`).
+- **The bronchi share that lumen.** It runs on into the two main bronchi, inside the labels' "bronchi". Each voxel
+  of the lumen goes to the wall it lies nearer, so the windpipe ends where the bronchi begin and both are solid
+  (the bronchi 4717 voxels, 3599 before).
+- **The "lungs torn at the heart" were the heart's sac.** Section 1 was wrong about what it saw: the lungs' meshes
+  are whole. The labels' "pericardium" (42 386 voxels) is two things: round the roots of the great vessels a
+  thick mass (18 587 voxels lie in parts thicker than two voxels), and over the front of the heart a sheet one
+  voxel thick, in holes. Behind and under the heart the labels have no sac at all: of the 32 094 voxels that
+  touch the heart from outside, 7642 are pericardium and 13 542 are fat. Contoured as it was, the sheet lay over
+  the heart as a pale rag with the heart red in its holes. Three ways were weighed. Closed up, the sac would
+  hide the heart, and nothing in the app can yet open or take off a structure. With all its thick parts kept,
+  pads of it lay down the heart's front as pale drips (tried, and looked at). What was built: the sac OPENED, as
+  a prepared specimen has it (`thin_organs.opened`): its thick parts that do not lie in front of the heart and
+  that reach the great vessels (2878 voxels: the mass round the roots of the aorta, the pulmonary trunk and the
+  superior vena cava). The heart is seen whole between the lungs. What was done is said in the structure's
+  info, and it is not marked as drawn: every voxel of it is the labels' own.
+- **The pulmonary arteries were red and their trunk blue.** The colours go by the first key that fits a name, and
+  "arter" came before "pulmonary trunk". They are their trunk's colour now, as an atlas has them (K: the
+  pulmonary arteries carry the blood the veins of the body bring).
+
+## 8. What stays open after the organs
+
+- The whole sac, when it can be cut; and a way to take a structure off by touch ("hide"), which would let the
+  closed sac be shown at once. Not built: it is a new function of the app and the product owner's to ask for.
+- The heart's chambers lie inside the myocardium and are not seen.
+- The larynx is the labels' few voxels (1669) and comes out as lumps.
+- The organs' surfaces are contoured at the export's 1.32 x 2 mm, not at the photographs' 0.66 mm as the skin's,
+  the fat's and the muscles' are.
+- Step 4 of section 2 (the skeleton), and what sections 4 and 6 list.
 

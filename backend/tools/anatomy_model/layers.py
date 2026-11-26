@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, face_muscles, face_vessels, fat_shell, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth
+from . import bonehub, eyes, face_muscles, face_vessels, fat_shell, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth, thin_organs
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, surface
 from .palette import BONE, colour_of
 
@@ -58,6 +58,9 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
             # one a millimetre apart at the most, and each showed through the other in patches: the arms' "lace".)
             fine |= {int(o["index"]) for o in objs if o["name"] in fine_muscle.MASSES}
         log(f"fine muscles: {len(raw)} of {len(objs)} muscle objects from the photographs, {sum(len(f) for _, _, f in raw)} triangles before decimation")
+    # Organs the labels have only as a thin wall (the windpipe, the bronchi, the heart's sac) take another set of the
+    # labels' voxels than their own as they are (thin_organs.py).
+    reshaped = thin_organs.shapes(body) if layer == "organs" else {}
     for o in objs:
         if int(o["index"]) in fine:
             continue
@@ -65,9 +68,13 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         if box is None:
             continue
         block = lab[box] == o["index"]
+        if o["name"] in reshaped:
+            first, block = reshaped[o["name"]]
+            box = tuple(slice(a, a + n) for a, n in zip(first, block.shape))
         if layer == "skeleton":                                # thin plates and marrow gaps: one solid bone
             block = ndimage.binary_fill_holes(ndimage.binary_closing(np.pad(block, 2), iterations=2))[2:-2, 2:-2, 2:-2]
-        got = surface(block, body.spacing, 1.3 if o["voxels"] > 4000 else 0.8, [s.start for s in box])
+        voxels = int(block.sum()) if o["name"] in reshaped else o["voxels"]
+        got = surface(block, body.spacing, 1.3 if voxels > 4000 else 0.8, [s.start for s in box])
         if got is not None and len(got[1]) >= 8:
             raw.append((o, got[0], got[1]))
     if named:
@@ -108,6 +115,8 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         v_mm, f = decimate(v, f, max(MIN_TRIANGLES, len(f) * min(1.0, share)))
         v, f = body.to_gltf(v_mm, f)
         albedo, info = None, {"label": int(o["index"]), "class": o["layer"]}
+        if o["name"] in reshaped:
+            info["shape"] = thin_organs.NOTES[o["name"]]
         if int(o.get("index", 0)) in fine:                     # lighter and darker as the photographs are under its surface, pale where a tendon or fascia lies
             n = normals_of(v, f)
             albedo = fine_muscle.tone(body, v_mm, np.stack([-n[:, 2], n[:, 1], n[:, 0]], axis=1), colour_of(o["name"], o["layer"]), f)
