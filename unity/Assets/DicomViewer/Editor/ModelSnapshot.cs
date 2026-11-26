@@ -293,6 +293,71 @@ public static class ModelSnapshot
         BuildScene();
     }
 
+    /// <summary>Taking structures off (ModelBody.Hide): the organs' layer seen at the chest, whole; then with the
+    /// two lungs taken off; then with the liver and the stomach's parts off as well; and what is put back.
+    /// Pictures hide_*.png beside the others; the log says what was taken and what is touched afterwards.</summary>
+    public static void RunHide()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null) return;
+        string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
+        Directory.CreateDirectory(outDir);
+        body.GetComponent<ModelPolish>().Apply();
+        float dist = b.size.x * 0.5f / (0.84f * 1600f / 900f) / Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+        cam.targetTexture = rt;
+        Vector3 chest = new Vector3(b.min.x + 0.50f, b.size.y * 0.5f, 0f);
+        Quaternion q = Quaternion.Euler(50f, -20f, 0f);
+        cam.transform.position = chest + q * new Vector3(0, 0, -dist * 0.3f);
+        cam.transform.rotation = q;
+        void Shot(string name)
+        {
+            cam.Render();
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            File.WriteAllBytes(Path.Combine(outDir, "hide_" + name + ".png"), tex.EncodeToPNG());
+            RenderTexture.active = null;
+            Object.DestroyImmediate(tex);
+            Debug.Log($"ModelSnapshot: wrote hide_{name}.png");
+        }
+        string InFront()
+        {
+            Renderer r = ModelPick.At(cam, new Vector2(rt.width * 0.5f, rt.height * 0.5f), body.Touchable());
+            return r != null ? r.name : "nothing";
+        }
+        void Off(params string[] structures)
+        {
+            foreach (string structure in structures)
+            {
+                Renderer target = null;
+                foreach (Renderer r in body.Touchable()) if (r.name == structure) target = r;
+                bool taken = target != null && body.Hide(target);
+                Debug.Log($"ModelSnapshot: '{structure}' " + (taken ? "taken off" : target == null ? "is not on the layers shown" : "cannot be taken off"));
+            }
+        }
+        body.LookAt("organs");
+        Debug.Log($"ModelSnapshot: hide: in front at the picture's middle: {InFront()}");
+        Shot("0_whole");
+        Off("left lung", "right lung");
+        Debug.Log($"ModelSnapshot: hide: {body.Hidden.Count} off; in front at the picture's middle: {InFront()}");
+        Shot("1_lungs_off");
+        Off("liver", "fundus of stomach", "body of stomach", "pericardium");
+        Debug.Log($"ModelSnapshot: hide: {body.Hidden.Count} off; in front at the picture's middle: {InFront()}");
+        Shot("2_liver_and_stomach_off");
+        Renderer back = body.ShowLast();
+        Debug.Log($"ModelSnapshot: hide: put back '{(back != null ? back.name : "nothing")}'; {body.Hidden.Count} still off");
+        body.ShowAll();
+        Debug.Log($"ModelSnapshot: hide: all put back; {body.Hidden.Count} off; in front at the picture's middle: {InFront()}");
+        body.LookAt("skin");
+        Off("skin");
+        cam.targetTexture = null;
+        Object.DestroyImmediate(rt);
+        Debug.Log("ModelSnapshot: hide done");
+    }
+
     /// <summary>Tapping a structure to learn its name (build/snapshots/names_*.png): on each layer a structure is
     /// tapped where it lies on the screen, and the picture shows it tinted with its card. The log says what each
     /// tap picked and what the card reads.</summary>

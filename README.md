@@ -99,6 +99,12 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
   cd backend\tools; ..\.venv-seg\Scripts\python.exe -m anatomy_model.names ..\out\photo_body ..\..\unity\Assets\StreamingAssets\anatomy\model_names.json
   & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.RunNames -logFile build\model_names.log -quit
   ```
+- **Taking a structure off in the modelled body**: in Play, tap a structure and press **Nascondi / Hide** under its card: it is gone, and what lay behind it
+  can be seen and tapped. **Indietro / Back** puts the last one back, **Mostra tutto / Show all** all of them (both appear top right while anything is off).
+  The skin cannot be taken off this way: use its layer's button. Pictures of it (the chest's organs, the lungs off, the liver and the stomach off):
+  ```powershell
+  & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.RunHide -logFile build\model_hide.log -quit
+  ```
 - **Does anything show through the skin?** After a change to the model, ask it of the picture: every pixel of sixteen views is asked which mesh is in
   front, and the log lists whatever is in front without being skin (the lines "through the skin"; the last gives the sum, which should be 0). The same
   is asked with the skin off (the lines "through the fat": only what lies in the eyes' openings and the lips' should be listed) and with the skin on and

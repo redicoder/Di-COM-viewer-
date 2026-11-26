@@ -123,6 +123,111 @@ namespace DicomViewer.AnatomyLab
             if (picked != null && !picked.gameObject.activeInHierarchy) Select(null, cardCamera);      // its layer was taken away
         }
 
+        // ---- taking a structure off -----------------------------------------------------------------------------
+        // The simplest dissection: a structure that is touched can be taken off, and what lies behind it is seen and
+        // can be touched in its turn. Nothing is cut and nothing is lost: what was taken off is put back, the last
+        // one or all of them. (Asked for on 2026-11-26: the heart's sac hides the heart, and so does every layer
+        // hide the next; the layers' buttons take a whole layer off, this takes one structure.)
+
+        private readonly List<Renderer> hidden = new List<Renderer>();
+        private readonly List<Bounds> hiddenRoom = new List<Bounds>();   // the room each of them took up, as it was taken off
+        private readonly Dictionary<Material, float> bakedShadow = new Dictionary<Material, float>();
+        private static readonly int OcclusionId = Shader.PropertyToID("_Occlusion");
+
+        /// <summary>Of the shadow baked into a structure, how much is left once something that lay round it is
+        /// off. The shadow was baked with everything in its place (the model's build: how open the room over a
+        /// surface is): the vessels inside a lung have none of it open, and with the lung taken off they stood
+        /// there black.</summary>
+        public const float Uncovered = 0.3f;
+
+        /// <summary>The structures taken off, in the order they were taken.</summary>
+        public IReadOnlyList<Renderer> Hidden => hidden;
+
+        /// <summary>The baked shadow of every structure, as what is off leaves it: its own again, then eased on
+        /// those whose room meets the room of a structure that is off (boxes: a lung's box holds its vessels,
+        /// the heart and the windpipe's end, which the lung did lie round). Not the skin's layer.</summary>
+        private void Relight()
+        {
+            foreach (KeyValuePair<Material, float> pair in bakedShadow)
+                if (pair.Key != null) pair.Key.SetFloat(OcclusionId, pair.Value);
+            bakedShadow.Clear();
+            if (hidden.Count == 0) return;
+            foreach (Layer l in layers)
+            {
+                if (l.model == null || l.name == "skin" || l.name == "body") continue;
+                foreach (MeshRenderer x in l.model.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    Material m = x.sharedMaterial;
+                    if (!x.enabled || m == null || !m.HasProperty(OcclusionId) || bakedShadow.ContainsKey(m)) continue;
+                    bool uncovered = false;
+                    for (int i = 0; i < hiddenRoom.Count && !uncovered; i++) uncovered = hiddenRoom[i].Intersects(x.bounds);
+                    if (!uncovered) continue;
+                    bakedShadow[m] = m.GetFloat(OcclusionId);
+                    m.SetFloat(OcclusionId, bakedShadow[m] * Uncovered);
+                }
+            }
+        }
+
+        /// <summary>The layer a mesh is of: the nearest of its parents that is a layer's model; null if none is.</summary>
+        public Layer LayerOf(Renderer r)
+        {
+            for (Transform t = r != null ? r.transform : null; t != null; t = t.parent)
+            {
+                Layer l = layers.Find(x => x.model != null && x.model.transform == t);
+                if (l != null) return l;
+            }
+            return null;
+        }
+
+        /// <summary>Whether a structure can be taken off by itself: any that is drawn, but nothing of the skin's
+        /// layer. The skin goes off with its own button, all of it together: its hair, its nails and its cloth
+        /// are not to be left behind without it, nor it without them.</summary>
+        public bool CanHide(Renderer r)
+        {
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) return false;
+            Layer of = LayerOf(r);
+            return of != null && of.name != "skin" && of.name != "body";
+        }
+
+        /// <summary>Takes a structure off: it is no longer drawn and cannot be touched, and its card is put away.
+        /// Returns whether it was taken (not: nothing given, the skin's, or off already).</summary>
+        public bool Hide(Renderer r)
+        {
+            if (!CanHide(r)) return false;
+            if (r == picked) Select(null, cardCamera);
+            hiddenRoom.Add(r.bounds);
+            r.enabled = false;
+            hidden.Add(r);
+            Relight();
+            return true;
+        }
+
+        /// <summary>Puts back the structure that was taken off last. Returns it; null if none was off.</summary>
+        public Renderer ShowLast()
+        {
+            while (hidden.Count > 0)
+            {
+                Renderer r = hidden[hidden.Count - 1];
+                hidden.RemoveAt(hidden.Count - 1);
+                hiddenRoom.RemoveAt(hiddenRoom.Count - 1);
+                if (r == null) continue;                                 // (its model is gone)
+                r.enabled = true;
+                Relight();
+                return r;
+            }
+            Relight();
+            return null;
+        }
+
+        /// <summary>Puts back every structure that was taken off.</summary>
+        public void ShowAll()
+        {
+            foreach (Renderer r in hidden) if (r != null) r.enabled = true;
+            hidden.Clear();
+            hiddenRoom.Clear();
+            Relight();
+        }
+
         // ---- names ----------------------------------------------------------------------------------------------
 
         /// <summary>The names table, read when first asked for.</summary>
@@ -214,6 +319,7 @@ namespace DicomViewer.AnatomyLab
 
         private void OnDestroy()
         {
+            ShowAll();                                                   // (the materials get their own shadow back)
             Select(null, null);
             card.Destroy();
         }
@@ -431,6 +537,24 @@ namespace DicomViewer.AnatomyLab
             if (GUI.Button(languageButton, tag))
                 SetLanguage(language == NameLanguage.Italian ? NameLanguage.English : language == NameLanguage.English ? NameLanguage.Latin : NameLanguage.Italian);
             ViewerUi.Block(languageButton);
+            // Taking a structure off: a button under its card; and, while any is off, two beside the language's to
+            // put back the last one or all of them. In the card's language (Latin names: Italian words, as the card).
+            bool english = language == NameLanguage.English;
+            if (picked != null && CanHide(picked) && card.Shown)
+            {
+                var hideButton = new Rect(Screen.width - (ModelCard.Margin + ModelCard.Width) * s, ModelCard.Top * s + card.PixelHeight + 8f * s, 170f * s, h);
+                if (GUI.Button(hideButton, english ? "Hide" : "Nascondi")) Hide(picked);
+                ViewerUi.Block(hideButton);
+            }
+            if (hidden.Count > 0)
+            {
+                var allButton = new Rect(languageButton.x - 8f * s - 210f * s, y, 210f * s, h);
+                if (GUI.Button(allButton, (english ? "Show all" : "Mostra tutto") + $" ({hidden.Count})")) ShowAll();
+                ViewerUi.Block(allButton);
+                var lastButton = new Rect(allButton.x - 8f * s - 130f * s, y, 130f * s, h);
+                if (GUI.Button(lastButton, english ? "Back" : "Indietro")) ShowLast();
+                ViewerUi.Block(lastButton);
+            }
             if (!string.IsNullOrEmpty(credits))
             {
                 var style = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(11f * s), wordWrap = true };

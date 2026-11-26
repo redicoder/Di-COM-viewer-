@@ -227,5 +227,83 @@ namespace DicomViewer.Tests
             Object.DestroyImmediate(body.gameObject);
             Clear(cam, rt, near, far);
         }
+
+        // ---- taking a structure off ---------------------------------------------------------------------------
+
+        [Test]
+        public void AStructureIsTakenOffAndPutBackAndWhatLayBehindItIsTouched()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) Assert.Ignore("needs a graphics device");
+            var (cam, near, far, rt) = Stage();
+            var body = new GameObject("body").AddComponent<ModelBody>();
+            var bones = new GameObject("skeleton");
+            near.transform.SetParent(bones.transform, true);
+            far.transform.SetParent(bones.transform, true);
+            var skinLayer = new GameObject("skin");
+            var skin = GameObject.CreatePrimitive(PrimitiveType.Cube).GetComponent<Renderer>();      // behind both: in nobody's way
+            skin.name = "skin";
+            skin.transform.position = new Vector3(0f, 0f, 9f);
+            skin.transform.localScale = Vector3.one * 3f;
+            skin.sharedMaterial = new Material(Shader.Find("DicomViewer/LabModel"));
+            skin.transform.SetParent(skinLayer.transform, true);
+            body.nested = true;
+            body.Add("skin", skinLayer);
+            body.Add("skeleton", bones);
+            var middle = new Vector2(100f, 50f);
+
+            Assert.That(body.LayerOf(near).name, Is.EqualTo("skeleton"));
+            Assert.That(body.CanHide(near), Is.True);
+            Assert.That(body.CanHide(skin), Is.False, "the skin goes off with its own button, all of it together");
+            Assert.That(body.Hide(skin), Is.False);
+            Assert.That(body.Hide(null), Is.False);
+
+            Assert.That(body.TapAt(cam, middle), Is.SameAs(near));
+            Assert.That(body.Hide(near), Is.True);
+            Assert.That(near.enabled, Is.False, "what is taken off is no longer drawn");
+            Assert.That(body.Picked, Is.Null, "its card goes with it");
+            Assert.That(body.Card.Shown, Is.False);
+            Assert.That(near.sharedMaterial.GetFloat("_Picked"), Is.EqualTo(0f));
+            Assert.That(body.Touchable(), Has.No.Member(near));
+            Assert.That(body.TapAt(cam, middle), Is.SameAs(far), "what lay behind it is touched now");
+            Assert.That(body.Hide(far), Is.True);
+            Assert.That(body.Hidden.Count, Is.EqualTo(2));
+            Assert.That(body.Hide(far), Is.False, "what is off cannot be taken off again");
+
+            Assert.That(body.ShowLast(), Is.SameAs(far), "the last one taken off comes back first");
+            Assert.That(far.enabled, Is.True);
+            Assert.That(near.enabled, Is.False);
+            body.LookAt("skeleton");
+            body.LookAt("skin");
+            Assert.That(near.enabled, Is.False, "looking at another layer and back does not put it back");
+            body.ShowAll();
+            Assert.That(near.enabled, Is.True);
+            Assert.That(body.Hidden.Count, Is.EqualTo(0));
+            Assert.That(body.ShowLast(), Is.Null, "nothing is off any more");
+            Assert.That(body.TapAt(cam, middle), Is.SameAs(near), "and it is in front again");
+            body.Select(null, cam);
+
+            // What lay inside a structure that is taken off loses most of the shadow baked into it (it was baked as
+            // buried); what lay clear of it keeps its own; and put back, all is as it was.
+            near.transform.position = new Vector3(0f, 0f, 4f);            // the small cube inside the large one now
+            float baked = near.sharedMaterial.GetFloat("_Occlusion");
+            Assert.That(baked, Is.GreaterThan(0.1f));
+            Assert.That(body.Hide(far), Is.True);
+            Assert.That(near.sharedMaterial.GetFloat("_Occlusion"), Is.EqualTo(baked * ModelBody.Uncovered).Within(1e-5f));
+            Assert.That(skin.sharedMaterial.GetFloat("_Occlusion"), Is.EqualTo(baked).Within(1e-5f), "the skin's layer is not touched");
+            body.ShowAll();
+            Assert.That(near.sharedMaterial.GetFloat("_Occlusion"), Is.EqualTo(baked).Within(1e-5f));
+            near.transform.position = new Vector3(0f, 0f, 2f);            // clear of the large one again
+            Assert.That(body.Hide(far), Is.True);
+            Assert.That(near.sharedMaterial.GetFloat("_Occlusion"), Is.EqualTo(baked).Within(1e-5f), "what did not lie in its room keeps its shadow");
+            Assert.That(body.ShowLast(), Is.SameAs(far));
+
+            Object.DestroyImmediate(skin.sharedMaterial);
+            skin.transform.SetParent(null, true);                       // (the body would take its layers' meshes with it)
+            near.transform.SetParent(null, true);
+            far.transform.SetParent(null, true);
+            Object.DestroyImmediate(skin.gameObject);
+            Object.DestroyImmediate(body.gameObject);
+            Clear(cam, rt, near, far);
+        }
     }
 }

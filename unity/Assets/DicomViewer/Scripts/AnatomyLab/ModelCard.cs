@@ -35,6 +35,10 @@ namespace DicomViewer.AnatomyLab
         private float scale = 1f;
 
         public bool Shown => root != null && root.activeSelf;
+
+        /// <summary>How high the card is on the screen, in pixels; 0 while it is put away. (What is laid out under
+        /// it, the button that takes the named structure off, starts there.)</summary>
+        public float PixelHeight => Shown ? height : 0f;
         /// <summary>The lines last shown, wrapped.</summary>
         public List<Line> Lines { get; } = new List<Line>();
 
