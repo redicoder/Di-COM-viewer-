@@ -155,7 +155,7 @@ def test_a_fingers_bones_that_lie_beside_the_finger_are_moved_into_it():
     ring = rng.uniform(0, 2 * np.pi, 500)
     bone = centre + np.stack([4.0 * np.cos(ring), rng.uniform(40.0, 120.0, 500), RADIUS - 2.0 + 4.0 * np.sin(ring)], axis=1)
     assert (RADIUS - np.hypot(bone[:, 0] - centre[0], bone[:, 2] - centre[2]) < 0).sum() > 100      # a good part of it outside the finger
-    new, move = hands.into_finger(fine, bone)
+    new, move, _, _ = hands.into_finger(fine, bone)
     assert 0 < np.linalg.norm(move) <= 6.0 + 1e-6
     deep = RADIUS - np.hypot(new[:, 0] - centre[0], new[:, 2] - centre[2])
     assert deep.min() > hands.UNDER_MM - 0.5                            # all of it in the finger and under its skin

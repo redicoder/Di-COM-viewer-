@@ -6,7 +6,8 @@ to 6.6 mm. While the fingers were one piece of skin that could be mended vertex 
 the way the depth grows; with the fingers apart (fine_skin.body_outline) that puts a vertex into whichever
 finger is nearer, as it did with the toes. So, as the toes' bones (feet.py): a finger's bones are moved as a
 whole into the finger (nails.settle: any way, 6 mm at most, to where the fewest vertices lie at the skin or
-outside it), and what of them is still too near the skin goes towards their own long axis (feet.to_axis).
+outside it), made to follow the finger along its length where it lay bent otherwise in the scanner (following),
+and what of them is still too near the skin goes towards their own middle line (to_middle).
 
 The fat, as in the feet (feet.py, where the reasons are): from the labels, at 1.3 mm in triangles of 4 to 5 mm, a
 finger's fat is a few blocks with the bone showing between them, and it reached the skin's surface on the hands'
@@ -34,6 +35,10 @@ REACH_MM = 24.0                 # the hand, for the fat: what lies within this o
 LAP_MM = 6.0                    # the labels' fat is kept from REACH_MM - LAP_MM of the bones outwards
 EDGE_MM = 1.5                   # the glove's triangles
 BLUR = (2.0, 1.5, 2.0)          # as feet.BLUR
+SLICE_MM, FOLLOW_MM = 3.0, 6.0          # a finger's bones follow the finger in slices this long, each moved by this much at the most
+FOLLOW_SPARE_MM = 0.8                   # ... to lie this much deeper than UNDER_MM (what is asked of whole triangles afterwards: head_layers)
+CLEFT_MM = 0.5                          # ... and never by a way that passes nearer the skin than this (through a cleft between two fingers)
+LABELS = ("bones of the left hand", "bones of the right hand")     # the labels' own bone of the hands: BoneHub has every bone of them
 
 
 def is_finger(name: str) -> bool:
@@ -111,11 +116,112 @@ def skin_of(body: Body, v: np.ndarray, n: np.ndarray) -> tuple[np.ndarray, np.nd
             own_skin(np.concatenate(fingers), points, facing, FINGER_REACH_MM) if fingers else none[1])
 
 
+def following(fine: fine_skin.FineOutline, zyx_mm: np.ndarray, least_mm: float | None = None, most_mm: float | None = None) -> tuple[np.ndarray, float]:
+    """A finger's bones (mm, the body's axes) made to follow the finger along its length: (the bones, the largest
+    move made of a slice of them, mm).
+
+    BoneHub's bones are from the CT, and a finger did not lie under the camera bent as it lay in the scanner.
+    Moved as one stiff piece (nails.settle) such a finger's bones lie in the finger at its foot and shallow at
+    its tip (the right ring finger's: none nearer the skin than 1 mm, 558 of 5076 vertices nearer than 2.5), and
+    thinned towards the one straight line through all of them (feet.to_axis) the tip was no better: that line
+    itself leaves the finger there. Its last bone showed at the fingertip through the fat. BoneHub has a
+    finger's three bones as ONE mesh, grown together at the joints, so they cannot be turned at their joints
+    one by one. So the mesh is taken in slices of SLICE_MM across its length; each slice that has vertices
+    nearer the skin than `least_mm` is moved across the length, FOLLOW_MM at the most in steps of a millimetre,
+    to where the fewest of its vertices lie so near (the shortest of the moves that leave as few); the slices'
+    moves are evened out along the length, so that the bones bend and do not break; and every vertex takes the
+    move of its place along the length.
+
+    A move is not taken if half way along it the slice would lie at the skin or outside it: beside a finger lies
+    the next finger, a millimetre and a half away, and deep in THAT finger is as good a place by the count (tried
+    without: the right ring finger's tip went over into the little finger's, and the bone between crossed the
+    cleft, 5.8 mm outside the skin)."""
+    least_mm = UNDER_MM + FOLLOW_SPARE_MM if least_mm is None else least_mm
+    most_mm = FOLLOW_MM if most_mm is None else most_mm
+    mm = np.asarray(zyx_mm, np.float64).copy()
+    if len(mm) < 30:
+        return mm, 0.0
+    field = fine_skin.depth_near(fine, mm, 8.0 + most_mm)
+    if field is None:
+        return mm, 0.0
+    centre = mm.mean(axis=0)
+    along, across_a, across_b = np.linalg.svd(mm - centre, full_matrices=False)[2]
+    t = (mm - centre) @ along
+    count = max(1, int(np.ceil((t.max() - t.min()) / SLICE_MM)))
+    edges = np.linspace(t.min(), t.max() + 1e-9, count + 1)
+    which = np.clip(np.digitize(t, edges) - 1, 0, count - 1)
+    steps = np.arange(-most_mm, most_mm + 0.1, 1.0)
+    ways = [(float(np.hypot(a, b)), a * across_a + b * across_b) for a in steps for b in steps if 0 < np.hypot(a, b) <= most_mm + 1e-9]
+    moves = np.zeros((count, 3))
+    for k in range(count):
+        points = mm[which == k]
+        if len(points) == 0:
+            continue
+        points = points[::max(1, len(points) // 150)]
+        best = (int((fine_skin.depth_at(fine, field, points) < least_mm).sum()), 0.0, np.zeros(3))
+        if best[0] == 0:
+            continue
+        for far, move in ways:
+            found = (int((fine_skin.depth_at(fine, field, points + move) < least_mm).sum()), far, move)
+            if found[:2] < best[:2] and fine_skin.depth_at(fine, field, points + move / 2.0).min() > CLEFT_MM:
+                best = found
+        moves[k] = best[2]
+    if not moves.any():
+        return mm, 0.0
+    for _ in range(2):                                                      # evened out along the length (the two ends keep their own)
+        if count >= 3:
+            moves[1:-1] = 0.25 * moves[:-2] + 0.5 * moves[1:-1] + 0.25 * moves[2:]
+    middles = (edges[:-1] + edges[1:]) / 2.0
+    mm += np.stack([np.interp(t, middles, moves[:, c]) for c in range(3)], axis=1)
+    return mm, float(np.linalg.norm(moves, axis=1).max())
+
+
 def into_finger(fine: fine_skin.FineOutline, zyx_mm: np.ndarray):
     """A finger's bones (mm, the body's axes) -> (the bones in the finger, the move that was made of them as a
-    whole)."""
+    whole, the largest move made of a slice of them to follow the finger (mm), how many vertices were thinned
+    towards the bones' axis after that)."""
     move = nails.settle(fine, zyx_mm[::max(1, len(zyx_mm) // 600)])
-    return feet.to_axis(fine, zyx_mm + move, UNDER_MM), move
+    mm, bend = following(fine, np.asarray(zyx_mm, np.float64) + move)
+    out = to_middle(fine, mm, UNDER_MM)
+    return out, move, bend, int((np.linalg.norm(out - mm, axis=1) > 0.05).sum())
+
+
+def to_middle(fine: fine_skin.FineOutline, zyx_mm: np.ndarray, least_mm: float = UNDER_MM) -> np.ndarray:
+    """A finger's bones: the points that lie less than `least_mm` under the skin are moved towards the bones' own
+    middle line at their place along the length, as far as it takes (to the line itself, if it takes that).
+
+    As feet.to_axis does it for a toe, whose bones are short and straight; but a finger's three bones in one mesh
+    are not straight, and the one straight line through all of them leaves the finger at its tip (a point moved
+    onto it lay nearer the skin than before). The middle line is the mesh's own: the middles of its slices of
+    SLICE_MM along the length, evened out."""
+    mm = np.asarray(zyx_mm, np.float64).copy()
+    field = fine_skin.depth_near(fine, mm)
+    if field is None or len(mm) < 30:
+        return mm
+    todo = np.flatnonzero(fine_skin.depth_at(fine, field, mm) < least_mm)
+    if len(todo) == 0:
+        return mm
+    centre = mm.mean(axis=0)
+    along = np.linalg.svd(mm - centre, full_matrices=False)[2][0]
+    t = (mm - centre) @ along
+    count = max(1, int(np.ceil((t.max() - t.min()) / SLICE_MM)))
+    edges = np.linspace(t.min(), t.max() + 1e-9, count + 1)
+    which = np.clip(np.digitize(t, edges) - 1, 0, count - 1)
+    filled = np.array([(which == k).any() for k in range(count)])
+    middles = np.array([mm[which == k].mean(axis=0) if filled[k] else centre for k in range(count)])
+    at = ((edges[:-1] + edges[1:]) / 2.0)[filled]
+    middles = middles[filled]
+    for _ in range(2):
+        if len(middles) >= 3:
+            middles[1:-1] = 0.25 * middles[:-2] + 0.5 * middles[1:-1] + 0.25 * middles[2:]
+    foot = np.stack([np.interp(t[todo], at, middles[:, c]) for c in range(3)], axis=1)
+    start, left = mm[todo].copy(), np.ones(len(todo), bool)
+    for share in np.linspace(0.1, 1.0, 10):
+        now = start + share * (foot - start)
+        good = left & ((fine_skin.depth_at(fine, field, now) >= least_mm) | (share == 1.0))
+        mm[todo[good]] = now[good]
+        left &= ~good
+    return mm
 
 
 def under(body: Body, structures: list[Structure], log=print) -> int:
@@ -133,10 +239,10 @@ def under(body: Body, structures: list[Structure], log=print) -> int:
             continue
         mm = feet.to_mm(size, s.v)
         if is_finger(s.name):
-            new, move = into_finger(fine, mm)
-            single += int((np.linalg.norm(new - mm - move, axis=1) > 0.05).sum())
-            if move.any():
-                moved.append(f"{s.name[len('phalanges of the '):]} {np.linalg.norm(move):.1f} mm")
+            new, move, bend, thinned = into_finger(fine, mm)
+            single += thinned
+            if move.any() or bend > 0:
+                moved.append(f"{s.name[len('phalanges of the '):]} {np.linalg.norm(move):.1f} mm" + (f" and bent by up to {bend:.1f} mm" if bend > 0 else ""))
             s.v = feet.to_gltf(size, new)
             continue
         new = mm.copy()
@@ -149,7 +255,7 @@ def under(body: Body, structures: list[Structure], log=print) -> int:
             s.v = feet.to_gltf(size, new)
             single += int(far.sum())
     if moved or single:
-        log(f"hands: the fingers' bones moved as a whole into their fingers: {'; '.join(moved) or 'none'}; {single} vertices drawn in singly")
+        log(f"hands: the fingers' bones moved as a whole into their fingers and made to follow them: {'; '.join(moved) or 'none'}; {single} vertices drawn in singly")
     return single
 
 

@@ -3838,26 +3838,6 @@
    "note": "unnamed"
   },
   {
-   "key": "bone (not named) 39",
-   "layer": "skeleton",
-   "la": "Os",
-   "en": "Bone (not separately named)",
-   "it": "Osso (senza nome proprio)",
-   "from": "ct",
-   "drawn": false,
-   "note": "unnamed"
-  },
-  {
-   "key": "bone (not named) 40",
-   "layer": "skeleton",
-   "la": "Os",
-   "en": "Bone (not separately named)",
-   "it": "Osso (senza nome proprio)",
-   "from": "ct",
-   "drawn": false,
-   "note": "unnamed"
-  },
-  {
    "key": "thyroid cartilage",
    "layer": "skeleton",
    "la": "Cartilago thyroidea",

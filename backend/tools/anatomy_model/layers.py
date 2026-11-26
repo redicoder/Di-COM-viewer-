@@ -11,7 +11,7 @@ import numpy as np
 from scipy import ndimage
 
 from . import bonehub, eyes, face_muscles, face_vessels, fat_shell, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth, thin_organs
-from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, surface
+from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, solid_of, surface
 from .palette import BONE, colour_of
 
 SKIP = ("marker", "penis", "scrotum", "trachea lumen")      # markers are not anatomy; the outer genitals are skin
@@ -77,10 +77,25 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         got = surface(block, body.spacing, 1.3 if voxels > 4000 else 0.8, [s.start for s in box])
         if got is not None and len(got[1]) >= 8:
             raw.append((o, got[0], got[1]))
+    shown = None
     if named:
+        # The bones as they are shown, on the labels' grid: what each of BoneHub's meshes fills. Two things go by it,
+        # which went by the labels' own bone before, and the labels' bone does not lie where BoneHub's does (a wrist up
+        # to 8 mm beside): what counts as bone BoneHub has not got (below), and the shading baked into the bones (the
+        # occupancy, further down: the wrists' small bones were dark on their open sides and light in their clefts).
+        shown = np.zeros(lab.shape, bool)
+        for _, _, v, f in named:
+            got = solid_of(v, f, lab.shape, body.spacing)
+            if got is not None:
+                first, block = got
+                shown[tuple(slice(a, a + n) for a, n in zip(first, block.shape))] |= block
         # Bone of ours that BoneHub has nothing near (its arm bones stop short of the elbow; the hyoid): kept, unnamed.
+        # Not what lies inside one of BoneHub's bones (the middle of a thick bone is further than 12 mm from its own
+        # surface), and not the labels' bones of the hands: BoneHub has every bone of a hand, and where a finger lay
+        # bent otherwise in the CT the labels' own piece of it stood beside BoneHub's as a second, nameless bone.
         from scipy.spatial import cKDTree
-        ours = np.isin(lab, [o["index"] for o in objects_of(body, layer) if not any(k in o["name"] for k in KEEP_WITH_BONEHUB)])
+        ours = np.isin(lab, [o["index"] for o in objects_of(body, layer) if not any(k in o["name"] for k in KEEP_WITH_BONEHUB) and o["name"] not in hands.LABELS])
+        ours &= ~shown
         centres = (np.argwhere(ours) + 0.5) * np.array(body.spacing)
         tree = cKDTree(np.concatenate([v[::3] for _, _, v, _ in named]))
         far = tree.query(centres, distance_upper_bound=12.0)[0] > 12.0     # the arms lie up to 8 mm apart in the CT and in the photographs
@@ -95,7 +110,9 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
             got = surface(parts[box] == k + 1, body.spacing, 1.0, [s.start for s in box])
             if got is not None and len(got[1]) >= 8:
                 raw.append(({"name": f"bone (not named) {len(raw) + 1}", "layer": "bone", "index": 0}, got[0], got[1]))
-    occupancy = baker.field(np.isin(lab, [o["index"] for o in objects_of(body, layer)]))
+                shown[box] |= parts[box] == k + 1
+        shown |= np.isin(lab, [o["index"] for o in objs])          # (and the cartilages and the discs, which are the labels' own)
+    occupancy = baker.field(shown if shown is not None else np.isin(lab, [o["index"] for o in objects_of(body, layer)]))
     total = sum(len(f) for _, _, f in raw) + sum(len(f) for _, _, _, f in named)
     share = triangles / max(1, total)
     out = []

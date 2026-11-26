@@ -343,6 +343,33 @@ def keep_big_pieces(v: np.ndarray, f: np.ndarray, min_share: float = 0.02):
 
 
 # ---- the bake --------------------------------------------------------------------------------------------------
+def solid_of(v_mm: np.ndarray, f: np.ndarray, shape, spacing):
+    """The voxels a closed mesh fills, on a grid of `shape` and `spacing` (z, y, x; the vertices in the same
+    millimetres): (the block's first voxel, the block, bool), or None for a mesh that lies wholly outside the
+    grid. Points are spread over every triangle closer than half a voxel, their voxels marked, pinholes of a
+    voxel closed, and what the marked voxels enclose is filled."""
+    v, f = np.asarray(v_mm, np.float64), np.asarray(f, np.int64)
+    sp = np.asarray(spacing, np.float64)
+    if len(v) == 0 or len(f) == 0:
+        return None
+    a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    longest = np.max([np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1), np.linalg.norm(a - c, axis=1)], axis=0)
+    n = int(np.clip(np.ceil(np.percentile(longest, 99) / (0.5 * sp.min())), 2, 12))
+    grid = [(i / n, j / n, 1.0 - (i + j) / n) for i in range(n + 1) for j in range(n + 1 - i)]
+    points = np.concatenate([wa * a + wb * b + wc * c for wa, wb, wc in grid] + [v])
+    index = np.floor(points / sp).astype(np.int64)
+    lo = np.maximum(index.min(axis=0) - 2, 0)
+    hi = np.minimum(index.max(axis=0) + 3, np.asarray(shape))
+    if (hi <= lo).any():
+        return None
+    inside = ((index >= lo) & (index < hi)).all(axis=1)
+    block = np.zeros(tuple(hi - lo), bool)
+    local = index[inside] - lo
+    block[local[:, 0], local[:, 1], local[:, 2]] = True
+    block = ndimage.binary_closing(np.pad(block, 1), structure=np.ones((3, 3, 3), bool))[1:-1, 1:-1, 1:-1] | block
+    return tuple(int(x) for x in lo), ndimage.binary_fill_holes(block)
+
+
 class Baker:
     """What a game bakes per vertex, from the volume the meshes came from (SkinBake's encoding in the colour):
     r how open the room above the surface is, g the tissue behind it (mm / 60), b curvature / 0.25 per mm,

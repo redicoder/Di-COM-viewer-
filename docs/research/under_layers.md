@@ -1,4 +1,4 @@
-# The layers under the skin: a survey, the fat, the muscles, and the organs (2026-11-25 and 26)
+# The layers under the skin: a survey, the fat, the muscles, the organs, and the skeleton (2026-11-25 and 26)
 
 Research before the layers under the skin were worked on (product owner: "ok do what you recommend", on: bring
 the layers under the skin up to the skin's standard). Marks as in the other reports: **O** read on our own data,
@@ -206,4 +206,48 @@ cross-section at three heights beside the photograph; and counts of how thick ea
 - The organs' surfaces are contoured at the export's 1.32 x 2 mm, not at the photographs' 0.66 mm as the skin's,
   the fat's and the muscles' are.
 - Step 4 of section 2 (the skeleton), and what sections 4 and 6 list.
+
+## 9. The skeleton: what the faults were, and what was built (O)
+
+Product owner: "ok do what you recommend", on: the skeleton next (the dark wrist bones, the ring finger's bone
+at the fingertip), then a way to take a structure off. Looked at before anything was changed: the skeleton's
+pictures; every bone of the arms and hands with its extent and the shading baked into it; and the right ring
+finger's bones as BoneHub places them, after each step of their fitting, by their depth under the skin.
+
+- **The wrists' shading was baked from another skeleton than the one shown.** The shading (how open the room
+  over a surface is) is read from a blurred occupancy of the layer, and for the skeleton that was the LABELS'
+  bone, while the bones shown are BoneHub's, which lie up to 8 mm beside the labels' (a wrist most of all). The
+  small bones of the wrist were shaded in blotches that did not follow their shapes. The occupancy is now of
+  the bones as shown: each of BoneHub's meshes filled on the labels' grid (`common.solid_of`), with the labels'
+  cartilages and discs. In the picture the wrist's bones are light, with the dark in the clefts between them.
+- **Two nameless bones in the hands were the labels' own fingers.** Bone of the labels that BoneHub has nothing
+  near is kept, unnamed (the arms' bones above the elbows, the hyoid). Where a finger lay bent otherwise in the
+  CT, the labels' piece of it is further than the 12 mm allowed from BoneHub's finger, and stood beside it as a
+  second bone ("bone (not named) 39" and "40", at the two hands' fingers). BoneHub has every bone of a hand, so
+  the labels' hand bones are no longer candidates; nor is what lies INSIDE one of BoneHub's bones (the middle
+  of a thick bone is further than 12 mm from its own surface). 240 bones and cartilages now, 242 before.
+- **The ring finger's bone at the fingertip: the thinning did it, not the bend alone.** Section 4 said the finger
+  lay bent otherwise in the CT and its bones were "moved by the most allowed". Measured: after the move of the
+  whole finger (3.7 mm) none of its vertices lies nearer the skin than 1 mm, and 558 of 5076 nearer than 2.5.
+  Then what is too near is thinned towards the bones' long axis (`feet.to_axis`, made for a toe's short straight
+  bones): ONE straight line through all three bones of a finger, which leaves a bent finger at its tip. Points
+  moved onto it lay 6 mm OUTSIDE the skin at the right ring finger, and outside it at seven fingers of ten
+  (pressed back in afterwards corner by corner, and squeezed). Tried first: turning each bone at its joint. It
+  cannot be done: BoneHub has a finger's three bones as one mesh, grown together at the joints. What was built
+  (`hands.following`, `hands.to_middle`): the mesh is taken in slices of 3 mm along its length; a slice that
+  lies too near the skin is moved across the length, 6 mm at the most, to where the fewest of its vertices lie
+  so near, never by a way that passes through the skin (the first version took the right ring finger's tip over
+  into the little finger); the slices' moves are evened out along the length; and what is still too near goes
+  towards the mesh's own middle line there, not a straight one. In the build the ten fingers' bones were bent by
+  0.8 to 5.0 mm, none of their vertices lies nearer the skin than 2.58 mm, and the ring finger's bone no longer
+  shows through the fat (11 pixels before, none now).
+
+## 10. What stays open after the skeleton
+
+- The upper arm bones end in a slanting point above the elbows, and the elbows' bones are missing: BoneHub's
+  arm bones stop where the CT's picture did, and the photographs do not hold the arms' outer sides there
+  either. It would have to be drawn.
+- Nameless bone in the head (two pieces of the labels' bone inside the skull), to be looked at with the skull.
+- The rest of BoneHub's skeleton is still the CT's size (3 % small in the plane), as the model's notes say.
+- A way to take a structure off by touch ("hide"): next.
 
