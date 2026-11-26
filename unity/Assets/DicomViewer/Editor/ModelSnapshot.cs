@@ -492,12 +492,99 @@ public static class ModelSnapshot
         Object.DestroyImmediate(rt);
     }
 
+    /// <summary>The opened mouth's part of RunThrough by itself (a minute), with a picture of every view in which
+    /// each mesh has a flat colour by what it is (build/snapshots/through_open_*.png): the skin's layer dark grey,
+    /// the teeth and the tongue light grey, and whatever shows through the skin loud: fat yellow, the lower lip's
+    /// muscle green, the upper lip's dark green, the mandible blue, a cheek's muscle cyan, the maxilla violet,
+    /// anything else magenta. The log says how many pixels of each; the picture says where.</summary>
+    public static void RunThroughOpen()
+    {
+        var (cam, body, b) = BuildAnatomy();
+        if (body == null || !body.hasMouth) return;
+        var rt = new RenderTexture(1600, 900, 24, RenderTextureFormat.ARGB32);
+        cam.targetTexture = rt;
+        body.LookAt("skin");
+        string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "build", "snapshots"));
+        Directory.CreateDirectory(outDir);
+        ThroughWithTheMouthOpen(cam, body, outDir);
+        // The same seven views with the mouth SHUT (what of it is the view's and not the pose's: the nostrils seen
+        // from below are in no other survey), and with the mouth open and only the skin's layer drawn (black inside
+        // the face: a gap in the skin's own surfaces, through which whatever lies behind is seen).
+        ThroughWithTheMouthOpen(cam, body, outDir, 0f, false);
+        ThroughWithTheMouthOpen(cam, body, outDir, 1f, true);
+        BehindWhatShows(cam, body);
+        cam.targetTexture = null;
+        Object.DestroyImmediate(rt);
+    }
+
+    /// <summary>For what shows through the skin with the mouth open: WHICH of the skin's own surfaces it stands
+    /// before (the skin with the lips' inner sides, the lining, the gums, the mouth's wall), pixel by pixel: every
+    /// view's picture is read twice, with all layers and with the skin's alone. The log lists, for each
+    /// structure that shows, the skin's surfaces behind it and how many pixels of each.</summary>
+    private static void BehindWhatShows(Camera cam, ModelBody body)
+    {
+        var all = body.Touchable();
+        var ofSkin = new System.Collections.Generic.HashSet<Renderer>();
+        foreach (Renderer r in FindDeep(body.transform, "skin").GetComponentsInChildren<Renderer>(true)) ofSkin.Add(r);
+        var alone = all.FindAll(r => ofSkin.Contains(r));
+        Renderer skinRenderer = null;
+        foreach (Renderer r in body.GetComponentsInChildren<Renderer>(true)) if (r.name == "skin") skinRenderer = r;
+        Transform space = skinRenderer.transform;
+        Vector3 mouth = space.TransformPoint(body.mouthGrab);
+        Vector3 up = space.TransformDirection(body.eyeUp), forward = space.TransformDirection(body.eyeForward);
+        Vector3 across = Vector3.Cross(up, forward).normalized;
+        Vector3 face = mouth + up * 0.03f - forward * 0.02f, inside = mouth - up * 0.012f - forward * 0.02f;
+        var views = new (string name, Vector3 from, Vector3 lookAt)[]
+        {
+            ("front", forward * 0.30f, face), ("below", (forward * 0.9f - up * 0.45f).normalized * 0.26f, inside),
+            ("side", (forward * 0.5f + across).normalized * 0.34f, face), ("other side", (forward * 0.5f - across).normalized * 0.34f, face),
+            ("close", (forward * 0.95f - up * 0.3f).normalized * 0.15f, inside), ("above", (forward * 0.8f + up * 0.6f).normalized * 0.2f, inside),
+            ("under the chin", (forward * 0.3f - up).normalized * 0.34f, face - up * 0.06f),
+        };
+        body.jaw = body.upperLip = 1f;
+        body.PushJaw();
+        var tally = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, int>>();
+        foreach (var view in views)
+        {
+            cam.transform.position = view.lookAt + view.from;
+            cam.transform.rotation = Quaternion.LookRotation(-view.from.normalized, up);
+            int[] whole = ModelPick.Map(cam, all, out int w, out int h);
+            int[] skins = ModelPick.Map(cam, alone, out _, out _);
+            for (int i = 0; i < whole.Length; i++)
+            {
+                if (whole[i] == 0 || ofSkin.Contains(all[whole[i] - 1]) || OfTheMouth(all[whole[i] - 1].name)) continue;
+                string shows = all[whole[i] - 1].name, behind = skins[i] == 0 ? "nothing of the skin's" : alone[skins[i] - 1].name;
+                if (!tally.ContainsKey(shows)) tally[shows] = new System.Collections.Generic.Dictionary<string, int>();
+                tally[shows][behind] = tally[shows].TryGetValue(behind, out int n) ? n + 1 : 1;
+            }
+        }
+        foreach (var pair in tally)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var b in pair.Value) parts.Add($"{b.Key} {b.Value}");
+            Debug.Log($"ModelSnapshot: with the mouth open '{pair.Key}' stands before: " + string.Join("; ", parts));
+        }
+        body.jaw = body.upperLip = 0f;
+        body.PushJaw();
+    }
+
+    private static Color32 LoudColour(string name)
+    {
+        if (name == "subcutaneous fat" || name == "visceral fat") return new Color32(255, 220, 0, 255);
+        if (name == "orbicularis oris, lower lip") return new Color32(0, 255, 0, 255);
+        if (name == "orbicularis oris, upper lip") return new Color32(0, 150, 60, 255);
+        if (name == "mandible") return new Color32(40, 90, 255, 255);
+        if (name.Contains("buccinator")) return new Color32(0, 255, 255, 255);
+        if (name.Contains("maxilla")) return new Color32(170, 120, 255, 255);
+        return new Color32(255, 0, 255, 255);
+    }
+
     private static bool OfTheMouth(string name)
     {
         return name == "tongue" || name.Contains("incisor") || name.Contains("canine") || name.Contains("molar") || name.Contains("teeth");
     }
 
-    private static void ThroughWithTheMouthOpen(Camera cam, ModelBody body)
+    private static void ThroughWithTheMouthOpen(Camera cam, ModelBody body, string pictures = null, float open = 1f, bool skinOnly = false)
     {
         var renderers = body.Touchable();
         var ofSkin = new System.Collections.Generic.HashSet<Renderer>();
@@ -516,16 +603,20 @@ public static class ModelSnapshot
             ("close", (forward * 0.95f - up * 0.3f).normalized * 0.15f, inside), ("above", (forward * 0.8f + up * 0.6f).normalized * 0.2f, inside),
             ("under the chin", (forward * 0.3f - up).normalized * 0.34f, face - up * 0.06f),
         };
-        body.jaw = body.upperLip = 1f;
+        body.jaw = body.upperLip = open;
         body.PushJaw();
+        if (skinOnly) renderers = renderers.FindAll(r => ofSkin.Contains(r));
+        string what = skinOnly ? "skin alone, the mouth open" : open > 0f ? "skin, the mouth open" : "skin, the mouth shut, seen as the open mouth is";
+        string tag = skinOnly ? "through_open_alone_" : open > 0f ? "through_open_" : "through_shut_";
         long all = 0;
         foreach (var view in views)
         {
             cam.transform.position = view.lookAt + view.from;
             cam.transform.rotation = Quaternion.LookRotation(-view.from.normalized, up);
-            all += Seen(cam, renderers, ofSkin, "skin, the mouth open", view.name, OfTheMouth);
+            all += Seen(cam, renderers, ofSkin, what, view.name, OfTheMouth,
+                        pictures != null ? Path.Combine(pictures, tag + view.name.Replace(' ', '_') + ".png") : null);
         }
-        Debug.Log($"ModelSnapshot: through the skin, the mouth open, {views.Length} views: {all} pixels in all (the teeth and the tongue not counted)");
+        Debug.Log($"ModelSnapshot: through the {what}, {views.Length} views: {all} pixels in all (the teeth and the tongue not counted)");
         body.jaw = body.upperLip = 0f;
         body.PushJaw();
     }
@@ -534,9 +625,26 @@ public static class ModelSnapshot
     /// (structure, pixels, where in the picture). Returns the pixels that show through; those of structures
     /// `meant` to be seen are named in the log but not counted.</summary>
     private static long Seen(Camera cam, System.Collections.Generic.List<Renderer> renderers, System.Collections.Generic.HashSet<Renderer> outer, string what, string viewName,
-                             System.Func<string, bool> meant = null)
+                             System.Func<string, bool> meant = null, string picture = null)
     {
         int[] map = ModelPick.Map(cam, renderers, out int w, out int h);
+        if (picture != null)
+        {
+            var flat = new Color32[map.Length];                            // (the map's rows count from the bottom, as a texture's do)
+            for (int i = 0; i < map.Length; i++)
+            {
+                int id = map[i];
+                if (id == 0) flat[i] = new Color32(0, 0, 0, 255);
+                else if (outer.Contains(renderers[id - 1])) flat[i] = new Color32(70, 70, 70, 255);
+                else if (meant != null && meant(renderers[id - 1].name)) flat[i] = new Color32(150, 150, 150, 255);
+                else flat[i] = LoudColour(renderers[id - 1].name);
+            }
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.SetPixels32(flat);
+            tex.Apply();
+            File.WriteAllBytes(picture, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+        }
         var count = new System.Collections.Generic.Dictionary<int, int>();
         var box = new System.Collections.Generic.Dictionary<int, RectInt>();
         int outerPixels = 0;

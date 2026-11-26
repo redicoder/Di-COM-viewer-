@@ -251,3 +251,39 @@ finger's bones as BoneHub places them, after each step of their fitting, by thei
 - The rest of BoneHub's skeleton is still the CT's size (3 % small in the plane), as the model's notes say.
 - A way to take a structure off by touch ("hide"): next.
 
+## 11. The opened mouth: what still shows, where, and what was tried (O)
+
+Product owner: "yes do what you recommend", on: the wide-open mouth, the one check that is not clean (3138 pixels
+in seven close views). It is NOT cured. This is what was found, with a tool made for it
+(`ModelSnapshot.RunThroughOpen`: of each of the seven views a picture in flat colours, the skin's layer grey and
+whatever shows through it loud; the same views with the mouth shut; the same with only the skin's layer drawn;
+and for every structure that shows, which of the skin's own surfaces it stands before).
+
+- **It is the pose, not the view.** With the mouth SHUT the seven views are clean: 0 pixels, the nostrils seen
+  from below among them. And the skin's layer alone, with the mouth open, has no gap anywhere. So whatever shows
+  stands BEFORE one of the skin's surfaces, and only with the mouth open: it and the skin have moved apart.
+- **Where it is.** Sections 4 and 6 named the places before they were looked at, and wrongly ("along the inside
+  of the lip", "under the chin"). The pictures: the lower lip's muscle (1430 pixels) is in slivers on the cheek
+  just beside both corners of the mouth, most at his left one; the fat (1044) is one sliver on the neck under
+  his right jaw (seen in three views), two thin lines on the chin, a sliver at the left corner, and in both
+  nostrils seen from below; the maxilla and a levator of the lip (190) are in the nostrils too, with the upper
+  lip lifted; the mandible (260) stands before the lower gum; the left buccinator (160) before the mouth's wall.
+- **Tried, and taken back: what lies near the skin takes the skin's movement.** Three ways, each worse than what
+  there was: (1) the weights' field read at the skin's triangle over a vertex: 3863 pixels (near the lower lip
+  the field is not what the skin has: the skin knows which lip it is of; the lower lip's depressors came out);
+  (2) the built skin's own movement at its nearest triangle: 5088 (the lips' own muscles, 3022 and 378);
+  (3) the same from the skin's outer surface only, without the lips' inner sides: 6655 (3852 and 927). The fat's
+  1044 pixels were the same in all three, to the pixel: nothing of this touches them.
+- **Tried: the lip ring's ends cut 8 mm short of the corners** (in the cache only). The lower lip's muscle fell
+  to 794 pixels, and the muscles that lie behind it showed in its place (the depressors of the mouth's angle
+  347, the buccinator 127): 2969 in all. So it is not the lip's muscle that is wrong at the corners.
+- **What it is, then.** At the mouth's corners the skin itself comes in past the flesh under it when the mouth
+  opens: the corner is a web of skin drawn straight between the upper lip, which is lifted, and the lower, which
+  goes down with the jaw (`mouth.skin_weights`, the sheet's rim, where both sides move alike). Whatever lies
+  under that web shows through it; take one muscle away and the next one shows.
+
+What it would take (a piece of work on the mouth, not a clean-up): the corner of the mouth in the skin's own
+movement, so that the cheek's skin beside the corner is drawn out over the flesh and not through it; the nostrils'
+floor under a lifted lip; the lower gum against the mandible (a misfit at rest, which only the opened mouth lets
+one see); the single slivers of fat on the neck and the chin, which were not run down.
+

@@ -108,7 +108,8 @@ Unity Hub → Add project → `unity/`. Open `Assets/Scenes/DicomViewer.unity`.
 - **Does anything show through the skin?** After a change to the model, ask it of the picture: every pixel of sixteen views is asked which mesh is in
   front, and the log lists whatever is in front without being skin (the lines "through the skin"; the last gives the sum, which should be 0). The same
   is asked with the skin off (the lines "through the fat": only what lies in the eyes' openings and the lips' should be listed) and with the skin on and
-  the mouth open, from seven sides (the lines "through the skin, the mouth open"; the teeth and the tongue are not counted):
+  the mouth open, from seven sides (the lines "through the skin, the mouth open"; the teeth and the tongue are not counted). To see WHERE something
+  shows with the mouth open, `ModelSnapshot.RunThroughOpen` writes a flat-colour picture of each of those views (`build\snapshots\through_open_*.png`):
   ```powershell
   & "C:\Program Files\Unity\Hub\Editor\6000.6.4f1\Editor\Unity.exe" -batchmode -projectPath unity -executeMethod ModelSnapshot.RunThrough -logFile build\model_through.log -quit
   ```
