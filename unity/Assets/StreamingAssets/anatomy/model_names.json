@@ -84,6 +84,12 @@
    "la": "I dati di origine non lo distinguono ulteriormente.",
    "en": "The data this comes from does not name it further.",
    "it": "I dati di origine non lo distinguono ulteriormente."
+  },
+  {
+   "key": "elbow",
+   "la": "Le fotografie mostrano le ossa del gomito come un'unica massa chiara, con la cartilagine: qui non si distingue dove finisce l'omero e dove cominciano ulna e radio.",
+   "en": "The photographs show the elbow's bones as one pale mass, with their cartilage: where the humerus ends and the ulna and the radius begin is not told here.",
+   "it": "Le fotografie mostrano le ossa del gomito come un'unica massa chiara, con la cartilagine: qui non si distingue dove finisce l'omero e dove cominciano ulna e radio."
   }
  ],
  "structures": [
@@ -3456,6 +3462,26 @@
    "from": "ct",
    "drawn": false,
    "note": ""
+  },
+  {
+   "key": "bones of the right elbow",
+   "layer": "skeleton",
+   "la": "Ossa cubiti dextri",
+   "en": "Bones of the right elbow",
+   "it": "Ossa del gomito destro",
+   "from": "photo",
+   "drawn": false,
+   "note": "elbow"
+  },
+  {
+   "key": "bones of the left elbow",
+   "layer": "skeleton",
+   "la": "Ossa cubiti sinistri",
+   "en": "Bones of the left elbow",
+   "it": "Ossa del gomito sinistro",
+   "from": "photo",
+   "drawn": false,
+   "note": "elbow"
   },
   {
    "key": "coccyx",

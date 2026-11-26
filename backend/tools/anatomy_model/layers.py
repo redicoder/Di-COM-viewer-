@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
-from . import bonehub, eyes, face_muscles, face_vessels, fat_shell, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth, thin_organs
+from . import bonehub, elbows, eyes, face_muscles, face_vessels, fat_shell, feet, fine_muscle, hands, head_layers, leg_muscles, mouth, skull_bones, teeth, thin_organs
 from .common import LAYER_OF_CLASS, Baker, Body, Structure, decimate, load_structures, normals_of, solid_of, surface
 from .palette import BONE, colour_of
 
@@ -83,8 +83,12 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         # which went by the labels' own bone before, and the labels' bone does not lie where BoneHub's does (a wrist up
         # to 8 mm beside): what counts as bone BoneHub has not got (below), and the shading baked into the bones (the
         # occupancy, further down: the wrists' small bones were dark on their open sides and light in their clefts).
+        # The elbows lie beyond the CT's edge, which cuts BoneHub's arm bones: their bones are read from the photographs
+        # (elbows.py) and stand in the skeleton as BoneHub's do. BoneHub's arm bones lay 4 to 5 mm from the same bones
+        # in the photographs: each is given back moved onto the photographs' bone at its cut end, so the two meet.
+        read, named = elbows.read(body, named, log)
         shown = np.zeros(lab.shape, bool)
-        for _, _, v, f in named:
+        for _, _, v, f in list(named) + [(None, name, v, f) for name, v, f in read]:
             got = solid_of(v, f, lab.shape, body.spacing)
             if got is not None:
                 first, block = got
@@ -97,7 +101,7 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         ours = np.isin(lab, [o["index"] for o in objects_of(body, layer) if not any(k in o["name"] for k in KEEP_WITH_BONEHUB) and o["name"] not in hands.LABELS])
         ours &= ~shown
         centres = (np.argwhere(ours) + 0.5) * np.array(body.spacing)
-        tree = cKDTree(np.concatenate([v[::3] for _, _, v, _ in named]))
+        tree = cKDTree(np.concatenate([v[::3] for _, _, v, _ in named] + [v[::3] for _, v, _ in read]))
         far = tree.query(centres, distance_upper_bound=12.0)[0] > 12.0     # the arms lie up to 8 mm apart in the CT and in the photographs
         rest = np.zeros(lab.shape, bool)
         rest[tuple((centres[far] / np.array(body.spacing)).astype(np.int64).T)] = True
@@ -120,6 +124,10 @@ def build(body: Body, layer: str, triangles: int, log=print) -> list[Structure]:
         v, f = decimate(v, f, max(MIN_TRIANGLES, len(f) * min(1.0, share)))
         v, f = body.to_gltf(v, f)
         out.append(Structure(name, layer, v, f, BONE, bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), info={"source": "BoneHub", "code": code, "class": "bone"}))
+    for name, v, f in (read if named else []):
+        v, f = decimate(v, f, max(MIN_TRIANGLES, min(len(f), elbows.TRIANGLES)))
+        v, f = body.to_gltf(v, f)
+        out.append(Structure(name, layer, v, f, BONE, bake=baker.colours(v, f, occupancy, gloss=GLOSS[layer]), info={"source": elbows.SOURCE, "class": "bone"}))
     if named:
         # No bone at the skin or outside it. The bones are placed from the CT, where a finger or a toe does not lie
         # just where the photographs have it: a few of their vertices stood out of the skin (a little finger's by

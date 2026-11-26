@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("skimage")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from anatomy_model import names  # noqa: E402
+from anatomy_model import elbows, names  # noqa: E402
 
 TABLE = Path(__file__).resolve().parents[2] / "unity" / "Assets" / "StreamingAssets" / "anatomy" / "model_names.json"
 
@@ -36,6 +36,8 @@ TABLE = Path(__file__).resolve().parents[2] / "unity" / "Assets" / "StreamingAss
     ("left cartilage of the patella", "Cartilago articularis patellae sinistrae", "Cartilagine articolare della rotula sinistra"),
     ("right facial nerve, buccal branch", "Nervus facialis dexter, rami buccales", "Nervo facciale destro, rami buccali"),
     ("muscles of the left arm", "Musculi membri superioris sinistri", "Muscoli dell'arto superiore sinistro"),
+    ("bones of the right elbow", "Ossa cubiti dextri", "Ossa del gomito destro"),                                      # "of the right elbow": genitive
+    ("bones of the left elbow", "Ossa cubiti sinistri", "Ossa del gomito sinistro"),
     ("left atrium", "Atrium sinistrum", "Atrio sinistro"),
     ("liver", "Hepar", "Fegato"),
 ])
@@ -71,6 +73,7 @@ def test_what_no_rule_knows_has_no_name_and_the_table_says_which():
     ("frontal bone", {"source": "BoneHub's cranium; the bone's outline from BodyParts3D", "part_of": "cranium and maxilla"}, "ct", False, "atlas"),
     ("muscles", {"class": "muscle"}, "photo", False, "unnamed"),
     ("bone (not named) 3", {"class": "bone"}, "ct", False, "unnamed"),
+    ("bones of the left elbow", {"source": elbows.SOURCE, "class": "bone"}, "photo", False, "elbow"),                  # a bone, but not the scanner's
 ])
 def test_where_a_shape_comes_from(name, info, origin, drawn, note):
     assert names.origin_of(name, info) == (origin, drawn, note)

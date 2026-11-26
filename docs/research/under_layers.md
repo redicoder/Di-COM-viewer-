@@ -246,7 +246,8 @@ finger's bones as BoneHub places them, after each step of their fitting, by thei
 
 - The upper arm bones end in a slanting point above the elbows, and the elbows' bones are missing: BoneHub's
   arm bones stop where the CT's picture did, and the photographs do not hold the arms' outer sides there
-  either. It would have to be drawn.
+  either. It would have to be drawn. (Half wrong, and not looked at when it was written: the photographs hold
+  43 mm more of each arm than the CT, and the elbow's bone is in them. Section 12.)
 - Nameless bone in the head (two pieces of the labels' bone inside the skull), to be looked at with the skull.
 - The rest of BoneHub's skeleton is still the CT's size (3 % small in the plane), as the model's notes say.
 - A way to take a structure off by touch ("hide"): next.
@@ -287,3 +288,71 @@ movement, so that the cheek's skin beside the corner is drawn out over the flesh
 floor under a lifted lip; the lower gum against the mandible (a misfit at rest, which only the opened mouth lets
 one see); the single slivers of fat on the neck and the chin, which were not run down.
 
+## 12. The elbows: read from the photographs, not drawn (O)
+
+Product owner: "ok do what you recommend", on: leaving the mouth as it is and drawing the missing elbows next.
+Looked at before anything was drawn: each arm's three bones as BoneHub places them, level by level; the arm's
+outline in the fine skin there; and the photographs' own cross-sections through both elbows.
+
+- **What is missing, measured.** The CT's picture is 478 mm wide and he is wider than that at the elbows.
+  BoneHub's bones are from the CT, so its edge cuts them: the humerus LENGTHWISE over 84 mm at his right
+  (1316 to 1400 mm up from his soles, at x = 49.9 mm) and 76 mm at his left (1335 to 1411, x = 525.2), which is
+  the "slanting point" of section 10: a blade, not an end; the radius over 24 and 28 mm and the ulna over 44
+  and 40 mm at their upper ends. The elbow itself lies wholly beyond that edge.
+- **The photographs hold it.** Section 10 said they do not. Their frame cuts each arm 43 mm further out than the
+  CT (at x = 7 and 570 mm, where the arm's skin ends in a flat face), and in every photograph through the
+  elbow the bone is there: pale, deep in the dark muscle. The labels have no bone beyond the CT's edge (the
+  pale tissue of the arms is "fat" to them), which is why the model had none.
+- **So it is read, not drawn** (`anatomy_model/elbows.py`). Beyond the CT's edge, bone is the tissue that is not
+  muscle-red (`fine_muscle`'s coverage under 0.35), deeper than 6 mm under the skin (the fat under the skin is
+  pale too), within 36 mm of the bones' own lines (the humerus's from above and the ulna's and the radius's
+  from below, fitted to the stretches BoneHub has whole and drawn on to where they meet: the pale fat of the
+  flank lies beyond the CT's edge as well, where the arm lies against the trunk); without what is thinner than
+  a film (2.6 mm: the fascia between the muscles); in pieces of 1.5 cm3 and more, and of a tenth of the largest
+  and more (a scrap of 2.6 cm3 lay beside the left elbow's 125); and with what a photograph's bone encloses
+  (the marrow is red). It laps 1 mm over the CT's edge, onto BoneHub's bones.
+- **The two halves did not meet, and why.** The first build had the read bone beside BoneHub's blade of the
+  humerus with a slit between them along 80 mm, most at his left. Cross-sections (the photograph, BoneHub's
+  section, the read bone) showed it: BoneHub's arm bones do not lie where the photographs have the same bones.
+  Measured on the whole stretches next to the elbows, photograph by photograph (the pale, deep piece lying on
+  BoneHub's section; its middle against the section's): the right humerus 2.4 to 4.3 mm beside, the right ulna
+  3.2 to 5.9, the right radius 4.9 to 6.6, the left humerus 4.0 to 4.8, the left ulna 3.4 to 6.9, the left
+  radius 2.8 to 4.6; steadily along each bone, each arm in its own direction (the arm lay a little otherwise in
+  the scanner, and the skeleton is still the CT's size). Nearer the shoulder the measure fails: the bone runs
+  together with the joint's pale tissue there.
+- **BoneHub's arm bones are moved onto the photographs' bone at the elbow** (`onto_photographs`, `bone_at`,
+  `turned`). Of the three photographs nearest a bone's cut in which the bone is found, the middle one of the
+  distances is taken; the bone is moved by it across its length, wholly there and on towards the elbow, by
+  less and less towards its far end (the shoulder; the wrist), which stays where it is: as if turned about its
+  far joint by a degree or two. Moved: the right humerus 3.8 mm, ulna 5.4, radius 6.1; the left humerus 4.2,
+  ulna 3.5, radius 2.8. What is left in the measured photographs afterwards: 2 to 5 mm at the most, towards
+  the far ends, which are not moved at all. In cross-section the moved bone lies on the photograph's bone and
+  the read half completes it; in the pictures the slit is gone. (The left radius has no vertex left that
+  has to be pressed in under the skin afterwards: 14 before.)
+- **Spurs.** A peg and a ragged tail of pale tissue, 3 mm thick, stood on the left elbow's point. Of the bone
+  found, what is thinner than 4 mm is taken off (an opening of the filled mass, not of the pale tissue: a
+  shaft's wall is thinner than that round its marrow).
+- **What came out.** His right elbow: 105 cm3 in one piece, from 1193 to 1394 mm up; his left: 123 cm3 in one
+  piece, 1183 to 1407. Each a closed mesh of 16 000 triangles. In the pictures the humerus goes on down and
+  widens into its two knobs, the point of the elbow (the olecranon) stands behind them, and the forearm's two
+  bones leave it downwards to meet BoneHub's. The skeleton has 242 structures now (240 before).
+- **What it is called.** ONE mass for each elbow: the lower end of the humerus and the upper ends of the ulna and
+  the radius, with their cartilage and with what tendon lies on them. Where one bone ends and the next begins
+  the photographs' colour does not say, and it is not guessed: a wrong name on the olecranon would be worse
+  than none. "Bones of the right elbow", Ossa cubiti dextri, Ossa del gomito destro; the card says it is read
+  from the photographs (not drawn), and a note says why it is one mass.
+- **What it is not.** (1) Not the whole elbow: it ends where the photographs do, flat, 6 mm inside the arm's flat
+  face; the outermost of the outer knob may be missing, and the arm's SKIN there is still cut flat by the
+  photographs' frame, as before. (2) Not three bones: see above. (3) Not bone alone: pale is not only bone, and
+  cartilage and tendon on the bone are in it. (4) Not seamless: BoneHub's humerus is a little thicker than
+  the bone read (26 against 23 mm across), and where its blade lies on the read bone a low ridge runs along
+  it; from behind, a notch shows at his right where the blade's point ends. (5) The arm's bones are moved at
+  the elbow only: at the shoulder and the wrist they are where the CT has them, so between the two a bone is
+  up to its whole move away from one or the other truth; the whole skeleton set by the photographs would be
+  the cure, and this section's measure (`bone_at`) is a way to it for the limbs' shafts. (6) `frame` takes a
+  humerus for cut when it lies along its outermost plane for 40 mm or more (his: 84 and 76; the bones the
+  edge does not cut: 28 at the most): a rule made on this one body.
+- **Measured** (`RunThrough`): through the skin 0 pixels in sixteen views; through the fat 208 017 pixels, the
+  same as before to the pixel (its openings); with the mouth open 3138 in seven views, as before. Tests:
+  `tests/test_elbows.py` (a made-up arm: pale bone with red marrow in red muscle under pale fat, a film of
+  fascia, a scrap, a spur; made-up arm bones cut by a plane; bones lying 5 mm beside the photographs' bone).

@@ -891,6 +891,19 @@ public static class ModelSnapshot
                 View(0f, 78f, dist * 0.17f, new Vector3(b.min.x + 0.86f, b.size.y * 0.75f, 0f));
                 Shot("skin_hands.png");
             }
+            if (layer.name == "skeleton")
+            {
+                // The elbows, whose bones are read from the photographs (elbows.py): each from its own side, a little from
+                // the shoulder's end, and from the hand's end (the join with the humerus, then with the forearm's bones).
+                foreach ((string side, float z, float yaw) in new[] { ("right", -0.26f, 0f), ("left", 0.26f, 180f) })
+                {
+                    Vector3 elbow = new Vector3(b.min.x + 0.59f, 0.10f, z);
+                    View(yaw - 25f * Mathf.Sign(-z), 25f, dist * 0.13f, elbow);
+                    Shot($"skeleton_elbow_{side}.png");
+                    View(yaw + 40f * Mathf.Sign(-z), 40f, dist * 0.13f, elbow);
+                    Shot($"skeleton_elbow_{side}_hand.png");
+                }
+            }
         }
         body.LookAt(body.layers[0].name);
         if (body.hasEyes)

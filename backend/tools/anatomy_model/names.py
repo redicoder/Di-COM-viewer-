@@ -325,6 +325,8 @@ NOTES = {
     "atlas": ("Where this bone ends and the next begins follows an atlas fitted to this skull.",
               "I confini tra questo osso e i vicini seguono un atlante adattato a questo cranio."),
     "unnamed": ("The data this comes from does not name it further.", "I dati di origine non lo distinguono ulteriormente."),
+    "elbow": ("The photographs show the elbow's bones as one pale mass, with their cartilage: where the humerus ends and the ulna and the radius begin is not told here.",
+              "Le fotografie mostrano le ossa del gomito come un'unica massa chiara, con la cartilagine: qui non si distingue dove finisce l'omero e dove cominciano ulna e radio."),
 }
 
 
@@ -392,6 +394,10 @@ def name_of(name: str) -> dict | None:
         la, it = got
         return ({"la": f"Phalanges {la}", "en": en, "it": f"Falangi {it}"} if m.group(1) == "phalanges"
                 else {"la": f"Unguis {la}", "en": en, "it": f"Unghia {it}"})
+    m = re.fullmatch(r"bones of the (left|right) elbow", name)
+    if m:
+        k = 0 if m.group(1) == "right" else 1
+        return {"la": f"Ossa cubiti {LA_SIDE['gm'][k]}", "en": en, "it": f"Ossa del gomito {IT_SIDE['m'][k]}"}
     m = re.fullmatch(r"muscles of the (left|right) arm", name)
     if m:
         k = 0 if m.group(1) == "right" else 1
@@ -439,6 +445,8 @@ def origin_of(name: str, info: dict) -> tuple[str, bool, str]:
     note = "tooth" if info.get("named") else "atlas" if info.get("part_of") else ""
     if "(not named)" in name or name.startswith("unclassified") or name == "muscles":
         note = "unnamed"
+    if re.fullmatch(r"bones of the (left|right) elbow", name):
+        note = "elbow"
     if "University of Denver" in source:
         return "models", False, note
     if "BoneHub" in source or "TotalSegmentator" in source or "CT" in source or "(not named)" in name or name == "lining of the mouth":
